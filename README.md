@@ -1,6 +1,6 @@
-# TG-IDE-Bot v0.2.0
+# TG-IDE-Bot v0.3.0
 
-Telegram bot for remote PC control — screen capture, keyboard/mouse input, window management.
+Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
 ## Setup
 ```bash
@@ -19,12 +19,17 @@ python bot.py
 | `/type <text>` | Type text literally (for /commands) |
 | `/click x y` | Mouse click at coordinates |
 | `/focus <title>` | Focus a window by title |
-| `/apk` | Send latest APK |
+| `/build [dir]` | Run gradle build |
+| `/apk [filter]` | Send latest APK (debug/release/list) |
 | `/file <path>` | Send any file |
 | `/help` | List all commands |
 | Plain text | Typed into active window + Enter |
 
 ## Changelog
+
+### v0.3.0 2026-02-17
+- File delivery: `/build`, `/apk` with filters, `/file <path>`
+- Gradle build with configurable project dir, 5 min timeout
 
 ### v0.2.0 2026-02-17
 - Screen capture: `/screen` (full monitor), `/window` (active window)
