@@ -1,20 +1,139 @@
+import glob
 import logging
+import os
+import subprocess
 from telegram import Update
 from telegram.ext import ContextTypes
+from config import APK_SEARCH_DIRS, APK_GLOB, BUILD_CMD, MAX_FILE_SIZE, PROJECT_DIR
 from utils.auth import auth_required
 
 logger = logging.getLogger("bot.files")
 
 
+def _find_apks(filter_str: str | None = None) -> list[str]:
+    """Find APKs across search dirs, optionally filtered by name substring."""
+    all_apks = []
+    for search_dir in APK_SEARCH_DIRS:
+        pattern = os.path.join(search_dir, APK_GLOB)
+        all_apks.extend(glob.glob(pattern, recursive=True))
+
+    if filter_str:
+        all_apks = [a for a in all_apks if filter_str.lower() in os.path.basename(a).lower()]
+
+    all_apks.sort(key=os.path.getmtime, reverse=True)
+    return all_apks
+
+
+@auth_required
+async def build_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/build [dir] — run gradle build in project dir."""
+    args = context.args
+    cwd = " ".join(args) if args else (PROJECT_DIR or None)
+    logger.debug("/build called, cwd=%s", cwd)
+
+    # Build full path to gradlew
+    gradlew = os.path.join(cwd, "gradlew.bat") if cwd else "gradlew.bat"
+    cmd = [gradlew, "assembleDebug"]
+    await update.message.reply_text(f"Building in: {cwd}")
+    try:
+        proc = subprocess.run(
+            cmd, cwd=cwd,
+            capture_output=True, timeout=300,
+            encoding="utf-8", errors="replace",
+        )
+        output = proc.stdout[-3000:] if len(proc.stdout) > 3000 else proc.stdout
+        stderr = proc.stderr[-1000:] if len(proc.stderr) > 1000 else proc.stderr
+
+        if proc.returncode == 0:
+            msg = f"Build SUCCESS\n\n{output}" if output else "Build SUCCESS"
+        else:
+            msg = f"Build FAILED (code {proc.returncode})\n\n{output}\n{stderr}"
+
+        # Trim to TG limit
+        if len(msg) > 4000:
+            msg = msg[:4000] + "\n...(truncated)"
+        await update.message.reply_text(msg)
+    except subprocess.TimeoutExpired:
+        await update.message.reply_text("Build timed out (5 min limit).")
+    except Exception as e:
+        logger.error("/build error: %s", e)
+        await update.message.reply_text(f"Build failed: {e}")
+
+
 @auth_required
 async def apk_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Stub: /apk — will send latest APK in Phase 3."""
-    logger.debug("/apk called (stub)")
-    await update.message.reply_text("APK delivery not implemented yet (Phase 3)")
+    """/apk [filter] — send latest APK. Filter: debug, release, list."""
+    args = context.args
+    filter_str = args[0].lower() if args else None
+    logger.debug("/apk called, filter=%s", filter_str)
+
+    # /apk list — show available APKs
+    if filter_str == "list":
+        apks = _find_apks()
+        if not apks:
+            await update.message.reply_text("No APKs found.")
+            return
+        lines = []
+        for a in apks[:10]:
+            size = os.path.getsize(a) // 1024
+            lines.append(f"  {os.path.basename(a)} ({size}KB)")
+        await update.message.reply_text("APKs found:\n" + "\n".join(lines))
+        return
+
+    await update.message.reply_text("Searching for APK...")
+    apks = _find_apks(filter_str)
+    if not apks:
+        msg = f"No APK matching '{filter_str}'." if filter_str else "No APK found."
+        await update.message.reply_text(msg + "\nTry: /apk list")
+        return
+
+    apk_path = apks[0]  # latest by mtime
+    size = os.path.getsize(apk_path)
+    if size > MAX_FILE_SIZE:
+        await update.message.reply_text(f"APK too large: {size // 1024 // 1024}MB (limit 50MB)")
+        return
+
+    try:
+        with open(apk_path, "rb") as f:
+            await update.message.reply_document(
+                document=f,
+                filename=os.path.basename(apk_path),
+                caption=f"{os.path.basename(apk_path)} ({size // 1024}KB)",
+            )
+        logger.debug("Sent APK: %s", apk_path)
+    except Exception as e:
+        logger.error("/apk send error: %s", e)
+        await update.message.reply_text(f"Failed to send APK: {e}")
 
 
 @auth_required
 async def file_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Stub: /file <path> — will send file in Phase 3."""
-    logger.debug("/file called (stub)")
-    await update.message.reply_text("File delivery not implemented yet (Phase 3)")
+    """/file <path> — send any file by path."""
+    args = context.args
+    if not args:
+        await update.message.reply_text("Usage: /file <path>")
+        return
+
+    path = " ".join(args)
+    logger.debug("/file called: %s", path)
+
+    if not os.path.isfile(path):
+        await update.message.reply_text(f"File not found: {path}")
+        return
+
+    size = os.path.getsize(path)
+    if size > MAX_FILE_SIZE:
+        await update.message.reply_text(f"File too large: {size // 1024 // 1024}MB (limit 50MB)")
+        return
+
+    try:
+        with open(path, "rb") as f:
+            await update.message.reply_document(
+                document=f,
+                filename=os.path.basename(path),
+                caption=f"{os.path.basename(path)} ({size // 1024}KB)",
+            )
+        logger.debug("Sent file: %s", path)
+    except Exception as e:
+        logger.error("/file send error: %s", e)
+        await update.message.reply_text(f"Failed to send file: {e}")

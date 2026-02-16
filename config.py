@@ -7,7 +7,7 @@ load_dotenv()
 # Bot settings
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0"))
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 
 # Paths
 LOG_FILE = "bot.log"
@@ -18,6 +18,15 @@ SCREENSHOT_COOLDOWN = 2  # seconds between screenshots
 
 # Input simulation
 TYPING_INTERVAL = 0.02  # delay between keystrokes (seconds)
+
+# File delivery
+APK_SEARCH_DIRS = [
+    os.path.expanduser("~"),  # fallback: search from home
+]
+APK_GLOB = "**/*.apk"
+BUILD_CMD = "cmd /c gradlew.bat assembleDebug"
+PROJECT_DIR = r"C:\Users\Magerash\PycharmProjects\My habits"
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB (Telegram limit)
 
 # Logging setup
 logging.basicConfig(

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import pyautogui
 from telegram import Update
@@ -45,6 +46,12 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _type_text(text)
         pyautogui.press("enter")
         await update.message.reply_text(f"Typed: {text}")
+        # Auto-screenshot after 2s
+        await asyncio.sleep(2)
+        from handlers.screen import _grab_to_jpeg, _check_cooldown
+        if _check_cooldown():
+            buf = _grab_to_jpeg()
+            await update.message.reply_photo(photo=buf)
     except Exception as e:
         logger.error("text_handler error: %s", e)
         await update.message.reply_text(f"Typing failed: {e}")

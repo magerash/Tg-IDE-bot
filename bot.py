@@ -5,7 +5,9 @@ from config import BOT_TOKEN, VERSION
 from utils.auth import auth_required
 from handlers.screen import screen_cmd, window_cmd
 from handlers.input import text_handler, key_cmd, type_cmd, click_cmd, focus_cmd
-from handlers.files import apk_cmd, file_cmd
+from handlers.files import build_cmd, apk_cmd, file_cmd
+from handlers.shell import sh_cmd
+from handlers.claude import claude_cmd
 
 logger = logging.getLogger("bot.main")
 
@@ -18,10 +20,13 @@ HELP_TEXT = (
     "/type <text> — Type text literally (/commands)\n"
     "/click x y — Mouse click at coordinates\n"
     "/focus <title> — Focus a window\n"
+    "/build   — Run gradle build\n"
     "/apk     — Send latest APK\n"
-    "/file    — Send a file\n"
+    "/file <path> — Send any file\n"
+    "/sh <cmd> — Run shell command\n"
+    "/claude <prompt> — Ask Claude\n"
     "/help    — This message\n\n"
-    "Plain text → typed into active window"
+    "Plain text → typed + auto-screenshot"
 )
 
 
@@ -53,8 +58,11 @@ def main():
     app.add_handler(CommandHandler("type", type_cmd))
     app.add_handler(CommandHandler("click", click_cmd))
     app.add_handler(CommandHandler("focus", focus_cmd))
+    app.add_handler(CommandHandler("build", build_cmd))
     app.add_handler(CommandHandler("apk", apk_cmd))
     app.add_handler(CommandHandler("file", file_cmd))
+    app.add_handler(CommandHandler("sh", sh_cmd))
+    app.add_handler(CommandHandler("claude", claude_cmd))
 
     # Plain text → input handler
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
