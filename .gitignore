@@ -1,0 +1,25 @@
+# Environment
+.env
+venv/
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# IDE
+.idea/
+
+# Bot artifacts
+*.png
+bot.log
+
+# OS
+Thumbs.db
+.DS_Store
+
+CLAUDE.md
+materials/
