@@ -1,28 +1,16 @@
 import io
 import logging
-import time
 import mss
 from PIL import Image
 from telegram import Update
 from telegram.ext import ContextTypes
-from config import SCREENSHOT_QUALITY, SCREENSHOT_COOLDOWN
-from utils.auth import auth_required
+from config import SCREENSHOT_QUALITY
+from utils.auth import auth_required, rate_limit
 from utils.window import get_active_window_rect
 
 logger = logging.getLogger("bot.screen")
 
-_last_screenshot_time = 0.0
 _crop_region = None  # {"left": x, "top": y, "width": w, "height": h}
-
-
-def _check_cooldown() -> bool:
-    """Return True if cooldown has passed, False otherwise."""
-    global _last_screenshot_time
-    now = time.time()
-    if now - _last_screenshot_time < SCREENSHOT_COOLDOWN:
-        return False
-    _last_screenshot_time = now
-    return True
 
 
 def _grab_to_jpeg(region: dict | None = None) -> io.BytesIO:
@@ -42,13 +30,10 @@ def _grab_to_jpeg(region: dict | None = None) -> io.BytesIO:
 
 
 @auth_required
+@rate_limit(2.0)
 async def screen_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/screen — capture full monitor (or crop region if set)."""
     logger.debug("/screen called")
-    if not _check_cooldown():
-        await update.message.reply_text(f"Cooldown: wait {SCREENSHOT_COOLDOWN}s between screenshots.")
-        return
-
     try:
         buf = _grab_to_jpeg(_crop_region)
         await update.message.reply_photo(photo=buf)
@@ -59,13 +44,10 @@ async def screen_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @auth_required
+@rate_limit(2.0)
 async def window_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/window — capture active window only."""
     logger.debug("/window called")
-    if not _check_cooldown():
-        await update.message.reply_text(f"Cooldown: wait {SCREENSHOT_COOLDOWN}s between screenshots.")
-        return
-
     rect = get_active_window_rect()
     if rect is None:
         await update.message.reply_text("No active window detected.")

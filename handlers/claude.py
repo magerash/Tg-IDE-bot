@@ -2,13 +2,14 @@ import logging
 import subprocess
 from telegram import Update
 from telegram.ext import ContextTypes
-from utils.auth import auth_required
+from utils.auth import auth_required, rate_limit
 from utils.chunks import send_long_text
 
 logger = logging.getLogger("bot.claude")
 
 
 @auth_required
+@rate_limit(10.0)
 async def claude_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/claude <prompt> — run claude -p query and return text output."""
     args = context.args

@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.4.0
+# TG-IDE-Bot v0.6.0
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -27,11 +27,27 @@ python bot.py
 | `/file <path>` | Send any file |
 | `/sh <cmd>` | Run shell command |
 | `/claude <prompt>` | Ask Claude |
+| `/git [cmd]` | Git CLI (status/log/diff/branch/commit/push/pull/cd) |
 | `/status` | Bot uptime & system info |
 | `/help` | List all commands |
 | Plain text | Typed into active window + Enter |
 
 ## Changelog
+
+### v0.6.0 2026-02-17
+- `/git` command: full git CLI pass-through with smart defaults
+- Runtime working directory switch via `/git cd`
+- Auto-join commit messages, `GIT_DIR` config
+
+### v0.5.1 2026-02-17
+- Fix: clipboard 64-bit crash on text typing
+- Fix: `/sh` Cyrillic encoding (cp866 fallback)
+- Fix: `/sh` auto-routes PowerShell commands
+
+### v0.5.0 2026-02-17
+- Rate limiting: per-command cooldowns on all handlers (1s–60s)
+- Auto-restart: `start_bot.bat` with 5s retry loop
+- Trimmed `bot.py` and `input.py` under file limits
 
 ### v0.4.0 2026-02-17
 - Crop mode: `/crop x y w h`, `/crop window`, `/crop off`

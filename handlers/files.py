@@ -5,7 +5,7 @@ import subprocess
 from telegram import Update
 from telegram.ext import ContextTypes
 from config import APK_SEARCH_DIRS, APK_GLOB, BUILD_CMD, MAX_FILE_SIZE, PROJECT_DIR
-from utils.auth import auth_required
+from utils.auth import auth_required, rate_limit
 
 logger = logging.getLogger("bot.files")
 
@@ -25,6 +25,7 @@ def _find_apks(filter_str: str | None = None) -> list[str]:
 
 
 @auth_required
+@rate_limit(60.0)
 async def build_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/build [dir] — run gradle build in project dir."""
     args = context.args
@@ -61,6 +62,7 @@ async def build_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @auth_required
+@rate_limit(3.0)
 async def apk_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/apk [filter] — send latest APK. Filter: debug, release, list."""
     args = context.args
@@ -107,6 +109,7 @@ async def apk_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @auth_required
+@rate_limit(3.0)
 async def file_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/file <path> — send any file by path."""
     args = context.args

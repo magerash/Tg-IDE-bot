@@ -10,6 +10,7 @@ from handlers.input import text_handler, key_cmd, type_cmd, click_cmd, focus_cmd
 from handlers.files import build_cmd, apk_cmd, file_cmd
 from handlers.shell import sh_cmd
 from handlers.claude import claude_cmd
+from handlers.git import git_cmd
 
 logger = logging.getLogger("bot.main")
 
@@ -17,24 +18,14 @@ _start_time = time.time()
 
 HELP_TEXT = (
     f"TG-IDE-Bot v{VERSION}\n\n"
-    "Screen:\n"
-    "/screen — Screenshot (or crop region)\n"
-    "/window — Active window capture\n"
-    "/crop   — Set crop region\n\n"
-    "Input:\n"
-    "/key <k> [N] — Special key + repeat\n"
-    "/type <text> — Type /commands\n"
-    "/click x y — Mouse click\n"
-    "/focus <title> — Focus window\n\n"
-    "Files:\n"
-    "/build [dir] — Gradle build\n"
-    "/apk [filter] — Send APK\n"
+    "Screen:\n/screen — Screenshot\n/window — Active window\n/crop — Crop region\n\n"
+    "Input:\n/key <k> [N] — Key + repeat\n/type <text> — Type /commands\n"
+    "/click x y — Mouse click\n/focus <title> — Focus window\n\n"
+    "Files:\n/build [dir] — Gradle build\n/apk [filter] — Send APK\n"
     "/file <path> — Send file\n\n"
-    "Tools:\n"
-    "/sh <cmd> — Shell command\n"
-    "/claude <prompt> — Ask Claude\n"
-    "/status — Bot info\n"
-    "/help — This message\n\n"
+    "Tools:\n/sh <cmd> — Shell\n/claude <prompt> — Ask Claude\n"
+    "/git — status/log/diff/branch/commit/push/pull/cd\n"
+    "/status — Bot info\n/help — This message\n\n"
     "Plain text → typed + auto-screenshot"
 )
 
@@ -90,6 +81,7 @@ def main():
     app.add_handler(CommandHandler("file", file_cmd))
     app.add_handler(CommandHandler("sh", sh_cmd))
     app.add_handler(CommandHandler("claude", claude_cmd))
+    app.add_handler(CommandHandler("git", git_cmd))
 
     # Plain text → input handler
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))

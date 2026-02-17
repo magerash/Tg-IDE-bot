@@ -5,7 +5,10 @@
       "Bash(python bot.py:*)",
       "Bash(python -c:*)",
       "Bash(taskkill:*)",
-      "Bash(git status:*)"
+      "Bash(git status:*)",
+      "Bash(tasklist:*)",
+      "Bash(wmic process where \"name=''python.exe''\" get ProcessId,CommandLine)",
+      "Bash(wc:*)"
     ]
   }
 }
