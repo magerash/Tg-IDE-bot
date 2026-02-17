@@ -4,7 +4,8 @@
       "Bash(pip install:*)",
       "Bash(python bot.py:*)",
       "Bash(python -c:*)",
-      "Bash(taskkill:*)"
+      "Bash(taskkill:*)",
+      "Bash(git status:*)"
     ]
   }
 }

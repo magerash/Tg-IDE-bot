@@ -1,9 +1,11 @@
 import logging
+import time
+import platform
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from config import BOT_TOKEN, VERSION
 from utils.auth import auth_required
-from handlers.screen import screen_cmd, window_cmd
+from handlers.screen import screen_cmd, window_cmd, crop_cmd
 from handlers.input import text_handler, key_cmd, type_cmd, click_cmd, focus_cmd
 from handlers.files import build_cmd, apk_cmd, file_cmd
 from handlers.shell import sh_cmd
@@ -11,21 +13,28 @@ from handlers.claude import claude_cmd
 
 logger = logging.getLogger("bot.main")
 
+_start_time = time.time()
+
 HELP_TEXT = (
     f"TG-IDE-Bot v{VERSION}\n\n"
-    "Commands:\n"
-    "/screen  — Screenshot of PC screen\n"
-    "/window  — Capture active window\n"
-    "/key <k> — Send special key (ctrl+c, enter)\n"
-    "/type <text> — Type text literally (/commands)\n"
-    "/click x y — Mouse click at coordinates\n"
-    "/focus <title> — Focus a window\n"
-    "/build   — Run gradle build\n"
-    "/apk     — Send latest APK\n"
-    "/file <path> — Send any file\n"
-    "/sh <cmd> — Run shell command\n"
+    "Screen:\n"
+    "/screen — Screenshot (or crop region)\n"
+    "/window — Active window capture\n"
+    "/crop   — Set crop region\n\n"
+    "Input:\n"
+    "/key <k> [N] — Special key + repeat\n"
+    "/type <text> — Type /commands\n"
+    "/click x y — Mouse click\n"
+    "/focus <title> — Focus window\n\n"
+    "Files:\n"
+    "/build [dir] — Gradle build\n"
+    "/apk [filter] — Send APK\n"
+    "/file <path> — Send file\n\n"
+    "Tools:\n"
+    "/sh <cmd> — Shell command\n"
     "/claude <prompt> — Ask Claude\n"
-    "/help    — This message\n\n"
+    "/status — Bot info\n"
+    "/help — This message\n\n"
     "Plain text → typed + auto-screenshot"
 )
 
@@ -42,6 +51,22 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(HELP_TEXT)
 
 
+@auth_required
+async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/status — bot uptime, version, system info."""
+    logger.debug("/status called")
+    uptime = int(time.time() - _start_time)
+    hours, remainder = divmod(uptime, 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    await update.message.reply_text(
+        f"TG-IDE-Bot v{VERSION}\n"
+        f"Uptime: {hours}h {minutes}m {seconds}s\n"
+        f"OS: {platform.system()} {platform.release()}\n"
+        f"Python: {platform.python_version()}"
+    )
+
+
 def main():
     if not BOT_TOKEN:
         logger.error("BOT_TOKEN not set. Create .env file from .env.example")
@@ -52,8 +77,10 @@ def main():
     # Commands
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("status", status_cmd))
     app.add_handler(CommandHandler("screen", screen_cmd))
     app.add_handler(CommandHandler("window", window_cmd))
+    app.add_handler(CommandHandler("crop", crop_cmd))
     app.add_handler(CommandHandler("key", key_cmd))
     app.add_handler(CommandHandler("type", type_cmd))
     app.add_handler(CommandHandler("click", click_cmd))
