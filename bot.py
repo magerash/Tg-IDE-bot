@@ -2,7 +2,7 @@ import logging
 import time
 import platform
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, filters, ContextTypes
 from config import BOT_TOKEN, VERSION
 from utils.auth import auth_required
 from handlers.screen import screen_cmd, window_cmd, crop_cmd
@@ -11,6 +11,7 @@ from handlers.files import build_cmd, apk_cmd, file_cmd
 from handlers.shell import sh_cmd
 from handlers.claude import claude_cmd
 from handlers.git import git_cmd
+from handlers.panel import panel_cmd, panel_callback
 
 logger = logging.getLogger("bot.main")
 
@@ -25,7 +26,7 @@ HELP_TEXT = (
     "/file <path> — Send file\n\n"
     "Tools:\n/sh <cmd> — Shell\n/claude <prompt> — Ask Claude\n"
     "/git — status/log/diff/branch/commit/push/pull/cd\n"
-    "/status — Bot info\n/help — This message\n\n"
+    "/panel — Control panel\n/status — Bot info\n/help — This message\n\n"
     "Plain text → typed + auto-screenshot"
 )
 
@@ -82,6 +83,8 @@ def main():
     app.add_handler(CommandHandler("sh", sh_cmd))
     app.add_handler(CommandHandler("claude", claude_cmd))
     app.add_handler(CommandHandler("git", git_cmd))
+    app.add_handler(CommandHandler("panel", panel_cmd))
+    app.add_handler(CallbackQueryHandler(panel_callback, pattern="^p:"))
 
     # Plain text → input handler
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))

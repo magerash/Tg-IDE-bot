@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.6.0
+# TG-IDE-Bot v0.7.0
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -28,11 +28,17 @@ python bot.py
 | `/sh <cmd>` | Run shell command |
 | `/claude <prompt>` | Ask Claude |
 | `/git [cmd]` | Git CLI (status/log/diff/branch/commit/push/pull/cd) |
+| `/panel` | Inline keyboard control panel |
 | `/status` | Bot uptime & system info |
 | `/help` | List all commands |
 | Plain text | Typed into active window + Enter |
 
 ## Changelog
+
+### v0.7.0 2026-02-18
+- `/panel` command: inline keyboard control panel with button grid
+- Buttons: Screen, Window, Git Status/Log/Diff, Build, APK, Status, key shortcuts
+- Auth + rate limiting on callback queries
 
 ### v0.6.0 2026-02-17
 - `/git` command: full git CLI pass-through with smart defaults

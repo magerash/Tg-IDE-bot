@@ -8,7 +8,11 @@
       "Bash(git status:*)",
       "Bash(tasklist:*)",
       "Bash(wmic process where \"name=''python.exe''\" get ProcessId,CommandLine)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:core.telegram.org)"
     ]
   }
 }
