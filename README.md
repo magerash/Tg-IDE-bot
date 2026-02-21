@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.7.0
+# TG-IDE-Bot v0.7.3
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -34,6 +34,15 @@ python bot.py
 | Plain text | Typed into active window + Enter |
 
 ## Changelog
+
+### v0.7.3 2026-02-21
+- Panel: added Shift+Tab, Build APK, Backspace×30 buttons
+
+### v0.7.2 2026-02-20
+- `/build apk` subcommand: build + auto-send APK on success
+
+### v0.7.1 2026-02-19
+- Compact build output: success shows last line only, failure shows stderr only
 
 ### v0.7.0 2026-02-18
 - `/panel` command: inline keyboard control panel with button grid

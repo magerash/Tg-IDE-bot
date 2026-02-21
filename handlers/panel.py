@@ -24,12 +24,13 @@ COOLDOWN_SEC = 2.0
 KEYBOARD = InlineKeyboardMarkup([
     [Btn("Screen", callback_data="p:screen"), Btn("Window", callback_data="p:window")],
     [Btn("Git Status", callback_data="p:git_status"), Btn("Git Log", callback_data="p:git_log"), Btn("Git Diff", callback_data="p:git_diff")],
-    [Btn("Build", callback_data="p:build"), Btn("APK", callback_data="p:apk"), Btn("Status", callback_data="p:status")],
+    [Btn("Build", callback_data="p:build"), Btn("Build APK", callback_data="p:build_apk"), Btn("APK", callback_data="p:apk"), Btn("Status", callback_data="p:status")],
     [Btn("Enter", callback_data="p:key_enter"), Btn("Esc", callback_data="p:key_esc"), Btn("Ctrl+C", callback_data="p:key_ctrlc"), Btn("Tab", callback_data="p:key_tab")],
+    [Btn("Shift+Tab", callback_data="p:key_shifttab"), Btn("Bksp×30", callback_data="p:key_bksp30")],
 ])
 
 _GIT_ARGS = {"status": ["status"], "log": ["log", "--oneline", "-20"], "diff": ["diff", "--stat"]}
-_KEY_MAP = {"enter": "enter", "esc": "escape", "ctrlc": ("ctrl", "c"), "tab": "tab"}
+_KEY_MAP = {"enter": "enter", "esc": "escape", "ctrlc": ("ctrl", "c"), "tab": "tab", "shifttab": ("shift", "tab")}
 
 
 @auth_required
@@ -94,17 +95,46 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("Building...")
             cwd = PROJECT_DIR or None
             gradlew = os.path.join(cwd, "gradlew.bat") if cwd else "gradlew.bat"
-            await bot.send_message(chat_id, f"Building in: {cwd}")
+            await bot.send_message(chat_id, "Building...")
             proc = subprocess.run(
                 [gradlew, "assembleDebug"], cwd=cwd,
                 capture_output=True, timeout=300, encoding="utf-8", errors="replace",
             )
-            out = proc.stdout[-3000:] if len(proc.stdout) > 3000 else proc.stdout
-            status = "SUCCESS" if proc.returncode == 0 else "FAILED"
-            msg = f"Build {status}\n\n{out}"
-            if proc.returncode != 0:
-                msg += f"\n{proc.stderr[-1000:]}"
+            if proc.returncode == 0:
+                lines = [l for l in proc.stdout.strip().splitlines() if l.strip()]
+                tail = lines[-1] if lines else ""
+                msg = f"Build SUCCESS\n{tail}"
+            else:
+                stderr = proc.stderr[-1500:] if len(proc.stderr) > 1500 else proc.stderr
+                msg = f"Build FAILED (code {proc.returncode})\n{stderr}"
             await bot.send_message(chat_id, msg[:4000])
+
+        elif cmd == "build_apk":
+            await query.answer("Build + APK...")
+            cwd = PROJECT_DIR or None
+            gradlew = os.path.join(cwd, "gradlew.bat") if cwd else "gradlew.bat"
+            await bot.send_message(chat_id, "Building...")
+            proc = subprocess.run(
+                [gradlew, "assembleDebug"], cwd=cwd,
+                capture_output=True, timeout=300, encoding="utf-8", errors="replace",
+            )
+            if proc.returncode != 0:
+                stderr = proc.stderr[-1500:] if len(proc.stderr) > 1500 else proc.stderr
+                await bot.send_message(chat_id, f"Build FAILED (code {proc.returncode})\n{stderr}"[:4000])
+                return
+            lines = [l for l in proc.stdout.strip().splitlines() if l.strip()]
+            await bot.send_message(chat_id, f"Build SUCCESS\n{lines[-1] if lines else ''}")
+            apks = _find_apks()
+            if not apks:
+                await bot.send_message(chat_id, "No APK found after build.")
+                return
+            apk_path, size = apks[0], os.path.getsize(apks[0])
+            if size > MAX_FILE_SIZE:
+                await bot.send_message(chat_id, f"APK too large: {size // 1024 // 1024}MB")
+                return
+            name = os.path.basename(apk_path)
+            with open(apk_path, "rb") as f:
+                await bot.send_document(chat_id, document=f, filename=name, caption=f"{name} ({size // 1024}KB)")
 
         elif cmd == "apk":
             await query.answer("Searching APK...")
@@ -128,6 +158,10 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await bot.send_message(chat_id,
                 f"TG-IDE-Bot v{VERSION}\nUptime: {h}h {m}m {s}s\n"
                 f"OS: {platform.system()} {platform.release()}\nPython: {platform.python_version()}")
+
+        elif cmd == "key_bksp30":
+            pyautogui.press("backspace", presses=30, interval=0.02)
+            await query.answer("Backspace ×30")
 
         elif cmd.startswith("key_"):
             k = _KEY_MAP.get(cmd.removeprefix("key_"))
