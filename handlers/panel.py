@@ -10,6 +10,7 @@ from telegram.ext import ContextTypes
 
 from config import ALLOWED_USER_ID, MAX_FILE_SIZE, PROJECT_DIR, VERSION
 from handlers.files import _find_apks
+from handlers.input import _type_text
 from handlers.screen import _grab_to_jpeg
 from utils.auth import auth_required
 from utils.chunks import send_long_text_to_chat
@@ -26,7 +27,7 @@ KEYBOARD = InlineKeyboardMarkup([
     [Btn("Git Status", callback_data="p:git_status"), Btn("Git Log", callback_data="p:git_log"), Btn("Git Diff", callback_data="p:git_diff")],
     [Btn("Build", callback_data="p:build"), Btn("Build APK", callback_data="p:build_apk"), Btn("APK", callback_data="p:apk"), Btn("Status", callback_data="p:status")],
     [Btn("Enter", callback_data="p:key_enter"), Btn("Esc", callback_data="p:key_esc"), Btn("Ctrl+C", callback_data="p:key_ctrlc"), Btn("Tab", callback_data="p:key_tab")],
-    [Btn("Shift+Tab", callback_data="p:key_shifttab"), Btn("Bksp×30", callback_data="p:key_bksp30")],
+    [Btn("Shift+Tab", callback_data="p:key_shifttab"), Btn("Bksp×30", callback_data="p:key_bksp30"), Btn("Let's finish", callback_data="p:type_finish")],
 ])
 
 _GIT_ARGS = {"status": ["status"], "log": ["log", "--oneline", "-20"], "diff": ["diff", "--stat"]}
@@ -158,6 +159,11 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await bot.send_message(chat_id,
                 f"TG-IDE-Bot v{VERSION}\nUptime: {h}h {m}m {s}s\n"
                 f"OS: {platform.system()} {platform.release()}\nPython: {platform.python_version()}")
+
+        elif cmd == "type_finish":
+            _type_text("let's finish")
+            pyautogui.press("enter")
+            await query.answer("Typed: let's finish")
 
         elif cmd == "key_bksp30":
             pyautogui.press("backspace", presses=30, interval=0.02)
