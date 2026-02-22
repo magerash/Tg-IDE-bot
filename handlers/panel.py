@@ -125,7 +125,7 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             lines = [l for l in proc.stdout.strip().splitlines() if l.strip()]
             await bot.send_message(chat_id, f"Build SUCCESS\n{lines[-1] if lines else ''}")
-            apks = _find_apks()
+            apks = _find_apks("debug")
             if not apks:
                 await bot.send_message(chat_id, "No APK found after build.")
                 return

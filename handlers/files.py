@@ -25,8 +25,8 @@ def _find_apks(filter_str: str | None = None) -> list[str]:
 
 
 async def _send_apk(update: Update):
-    """Find and send latest APK after successful build."""
-    apks = _find_apks()
+    """Find and send latest debug APK after successful build."""
+    apks = _find_apks("debug")
     if not apks:
         await update.message.reply_text("Build done but no APK found.")
         return
