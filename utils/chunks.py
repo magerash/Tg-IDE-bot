@@ -24,3 +24,20 @@ async def send_long_text(update: Update, text: str):
     for i in range(0, len(text), TG_MSG_LIMIT):
         chunk = text[i:i + TG_MSG_LIMIT]
         await update.message.reply_text(chunk)
+
+
+async def send_long_text_to_chat(bot, chat_id: int, text: str):
+    """Send text to chat_id, splitting into chunks or as .txt file if too long."""
+    if len(text) <= TG_MSG_LIMIT:
+        await bot.send_message(chat_id, text)
+        return
+
+    if len(text) > TG_MSG_LIMIT * 3:
+        buf = io.BytesIO(text.encode("utf-8"))
+        buf.name = "output.txt"
+        await bot.send_document(chat_id, document=buf, caption=f"Output ({len(text)} chars)")
+        return
+
+    for i in range(0, len(text), TG_MSG_LIMIT):
+        chunk = text[i:i + TG_MSG_LIMIT]
+        await bot.send_message(chat_id, chunk)

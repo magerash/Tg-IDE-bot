@@ -5,7 +5,7 @@ import subprocess
 from telegram import Update
 from telegram.ext import ContextTypes
 from config import APK_SEARCH_DIRS, APK_GLOB, BUILD_CMD, MAX_FILE_SIZE, PROJECT_DIR
-from utils.auth import auth_required
+from utils.auth import auth_required, rate_limit
 
 logger = logging.getLogger("bot.files")
 
@@ -24,35 +24,56 @@ def _find_apks(filter_str: str | None = None) -> list[str]:
     return all_apks
 
 
-@auth_required
-async def build_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/build [dir] — run gradle build in project dir."""
-    args = context.args
-    cwd = " ".join(args) if args else (PROJECT_DIR or None)
-    logger.debug("/build called, cwd=%s", cwd)
+async def _send_apk(update: Update):
+    """Find and send latest debug APK after successful build."""
+    apks = _find_apks("debug")
+    if not apks:
+        await update.message.reply_text("Build done but no APK found.")
+        return
+    apk_path = apks[0]
+    size = os.path.getsize(apk_path)
+    if size > MAX_FILE_SIZE:
+        await update.message.reply_text(f"APK too large: {size // 1024 // 1024}MB (limit 50MB)")
+        return
+    name = os.path.basename(apk_path)
+    with open(apk_path, "rb") as f:
+        await update.message.reply_document(document=f, filename=name, caption=f"{name} ({size // 1024}KB)")
 
-    # Build full path to gradlew
+
+@auth_required
+@rate_limit(60.0)
+async def build_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/build [apk] [dir] — run gradle build. 'apk' sends APK after build."""
+    args = list(context.args or [])
+    send_apk = False
+    if args and args[0].lower() == "apk":
+        send_apk = True
+        args.pop(0)
+
+    cwd = " ".join(args) if args else (PROJECT_DIR or None)
+    logger.debug("/build called, cwd=%s, send_apk=%s", cwd, send_apk)
+
     gradlew = os.path.join(cwd, "gradlew.bat") if cwd else "gradlew.bat"
     cmd = [gradlew, "assembleDebug"]
-    await update.message.reply_text(f"Building in: {cwd}")
+    await update.message.reply_text("Building...")
     try:
         proc = subprocess.run(
             cmd, cwd=cwd,
             capture_output=True, timeout=300,
             encoding="utf-8", errors="replace",
         )
-        output = proc.stdout[-3000:] if len(proc.stdout) > 3000 else proc.stdout
-        stderr = proc.stderr[-1000:] if len(proc.stderr) > 1000 else proc.stderr
-
         if proc.returncode == 0:
-            msg = f"Build SUCCESS\n\n{output}" if output else "Build SUCCESS"
+            lines = [l for l in proc.stdout.strip().splitlines() if l.strip()]
+            tail = lines[-1] if lines else ""
+            await update.message.reply_text(f"Build SUCCESS\n{tail}")
+            if send_apk:
+                await _send_apk(update)
         else:
-            msg = f"Build FAILED (code {proc.returncode})\n\n{output}\n{stderr}"
-
-        # Trim to TG limit
-        if len(msg) > 4000:
-            msg = msg[:4000] + "\n...(truncated)"
-        await update.message.reply_text(msg)
+            stderr = proc.stderr[-1500:] if len(proc.stderr) > 1500 else proc.stderr
+            msg = f"Build FAILED (code {proc.returncode})\n{stderr}"
+            if len(msg) > 4000:
+                msg = msg[:4000] + "\n...(truncated)"
+            await update.message.reply_text(msg)
     except subprocess.TimeoutExpired:
         await update.message.reply_text("Build timed out (5 min limit).")
     except Exception as e:
@@ -61,6 +82,7 @@ async def build_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @auth_required
+@rate_limit(3.0)
 async def apk_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/apk [filter] — send latest APK. Filter: debug, release, list."""
     args = context.args
@@ -107,6 +129,7 @@ async def apk_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @auth_required
+@rate_limit(3.0)
 async def file_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/file <path> — send any file by path."""
     args = context.args
