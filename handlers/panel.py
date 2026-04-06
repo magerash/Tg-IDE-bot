@@ -28,6 +28,7 @@ KEYBOARD = InlineKeyboardMarkup([
     [Btn("Build", callback_data="p:build"), Btn("Build APK", callback_data="p:build_apk"), Btn("APK", callback_data="p:apk"), Btn("Status", callback_data="p:status")],
     [Btn("Enter", callback_data="p:key_enter"), Btn("Esc", callback_data="p:key_esc"), Btn("Ctrl+C", callback_data="p:key_ctrlc"), Btn("Tab", callback_data="p:key_tab")],
     [Btn("Shift+Tab", callback_data="p:key_shifttab"), Btn("Bksp×30", callback_data="p:key_bksp30"), Btn("Let's finish", callback_data="p:type_finish")],
+    [Btn("F-cur bra", callback_data="p:type_finish_cur"), Btn("F-new bra", callback_data="p:type_finish_new")],
 ])
 
 _GIT_ARGS = {"status": ["status"], "log": ["log", "--oneline", "-20"], "diff": ["diff", "--stat"]}
@@ -96,7 +97,11 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("Building...")
             cwd = PROJECT_DIR or None
             gradlew = os.path.join(cwd, "gradlew.bat") if cwd else "gradlew.bat"
-            await bot.send_message(chat_id, "Building...")
+            await bot.send_message(chat_id, "Cleaning & building...")
+            subprocess.run(
+                [gradlew, "clean"], cwd=cwd,
+                capture_output=True, timeout=120, encoding="utf-8", errors="replace",
+            )
             proc = subprocess.run(
                 [gradlew, "assembleDebug"], cwd=cwd,
                 capture_output=True, timeout=300, encoding="utf-8", errors="replace",
@@ -114,7 +119,11 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("Build + APK...")
             cwd = PROJECT_DIR or None
             gradlew = os.path.join(cwd, "gradlew.bat") if cwd else "gradlew.bat"
-            await bot.send_message(chat_id, "Building...")
+            await bot.send_message(chat_id, "Cleaning & building...")
+            subprocess.run(
+                [gradlew, "clean"], cwd=cwd,
+                capture_output=True, timeout=120, encoding="utf-8", errors="replace",
+            )
             proc = subprocess.run(
                 [gradlew, "assembleDebug"], cwd=cwd,
                 capture_output=True, timeout=300, encoding="utf-8", errors="replace",
@@ -164,6 +173,16 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             _type_text("let's finish")
             pyautogui.press("enter")
             await query.answer("Typed: let's finish")
+
+        elif cmd == "type_finish_cur":
+            _type_text("let's finish. current branch")
+            pyautogui.press("enter")
+            await query.answer("Typed: finish current branch")
+
+        elif cmd == "type_finish_new":
+            _type_text("let's finish. new branch")
+            pyautogui.press("enter")
+            await query.answer("Typed: finish new branch")
 
         elif cmd == "key_bksp30":
             pyautogui.press("backspace", presses=30, interval=0.02)

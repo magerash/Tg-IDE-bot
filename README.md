@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.7.6
+# TG-IDE-Bot v0.7.7
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -35,8 +35,13 @@ python bot.py
 
 ## Changelog
 
-### v0.7.6 2026-03-01
+### v0.7.7 2026-04-07
+- Panel: added "F-cur bra" and "F-new bra" quick-type buttons for finish workflows
+- Docs: added Git Workflow (current branch / new branch) to CLAUDE.md
+
+### v0.7.6 2026-03-02
 - Build: `gradlew clean` before `assembleDebug` to prevent cache issues
+- Panel: Build and Build APK buttons also run clean before build
 
 ### v0.7.5 2026-02-23
 - Fix: build+APK now filters for debug APK after build
