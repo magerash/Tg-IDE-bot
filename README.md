@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.7.7
+# TG-IDE-Bot v0.7.8
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -34,6 +34,9 @@ python bot.py
 | Plain text | Typed into active window + Enter |
 
 ## Changelog
+
+### v0.7.8 2026-04-07
+- Panel: added "Click 500" button, renamed "Let's finish" → "Let's finish (F)"
 
 ### v0.7.7 2026-04-07
 - Panel: added "F-cur bra" and "F-new bra" quick-type buttons for finish workflows
