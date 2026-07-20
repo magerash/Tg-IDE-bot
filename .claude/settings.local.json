@@ -16,7 +16,12 @@
       "Bash(git add:*)",
       "Bash(git push:*)",
       "Bash(wmic process:*)",
-      "Bash(start python:*)"
+      "Bash(start python:*)",
+      "Bash(git commit:*)",
+      "Bash(grep:*)",
+      "PowerShell(Get-NetTCPConnection *)",
+      "PowerShell(Stop-Process *)",
+      "PowerShell(python -c \"import sys; sys.path.insert\\(0,'.'\\); from utils.window import list_windows; ws = list_windows\\(\\); print\\(len\\(ws\\), 'windows'\\); [print\\(' -', t[:70]\\) for t in ws[:10]]\")"
     ]
   }
 }

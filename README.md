@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.7.8
+# TG-IDE-Bot v0.8.0
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -29,11 +29,23 @@ python bot.py
 | `/claude <prompt>` | Ask Claude |
 | `/git [cmd]` | Git CLI (status/log/diff/branch/commit/push/pull/cd) |
 | `/panel` | Inline keyboard control panel |
+| `/win` | List open windows, tap to focus |
+| `/code [name]` | Open project folder in VSCode |
 | `/status` | Bot uptime & system info |
 | `/help` | List all commands |
 | Plain text | Typed into active window + Enter |
 
+## Web Dashboard
+Set `WEB_TOKEN` (+ optionally `WEBAPP_URL` for Telegram Mini App) in `.env`, then open `http://localhost:8080`.
+Panels: screen (click-to-click remote, zoomable viewer), keys, actions, windows focus, projects (VSCode), type presets, Claude, shell.
+
 ## Changelog
+
+### v0.8.0 2026-07-21
+- Web dashboard: aiohttp server + Telegram Mini App (WEB_TOKEN / initData auth), tunnel scripts
+- Web UI: light minimal theme, panels — screen, keys, actions, type presets, shell, git, build/APK, Claude
+- Web UI: Windows focus + Projects (VSCode) panels, click-on-image remote clicks with resolution mapping, zoomable lightbox viewer
+- New commands: `/win` — list & focus windows, `/code` — open project folder in VSCode
 
 ### v0.7.8 2026-04-07
 - Panel: added "Click 500" button, renamed "Let's finish" → "Let's finish (F)"

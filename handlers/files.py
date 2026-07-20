@@ -1,3 +1,4 @@
+import asyncio
 import glob
 import logging
 import os
@@ -57,14 +58,14 @@ async def build_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Cleaning & building...")
     try:
         logger.debug("Running clean before build")
-        subprocess.run(
-            [gradlew, "clean"], cwd=cwd,
+        await asyncio.to_thread(
+            subprocess.run, [gradlew, "clean"], cwd=cwd,
             capture_output=True, timeout=120,
             encoding="utf-8", errors="replace",
         )
         cmd = [gradlew, "assembleDebug"]
-        proc = subprocess.run(
-            cmd, cwd=cwd,
+        proc = await asyncio.to_thread(
+            subprocess.run, cmd, cwd=cwd,
             capture_output=True, timeout=300,
             encoding="utf-8", errors="replace",
         )

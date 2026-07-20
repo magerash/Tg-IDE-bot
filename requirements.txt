@@ -4,3 +4,4 @@ mss
 pyautogui
 pygetwindow
 Pillow
+aiohttp

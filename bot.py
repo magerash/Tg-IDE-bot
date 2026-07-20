@@ -1,10 +1,14 @@
+import asyncio
+import html
 import logging
-import time
-import platform
+from aiohttp import web
 from telegram import Update
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, filters, ContextTypes
-from config import BOT_TOKEN, VERSION
-from utils.auth import auth_required
+from telegram.ext import (
+    Application, CallbackQueryHandler, CommandHandler,
+    MessageHandler, filters, ContextTypes,
+)
+from config import BOT_TOKEN, VERSION, WEB_PORT, WEB_TOKEN, WEBAPP_URL
+from handlers.general import start_cmd, help_cmd, status_cmd
 from handlers.screen import screen_cmd, window_cmd, crop_cmd
 from handlers.input import text_handler, key_cmd, type_cmd, click_cmd, focus_cmd
 from handlers.files import build_cmd, apk_cmd, file_cmd
@@ -12,86 +16,77 @@ from handlers.shell import sh_cmd
 from handlers.claude import claude_cmd
 from handlers.git import git_cmd
 from handlers.panel import panel_cmd, panel_callback
+from handlers.windows import win_cmd, code_cmd, windows_callback
 
 logger = logging.getLogger("bot.main")
 
-_start_time = time.time()
-
-HELP_TEXT = (
-    f"TG-IDE-Bot v{VERSION}\n\n"
-    "Screen:\n/screen — Screenshot\n/window — Active window\n/crop — Crop region\n\n"
-    "Input:\n/key <k> [N] — Key + repeat\n/type <text> — Type /commands\n"
-    "/click x y — Mouse click\n/focus <title> — Focus window\n\n"
-    "Files:\n/build [dir] — Gradle build\n/build apk — Build + send APK\n"
-    "/apk [filter] — Send APK\n"
-    "/file <path> — Send file\n\n"
-    "Tools:\n/sh <cmd> — Shell\n/claude <prompt> — Ask Claude\n"
-    "/git — status/log/diff/branch/commit/push/pull/cd\n"
-    "/panel — Control panel\n/status — Bot info\n/help — This message\n\n"
-    "Plain text → typed + auto-screenshot"
-)
+_COMMANDS = [
+    ("start", start_cmd), ("help", help_cmd), ("status", status_cmd),
+    ("screen", screen_cmd), ("window", window_cmd), ("crop", crop_cmd),
+    ("key", key_cmd), ("type", type_cmd), ("click", click_cmd), ("focus", focus_cmd),
+    ("build", build_cmd), ("apk", apk_cmd), ("file", file_cmd),
+    ("sh", sh_cmd), ("claude", claude_cmd), ("git", git_cmd), ("panel", panel_cmd),
+    ("win", win_cmd), ("code", code_cmd),
+]
 
 
-@auth_required
-async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.debug("/start from user %s", update.effective_user.id)
-    await update.message.reply_text(f"Welcome! Bot is online.\n\n{HELP_TEXT}")
+def _build_tg_app():
+    app = Application.builder().token(BOT_TOKEN).build()
+    for cmd, fn in _COMMANDS:
+        app.add_handler(CommandHandler(cmd, fn))
+    app.add_handler(CallbackQueryHandler(panel_callback, pattern="^p:"))
+    app.add_handler(CallbackQueryHandler(windows_callback, pattern="^w:"))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
+
+    async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+        logger.error("Unhandled exception:", exc_info=context.error)
+        if isinstance(update, Update) and update.effective_chat:
+            try:
+                await context.bot.send_message(
+                    update.effective_chat.id,
+                    f"Bot error: {html.escape(str(context.error))}"[:4000],
+                )
+            except Exception:
+                pass
+
+    app.add_error_handler(error_handler)
+    return app
 
 
-@auth_required
-async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.debug("/help called")
-    await update.message.reply_text(HELP_TEXT)
+async def run():
+    """Run Telegram bot + web dashboard concurrently."""
+    tg_app = _build_tg_app()
+    await tg_app.initialize()
+    await tg_app.start()
+    await tg_app.updater.start_polling()
+    logger.info("Telegram bot started (v%s)", VERSION)
 
+    runner = None
+    if WEB_TOKEN or WEBAPP_URL:
+        from handlers.web import create_web_app, setup_menu_button
+        runner = web.AppRunner(create_web_app())
+        await runner.setup()
+        await web.TCPSite(runner, "0.0.0.0", WEB_PORT).start()
+        logger.info("Web dashboard on http://0.0.0.0:%d", WEB_PORT)
+        await setup_menu_button(tg_app.bot)
+    else:
+        logger.info("WEB_TOKEN/WEBAPP_URL not set — web dashboard disabled")
 
-@auth_required
-async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/status — bot uptime, version, system info."""
-    logger.debug("/status called")
-    uptime = int(time.time() - _start_time)
-    hours, remainder = divmod(uptime, 3600)
-    minutes, seconds = divmod(remainder, 60)
-
-    await update.message.reply_text(
-        f"TG-IDE-Bot v{VERSION}\n"
-        f"Uptime: {hours}h {minutes}m {seconds}s\n"
-        f"OS: {platform.system()} {platform.release()}\n"
-        f"Python: {platform.python_version()}"
-    )
+    try:
+        await asyncio.Event().wait()
+    finally:
+        await tg_app.updater.stop()
+        await tg_app.stop()
+        await tg_app.shutdown()
+        if runner:
+            await runner.cleanup()
 
 
 def main():
     if not BOT_TOKEN:
         logger.error("BOT_TOKEN not set. Create .env file from .env.example")
         return
-
-    app = Application.builder().token(BOT_TOKEN).build()
-
-    # Commands
-    app.add_handler(CommandHandler("start", start_cmd))
-    app.add_handler(CommandHandler("help", help_cmd))
-    app.add_handler(CommandHandler("status", status_cmd))
-    app.add_handler(CommandHandler("screen", screen_cmd))
-    app.add_handler(CommandHandler("window", window_cmd))
-    app.add_handler(CommandHandler("crop", crop_cmd))
-    app.add_handler(CommandHandler("key", key_cmd))
-    app.add_handler(CommandHandler("type", type_cmd))
-    app.add_handler(CommandHandler("click", click_cmd))
-    app.add_handler(CommandHandler("focus", focus_cmd))
-    app.add_handler(CommandHandler("build", build_cmd))
-    app.add_handler(CommandHandler("apk", apk_cmd))
-    app.add_handler(CommandHandler("file", file_cmd))
-    app.add_handler(CommandHandler("sh", sh_cmd))
-    app.add_handler(CommandHandler("claude", claude_cmd))
-    app.add_handler(CommandHandler("git", git_cmd))
-    app.add_handler(CommandHandler("panel", panel_cmd))
-    app.add_handler(CallbackQueryHandler(panel_callback, pattern="^p:"))
-
-    # Plain text → input handler
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
-
-    logger.info("Bot started (v%s)", VERSION)
-    app.run_polling()
+    asyncio.run(run())
 
 
 if __name__ == "__main__":

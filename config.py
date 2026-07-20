@@ -7,7 +7,15 @@ load_dotenv()
 # Bot settings
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0"))
-VERSION = "0.7.8"
+VERSION = "0.8.0"
+
+# Web dashboard / Mini App
+WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
+WEB_TOKEN = os.getenv("WEB_TOKEN", "")
+WEBAPP_URL = os.getenv("WEBAPP_URL", "")  # public HTTPS URL for Telegram Mini App
+
+# Projects
+PROJECTS_ROOT = os.getenv("PROJECTS_ROOT", r"C:\Projects")
 
 # Paths
 LOG_FILE = "bot.log"
@@ -25,7 +33,7 @@ APK_SEARCH_DIRS = [
 ]
 APK_GLOB = "**/*.apk"
 BUILD_CMD = "cmd /c gradlew.bat assembleDebug"
-PROJECT_DIR = r"C:\Users\Magerash\PycharmProjects\My habits"
+PROJECT_DIR = r"C:\Projects\My habits"
 GIT_DIR = os.getenv("GIT_DIR", PROJECT_DIR)
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB (Telegram limit)
 

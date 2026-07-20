@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TG-IDE-Bot</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#faf9f7;--card:#fff;--text:#1c1917;--dim:#a09b93;--border:#eae7e2;--accent:#1c1917;--accent-soft:#f0eeea;--ok:#16a34a;--ok-soft:#e9f7ee;--err:#dc2626;--err-soft:#fdeceb;--dark:#1c1917;--shadow:0 1px 2px rgba(28,25,23,.05)}
+body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:16px}
+h1{font-size:17px;font-weight:600;text-align:center;padding:6px 0 2px;letter-spacing:-.2px}
+.status-bar{display:flex;justify-content:center;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--dim);padding:4px 0 16px}
+.status-bar span{color:var(--text);font-weight:500}
+
+/* Grid layout */
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:900px;margin:0 auto}
+.panel{background:var(--card);border-radius:14px;padding:16px;border:1px solid var(--border);box-shadow:var(--shadow)}
+.panel h3{font-size:11px;font-weight:600;color:var(--dim);margin-bottom:10px;text-transform:uppercase;letter-spacing:1.2px}
+.panel.wide{grid-column:1/-1}
+
+/* Buttons */
+.btn-grid{display:flex;flex-wrap:wrap;gap:6px}
+.btn{padding:8px 14px;border:1px solid var(--border);border-radius:9px;cursor:pointer;font-size:13px;font-weight:500;font-family:inherit;background:var(--card);color:var(--text);transition:background .15s,transform .1s,border-color .15s}
+.btn:hover{background:#f1f3f6}
+.btn:active{transform:scale(.96)}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn-primary:hover{background:#1d4fd7}
+.btn-ok{background:var(--ok);border-color:var(--ok);color:#fff}
+.btn-ok:hover{background:#0b8a5f}
+.btn-red{background:var(--err);border-color:var(--err);color:#fff}
+.btn-red:hover{background:#c7202f}
+.btn-soft{background:var(--accent-soft);border-color:transparent;color:var(--accent)}
+.btn-soft:hover{background:#dfe9fd}
+.btn-ok-soft{background:var(--ok-soft);border-color:transparent;color:var(--ok)}
+.btn-ok-soft:hover{background:#d5efe4}
+.btn-red-soft{background:var(--err-soft);border-color:transparent;color:var(--err)}
+.btn-red-soft:hover{background:#fadcda}
+.btn-sm{padding:6px 11px;font-size:12px}
+.btn-block{width:100%}
+.btn[disabled]{opacity:.4;cursor:not-allowed}
+
+/* Screenshot */
+#screen-area{background:#fafbfc;border:1px dashed #d5d9e0;border-radius:10px;min-height:120px;display:flex;align-items:center;justify-content:center;overflow:hidden;margin-top:10px;position:relative}
+#screen-area img{max-width:100%;height:auto;display:block;border-radius:9px}
+#screen-area .placeholder{color:var(--dim);font-size:13px}
+.screen-btns{display:flex;gap:6px}
+
+/* Terminal */
+#terminal{background:var(--dark);border-radius:10px;padding:12px;font-family:'Cascadia Code','Fira Code',monospace;font-size:12px;color:#d7dce4;min-height:100px;max-height:300px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;margin-top:8px}
+.input-row{display:flex;gap:6px}
+.input-row input{flex:1;background:var(--card);border:1px solid var(--border);border-radius:9px;padding:9px 12px;color:var(--text);font-size:13px;font-family:inherit;transition:border-color .15s,box-shadow .15s}
+.input-row input::placeholder{color:var(--dim)}
+.input-row input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+
+/* Lightbox */
+#lightbox{position:fixed;inset:0;background:rgba(15,14,12,.93);display:none;z-index:200;overflow:hidden;touch-action:none;user-select:none}
+#lightbox img{position:absolute;left:0;top:0;transform-origin:0 0;max-width:none;cursor:grab;-webkit-user-drag:none}
+#lb-close{position:fixed;top:14px;right:14px;z-index:201;width:38px;height:38px;border-radius:50%;border:none;background:rgba(255,255,255,.12);color:#fff;font-size:20px;cursor:pointer;line-height:1}
+#lb-close:hover{background:rgba(255,255,255,.24)}
+
+/* Toast */
+#toast{position:fixed;bottom:20px;right:20px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 16px;font-size:13px;display:none;z-index:99;max-width:300px;box-shadow:0 4px 16px rgba(20,22,28,.1)}
+#toast.error{border-color:var(--err);color:var(--err)}
+#toast.ok{border-color:var(--ok);color:var(--ok)}
+
+/* Auth */
+#auth-overlay{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:100}
+#auth-box{background:var(--card);padding:28px;border-radius:16px;text-align:center;border:1px solid var(--border);box-shadow:var(--shadow)}
+#auth-box h2{margin-bottom:16px;font-size:17px;font-weight:600}
+#auth-box input{width:240px;padding:10px 12px;border-radius:9px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:14px;margin-bottom:12px;font-family:inherit}
+#auth-box input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+
+/* Mobile / Mini App */
+@media(max-width:600px){.grid{grid-template-columns:1fr}body{padding:10px}}
+
+/* Loading */
+.loading{opacity:.5;pointer-events:none}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;margin-right:6px;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+.btn-primary:hover{background:#3f3a36}
+.btn-soft{color:#57534e}
+.btn-soft:hover{background:#e5e2dc}
+#screen-area{border-color:#ddd9d2}
+</style>
+</head>
+<body>
+
+<!-- Auth overlay -->
+<div id="auth-overlay">
+<div id="auth-box">
+  <h2>TG-IDE-Bot</h2>
+  <input type="password" id="token-input" placeholder="Enter access token" autofocus>
+  <br>
+  <button class="btn btn-primary btn-block" onclick="doAuth()">Connect</button>
+</div>
+</div>
+
+<!-- Main UI -->
+<div id="main" style="display:none">
+<h1>TG-IDE-Bot</h1>
+<div class="status-bar" id="status-bar">Connecting...</div>
+
+<div class="grid">
+
+  <!-- Screen Panel -->
+  <div class="panel wide">
+    <h3>Screen</h3>
+    <div class="screen-btns">
+      <button class="btn btn-primary" onclick="doScreen()">Screenshot</button>
+      <button class="btn" onclick="doWindow()">Window</button>
+      <button class="btn btn-sm btn-soft" onclick="autoRefresh()" id="auto-btn">Auto: OFF</button>
+      <button class="btn btn-sm btn-soft" onclick="toggleClickMode()" id="click-btn">Click: OFF</button>
+    </div>
+    <div id="screen-area"><span class="placeholder">Click Screenshot to capture</span></div>
+  </div>
+
+  <!-- Keys Panel -->
+  <div class="panel">
+    <h3>Keys</h3>
+    <div class="btn-grid">
+      <button class="btn btn-sm" onclick="doKey('enter')">Enter</button>
+      <button class="btn btn-sm" onclick="doKey('escape')">Esc</button>
+      <button class="btn btn-sm" onclick="doKey('ctrl+c')">Ctrl+C</button>
+      <button class="btn btn-sm" onclick="doKey('tab')">Tab</button>
+      <button class="btn btn-sm" onclick="doKey('shift+tab')">Shift+Tab</button>
+      <button class="btn btn-sm" onclick="doKey('backspace',30)">Bksp x30</button>
+      <button class="btn btn-sm" onclick="doKey('up')">Up</button>
+      <button class="btn btn-sm" onclick="doKey('down')">Down</button>
+      <button class="btn btn-sm" onclick="doKey('left')">Left</button>
+      <button class="btn btn-sm" onclick="doKey('right')">Right</button>
+      <button class="btn btn-sm" onclick="doKey('space')">Space</button>
+      <button class="btn btn-sm" onclick="doKey('ctrl+v')">Ctrl+V</button>
+      <button class="btn btn-sm" onclick="doKey('ctrl+z')">Ctrl+Z</button>
+      <button class="btn btn-sm" onclick="doKey('ctrl+s')">Ctrl+S</button>
+      <button class="btn btn-sm" onclick="doKey('ctrl+a')">Ctrl+A</button>
+      <button class="btn btn-sm" onclick="doKey('f5')">F5</button>
+    </div>
+  </div>
+
+  <!-- Actions Panel -->
+  <div class="panel">
+    <h3>Actions</h3>
+    <div class="btn-grid">
+      <button class="btn btn-sm btn-red-soft" onclick="doClick(250,1000)">Click 250,1000</button>
+      <button class="btn btn-sm btn-soft" onclick="doGit('status')">Git Status</button>
+      <button class="btn btn-sm btn-soft" onclick="doGit('log')">Git Log</button>
+      <button class="btn btn-sm btn-soft" onclick="doGit('diff')">Git Diff</button>
+      <button class="btn btn-sm btn-ok-soft" onclick="doBuild(false)">Build</button>
+      <button class="btn btn-sm btn-ok-soft" onclick="doBuild(true)">Build APK</button>
+      <button class="btn btn-sm btn-soft" onclick="doApks()">APK List</button>
+    </div>
+  </div>
+
+  <!-- Windows Panel -->
+  <div class="panel">
+    <h3>Windows</h3>
+    <button class="btn btn-sm btn-soft" onclick="loadWindows()">&#8635; Refresh</button>
+    <div class="btn-grid" id="win-list" style="margin-top:8px"></div>
+  </div>
+
+  <!-- Projects Panel -->
+  <div class="panel">
+    <h3>Projects</h3>
+    <button class="btn btn-sm btn-soft" onclick="loadFolders()">&#8635; Refresh</button>
+    <div class="btn-grid" id="folder-list" style="margin-top:8px"></div>
+  </div>
+
+  <!-- Type Panel -->
+  <div class="panel wide">
+    <h3>Type Text</h3>
+    <div class="input-row">
+      <input type="text" id="type-input" placeholder="Text to type..." onkeydown="if(event.key==='Enter')doType()">
+      <button class="btn btn-primary" onclick="doType()">Type</button>
+    </div>
+    <div class="btn-grid" style="margin-top:8px">
+      <button class="btn btn-sm btn-soft" onclick="doTypePreset('let\'s finish')">Let's finish</button>
+      <button class="btn btn-sm btn-soft" onclick="doTypePreset('let\'s finish. current branch')">F-cur bra</button>
+      <button class="btn btn-sm btn-soft" onclick="doTypePreset('let\'s finish. new branch')">F-new bra</button>
+    </div>
+  </div>
+
+  <!-- Claude Panel -->
+  <div class="panel wide">
+    <h3>Claude</h3>
+    <div class="input-row">
+      <input type="text" id="claude-input" placeholder="Ask Claude..." onkeydown="if(event.key==='Enter')doClaude()">
+      <button class="btn btn-primary" onclick="doClaude()">Ask</button>
+    </div>
+  </div>
+
+  <!-- Shell Panel -->
+  <div class="panel wide">
+    <h3>Shell</h3>
+    <div class="input-row">
+      <input type="text" id="sh-input" placeholder="Shell command..." onkeydown="if(event.key==='Enter')doSh()">
+      <button class="btn btn-red" onclick="doSh()">Run</button>
+    </div>
+    <div id="terminal"><span style="color:#7c8595">Output will appear here...</span></div>
+  </div>
+
+</div>
+</div>
+
+<div id="lightbox">
+  <button id="lb-close" onclick="closeLightbox()">&times;</button>
+  <img id="lb-img" alt="preview">
+</div>
+
+<div id="toast"></div>
+
+<script>
+let TOKEN = localStorage.getItem('tg_bot_token') || '';
+let BASE = location.origin;
+let autoTimer = null;
+let lastRect = null, clickMode = false, lastCapture = 'screen';
+
+// Telegram Mini App mode: auth via initData, no token needed
+const _twa = (window.Telegram && Telegram.WebApp) || null;
+if (_twa) {
+  _twa.ready();
+  _twa.expand();
+  try { _twa.setBackgroundColor('#faf9f7'); _twa.setHeaderColor('#ffffff'); } catch (e) {}
+}
+const TG = (_twa && _twa.initData) ? _twa : null;
+
+function doAuth() {
+  TOKEN = document.getElementById('token-input').value.trim();
+  if (!TOKEN) return;
+  localStorage.setItem('tg_bot_token', TOKEN);
+  checkAuth();
+}
+
+async function checkAuth() {
+  try {
+    const r = await api('GET', '/api/status');
+    if (r.ok) {
+      document.getElementById('auth-overlay').style.display = 'none';
+      document.getElementById('main').style.display = 'block';
+      updateStatus(r);
+      setInterval(refreshStatus, 30000);
+    } else {
+      toast('Invalid token', true);
+    }
+  } catch(e) {
+    toast('Connection failed: ' + e.message, true);
+  }
+}
+
+async function api(method, path, body) {
+  const headers = {'Content-Type': 'application/json'};
+  if (TG) headers['X-Telegram-Init-Data'] = TG.initData;
+  else headers['Authorization'] = 'Bearer ' + TOKEN;
+  const opts = {method, headers};
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(BASE + path, opts);
+  return await r.json();
+}
+
+function toast(msg, isErr) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = isErr ? 'error' : 'ok';
+  t.style.display = 'block';
+  setTimeout(() => t.style.display = 'none', 3000);
+}
+
+function updateStatus(data) {
+  document.getElementById('status-bar').innerHTML =
+    `v<span>${data.version}</span> | Uptime: <span>${data.uptime}</span> | <span>${data.os}</span> | Python <span>${data.python}</span>`;
+}
+
+async function refreshStatus() {
+  try {
+    const r = await api('GET', '/api/status');
+    if (r.ok) updateStatus(r);
+  } catch(e) {}
+}
+
+async function doScreen() {
+  const area = document.getElementById('screen-area');
+  area.innerHTML = '<span class="placeholder"><span class="spinner"></span>Capturing...</span>';
+  try {
+    const r = await api('POST', '/api/screen');
+    if (r.ok) {
+      area.innerHTML = `<img src="data:image/jpeg;base64,${r.image}" alt="screenshot">`;
+      lastRect = r.rect || null;
+      lastCapture = 'screen';
+      bindImgClick();
+    } else {
+      area.innerHTML = `<span class="placeholder">${r.error}</span>`;
+    }
+  } catch(e) {
+    area.innerHTML = `<span class="placeholder">Error: ${e.message}</span>`;
+  }
+}
+
+async function doWindow() {
+  const area = document.getElementById('screen-area');
+  area.innerHTML = '<span class="placeholder"><span class="spinner"></span>Capturing...</span>';
+  try {
+    const r = await api('POST', '/api/window');
+    if (r.ok) {
+      area.innerHTML = `<img src="data:image/jpeg;base64,${r.image}" alt="window">`;
+      lastRect = r.rect || null;
+      lastCapture = 'window';
+      bindImgClick();
+    } else {
+      area.innerHTML = `<span class="placeholder">${r.error}</span>`;
+    }
+  } catch(e) {
+    area.innerHTML = `<span class="placeholder">Error: ${e.message}</span>`;
+  }
+}
+
+// Click-on-image: Click mode ON → remote click at scaled coords; OFF → zoomable lightbox
+function bindImgClick() {
+  const img = document.querySelector('#screen-area img');
+  if (!img) return;
+  img.style.cursor = clickMode ? 'crosshair' : 'zoom-in';
+  img.onclick = e => {
+    if (!clickMode) { openLightbox(img.src); return; }
+    if (!lastRect) return;
+    const box = img.getBoundingClientRect();
+    const fx = (e.clientX - box.left) / box.width;
+    const fy = (e.clientY - box.top) / box.height;
+    const x = Math.round(lastRect[0] + fx * lastRect[2]);
+    const y = Math.round(lastRect[1] + fy * lastRect[3]);
+    doClick(x, y);
+    setTimeout(lastCapture === 'window' ? doWindow : doScreen, 700);
+  };
+}
+
+// --- Lightbox viewer: wheel/pinch zoom, drag pan, double-tap zoom ---
+const _lb = {sc: 1, min: 1, tx: 0, ty: 0, ptrs: new Map(), dist: 0, moved: false, lastTap: 0};
+const _lbBox = () => document.getElementById('lightbox');
+const _lbImg = () => document.getElementById('lb-img');
+
+function openLightbox(src) {
+  const img = _lbImg();
+  img.onload = () => {
+    const fit = Math.min(innerWidth / img.naturalWidth, innerHeight / img.naturalHeight);
+    _lb.min = fit; _lb.sc = fit;
+    _lb.tx = (innerWidth - img.naturalWidth * fit) / 2;
+    _lb.ty = (innerHeight - img.naturalHeight * fit) / 2;
+    _lbApply();
+  };
+  img.src = src;
+  _lbBox().style.display = 'block';
+  if (img.complete) img.onload();
+}
+
+function closeLightbox() { _lbBox().style.display = 'none'; _lb.ptrs.clear(); }
+
+function _lbApply() {
+  _lbImg().style.transform = `translate(${_lb.tx}px,${_lb.ty}px) scale(${_lb.sc})`;
+}
+
+function _lbZoomAt(cx, cy, factor) {
+  const ns = Math.min(Math.max(_lb.sc * factor, _lb.min * 0.8), _lb.min * 12);
+  _lb.tx = cx - (cx - _lb.tx) * (ns / _lb.sc);
+  _lb.ty = cy - (cy - _lb.ty) * (ns / _lb.sc);
+  _lb.sc = ns;
+  _lbApply();
+}
+
+(() => {
+  const box = document.getElementById('lightbox');
+  box.addEventListener('wheel', e => {
+    e.preventDefault();
+    _lbZoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 1.2 : 1 / 1.2);
+  }, {passive: false});
+
+  box.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    box.setPointerCapture(e.pointerId);
+    _lb.ptrs.set(e.pointerId, {x: e.clientX, y: e.clientY});
+    _lb.moved = false;
+    if (_lb.ptrs.size === 2) {
+      const [a, b] = [..._lb.ptrs.values()];
+      _lb.dist = Math.hypot(a.x - b.x, a.y - b.y);
+    }
+  });
+
+  box.addEventListener('pointermove', e => {
+    const p = _lb.ptrs.get(e.pointerId);
+    if (!p) return;
+    if (_lb.ptrs.size === 1) {
+      const dx = e.clientX - p.x, dy = e.clientY - p.y;
+      if (Math.abs(dx) + Math.abs(dy) > 3) _lb.moved = true;
+      _lb.tx += dx; _lb.ty += dy;
+      _lbApply();
+    }
+    p.x = e.clientX; p.y = e.clientY;
+    if (_lb.ptrs.size === 2) {
+      const [a, b] = [..._lb.ptrs.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (_lb.dist > 0) _lbZoomAt((a.x + b.x) / 2, (a.y + b.y) / 2, d / _lb.dist);
+      _lb.dist = d;
+      _lb.moved = true;
+    }
+  });
+
+  box.addEventListener('pointerup', e => {
+    _lb.ptrs.delete(e.pointerId);
+    _lb.dist = 0;
+    if (_lb.moved) return;
+    const now = Date.now();
+    if (now - _lb.lastTap < 300) {
+      // Double-tap: toggle fit <-> 3x
+      if (_lb.sc > _lb.min * 1.05) {
+        const img = _lbImg();
+        _lb.sc = _lb.min;
+        _lb.tx = (innerWidth - img.naturalWidth * _lb.min) / 2;
+        _lb.ty = (innerHeight - img.naturalHeight * _lb.min) / 2;
+        _lbApply();
+      } else {
+        _lbZoomAt(e.clientX, e.clientY, 3);
+      }
+      _lb.lastTap = 0;
+    } else {
+      _lb.lastTap = now;
+      // Single tap outside image closes
+      if (e.target.id === 'lightbox') setTimeout(() => { if (Date.now() - _lb.lastTap >= 300) closeLightbox(); }, 300);
+    }
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && box.style.display === 'block') closeLightbox();
+  });
+})();
+
+function toggleClickMode() {
+  clickMode = !clickMode;
+  document.getElementById('click-btn').textContent = 'Click: ' + (clickMode ? 'ON' : 'OFF');
+  bindImgClick();
+}
+
+function autoRefresh() {
+  const btn = document.getElementById('auto-btn');
+  if (autoTimer) {
+    clearInterval(autoTimer);
+    autoTimer = null;
+    btn.textContent = 'Auto: OFF';
+  } else {
+    doScreen();
+    autoTimer = setInterval(doScreen, 3000);
+    btn.textContent = 'Auto: ON';
+  }
+}
+
+async function doKey(key, repeat) {
+  try {
+    const r = await api('POST', '/api/key', {key, repeat: repeat||1});
+    if (r.ok) toast(`Pressed: ${key}` + (repeat > 1 ? ` x${repeat}` : ''));
+    else toast(r.error, true);
+  } catch(e) { toast(e.message, true); }
+}
+
+async function doClick(x, y) {
+  try {
+    const r = await api('POST', '/api/click', {x, y});
+    if (r.ok) toast(`Clicked: (${x}, ${y})`);
+    else toast(r.error, true);
+  } catch(e) { toast(e.message, true); }
+}
+
+async function doType() {
+  const input = document.getElementById('type-input');
+  const text = input.value.trim();
+  if (!text) return;
+  try {
+    const r = await api('POST', '/api/type', {text, enter: true});
+    if (r.ok) { toast('Typed: ' + text); input.value = ''; }
+    else toast(r.error, true);
+  } catch(e) { toast(e.message, true); }
+}
+
+async function doTypePreset(text) {
+  try {
+    const r = await api('POST', '/api/type', {text, enter: true});
+    if (r.ok) toast('Typed: ' + text);
+    else toast(r.error, true);
+  } catch(e) { toast(e.message, true); }
+}
+
+async function doSh() {
+  const input = document.getElementById('sh-input');
+  const cmd = input.value.trim();
+  if (!cmd) return;
+  const term = document.getElementById('terminal');
+  term.textContent = '$ ' + cmd + '\n\nRunning...';
+  try {
+    const r = await api('POST', '/api/sh', {cmd});
+    if (r.ok) {
+      term.textContent = '$ ' + cmd + '\n\n' + (r.output || '(no output)') + '\n\n[exit code: ' + r.code + ']';
+    } else {
+      term.textContent = '$ ' + cmd + '\n\nError: ' + r.error;
+    }
+    input.value = '';
+  } catch(e) {
+    term.textContent = '$ ' + cmd + '\n\nError: ' + e.message;
+  }
+}
+
+async function doGit(sub) {
+  const term = document.getElementById('terminal');
+  const args = sub === 'log' ? ['log','--oneline','-20'] : sub === 'diff' ? ['diff','--stat'] : [sub];
+  term.textContent = '$ git ' + args.join(' ') + '\n\nRunning...';
+  try {
+    const r = await api('POST', '/api/git', {args});
+    if (r.ok) {
+      term.textContent = '[' + r.cwd + ']\n$ git ' + args.join(' ') + '\n\n' + r.output;
+    } else {
+      term.textContent = 'Error: ' + r.error;
+    }
+  } catch(e) {
+    term.textContent = 'Error: ' + e.message;
+  }
+}
+
+async function doBuild(apk) {
+  const term = document.getElementById('terminal');
+  term.textContent = 'Building' + (apk ? ' + APK' : '') + '...\nThis may take a few minutes.';
+  try {
+    const r = await api('POST', '/api/build', {apk});
+    if (r.ok) {
+      let msg = 'Build ' + r.status + '\n' + (r.tail || '');
+      if (r.apk) msg += '\nAPK: ' + r.apk + ' (' + Math.round(r.apk_size/1024) + 'KB)';
+      term.textContent = msg;
+      toast('Build ' + r.status);
+    } else {
+      term.textContent = 'Build ' + (r.status||'FAILED') + '\n' + (r.stderr || r.error || '');
+      toast('Build failed', true);
+    }
+  } catch(e) {
+    term.textContent = 'Build error: ' + e.message;
+    toast(e.message, true);
+  }
+}
+
+async function doApks() {
+  const term = document.getElementById('terminal');
+  term.textContent = 'Searching APKs...';
+  try {
+    const r = await api('GET', '/api/apks');
+    if (r.ok && r.apks.length) {
+      term.textContent = 'APKs found:\n' + r.apks.map(
+        a => `  ${a.name} (${Math.round(a.size/1024)}KB)`
+      ).join('\n');
+    } else {
+      term.textContent = 'No APKs found.';
+    }
+  } catch(e) {
+    term.textContent = 'Error: ' + e.message;
+  }
+}
+
+function _fillList(boxId, items, labelFn, clickFn) {
+  const box = document.getElementById(boxId);
+  box.innerHTML = '';
+  if (!items.length) { box.innerHTML = '<span style="color:var(--dim);font-size:12px">Nothing found</span>'; return; }
+  items.forEach(it => {
+    const b = document.createElement('button');
+    b.className = 'btn btn-sm';
+    b.textContent = labelFn(it);
+    b.onclick = () => clickFn(it);
+    box.appendChild(b);
+  });
+}
+
+async function loadWindows() {
+  const box = document.getElementById('win-list');
+  box.innerHTML = '<span style="color:var(--dim);font-size:12px">Loading...</span>';
+  try {
+    const r = await api('GET', '/api/windows');
+    if (r.ok) _fillList('win-list', r.windows, t => t.length > 42 ? t.slice(0, 42) + '…' : t, doFocus);
+    else { box.innerHTML = ''; toast(r.error, true); }
+  } catch(e) { box.innerHTML = ''; toast(e.message, true); }
+}
+
+async function doFocus(title) {
+  try {
+    const r = await api('POST', '/api/focus', {title});
+    toast(r.msg || r.error, !r.ok);
+  } catch(e) { toast(e.message, true); }
+}
+
+async function loadFolders() {
+  const box = document.getElementById('folder-list');
+  box.innerHTML = '<span style="color:var(--dim);font-size:12px">Loading...</span>';
+  try {
+    const r = await api('GET', '/api/folders');
+    if (r.ok) _fillList('folder-list', r.folders, f => f, doCode);
+    else { box.innerHTML = ''; toast(r.error, true); }
+  } catch(e) { box.innerHTML = ''; toast(e.message, true); }
+}
+
+async function doCode(folder) {
+  try {
+    const r = await api('POST', '/api/code', {folder});
+    toast(r.msg || r.error, !r.ok);
+  } catch(e) { toast(e.message, true); }
+}
+
+async function doClaude() {
+  const input = document.getElementById('claude-input');
+  const prompt = input.value.trim();
+  if (!prompt) return;
+  const term = document.getElementById('terminal');
+  term.textContent = '> claude: ' + prompt + '\n\nAsking Claude (may take minutes)...';
+  try {
+    const r = await api('POST', '/api/claude', {prompt});
+    if (r.ok) { term.textContent = '> claude: ' + prompt + '\n\n' + r.output; input.value = ''; }
+    else term.textContent = '> claude: ' + prompt + '\n\nError: ' + r.error;
+  } catch(e) {
+    term.textContent = '> claude: ' + prompt + '\n\nError: ' + e.message;
+  }
+}
+
+// Auto-login: Mini App mode needs no token; browser mode uses saved token
+if (TG || TOKEN) checkAuth();
+
+// Keyboard shortcut: backtick to focus shell input
+document.addEventListener('keydown', e => {
+  if (e.key === '`' && !e.target.matches('input')) {
+    e.preventDefault();
+    document.getElementById('sh-input').focus();
+  }
+});
+</script>
+</body>
+</html>

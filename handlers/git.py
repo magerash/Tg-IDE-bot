@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import subprocess
@@ -53,8 +54,8 @@ async def git_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.debug("Running: %s in %s", cmd, _git_dir)
 
     try:
-        proc = subprocess.run(
-            cmd, cwd=_git_dir,
+        proc = await asyncio.to_thread(
+            subprocess.run, cmd, cwd=_git_dir,
             capture_output=True, timeout=60,
         )
         raw = proc.stdout + proc.stderr
