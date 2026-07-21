@@ -31,8 +31,7 @@ KEYBOARD = InlineKeyboardMarkup([
     [Btn("Enter", callback_data="p:key_enter"), Btn("Esc", callback_data="p:key_esc"), Btn("Ctrl+C", callback_data="p:key_ctrlc"), Btn("Tab", callback_data="p:key_tab")],
     [Btn("Shift+Tab", callback_data="p:key_shifttab"), Btn("Bksp×30", callback_data="p:key_bksp30"), Btn("Click 250,1000", callback_data="p:click500")],
     [Btn("/clear", callback_data="p:type_clear"), Btn("/caveman", callback_data="p:type_caveman"), Btn("/ultrathink", callback_data="p:type_ultra")],
-    [Btn("Let's finish (LF)", callback_data="p:type_finish")],
-    [Btn("LF on current branch (CB)", callback_data="p:type_finish_cur"), Btn("LF and go new branch (NB)", callback_data="p:type_finish_new")],
+    [Btn("Let's finish (LF)", callback_data="p:type_finish"), Btn("LF CB", callback_data="p:type_finish_cur"), Btn("LF NB", callback_data="p:type_finish_new")],
 ])
 
 _TYPE_PRESETS = {
