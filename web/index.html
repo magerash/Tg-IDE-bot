@@ -43,6 +43,8 @@ h1{font-size:17px;font-weight:600;text-align:center;padding:6px 0 2px;letter-spa
 .btn-primary:hover{background:var(--accent-hover)}
 .btn-red{background:var(--err);border-color:var(--err);color:#fff}
 .btn-red:hover{background:var(--err-hover)}
+.btn-ok{background:var(--ok);border-color:var(--ok);color:#fff}
+.btn-ok:hover{background:#12833c}
 .btn-soft{background:var(--accent-soft);border-color:transparent;color:var(--text)}
 .btn-soft:hover{background:var(--accent-soft-hover)}
 .btn-ok-soft{background:var(--ok-soft);border-color:transparent;color:var(--ok)}
@@ -235,9 +237,12 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
         <button class="btn btn-primary" onclick="doType()">Type</button>
       </div>
       <div class="btn-grid">
-        <button class="btn btn-sm btn-soft" onclick="doTypePreset('let\'s finish')">Let's finish</button>
-        <button class="btn btn-sm btn-soft" onclick="doTypePreset('let\'s finish. current branch')">F-cur bra</button>
-        <button class="btn btn-sm btn-soft" onclick="doTypePreset('let\'s finish. new branch')">F-new bra</button>
+        <button class="btn btn-sm btn-soft" onclick="doTypePreset('/clear')">/clear</button>
+        <button class="btn btn-sm btn-soft" onclick="doTypePreset('/caveman')">/caveman</button>
+        <button class="btn btn-sm btn-soft" onclick="doTypePreset('/ultrathink')">/ultrathink</button>
+        <button class="btn btn-sm btn-soft" onclick="doTypePreset('let\'s finish')">Let's finish (LF)</button>
+        <button class="btn btn-sm btn-soft" onclick="doTypePreset('let\'s finish. current branch')">LF on current branch (CB)</button>
+        <button class="btn btn-sm btn-soft" onclick="doTypePreset('let\'s finish. new branch')">LF and go new branch (NB)</button>
       </div>
     </div>
 
@@ -509,6 +514,8 @@ function autoRefresh() {
     autoTimer = setInterval(_autoTick, _autoInterval());
     btn.textContent = 'Auto: ON';
   }
+  btn.classList.toggle('btn-ok', !!autoTimer);    // green while running
+  btn.classList.toggle('btn-soft', !autoTimer);
 }
 
 /* Auto tick skips while a capture is in flight — no pile-up at short intervals */
@@ -532,7 +539,10 @@ function autoIntChanged() {
    rect from the server (pyautogui coordinate space) handles window captures with offsets. */
 function toggleClickMode() {
   clickMode = !clickMode;
-  document.getElementById('click-btn').textContent = 'Click: ' + (clickMode ? 'ON' : 'OFF');
+  const btn = document.getElementById('click-btn');
+  btn.textContent = 'Click: ' + (clickMode ? 'ON' : 'OFF');
+  btn.classList.toggle('btn-red', clickMode);     // red while armed
+  btn.classList.toggle('btn-soft', !clickMode);
   bindImgClick();
 }
 
