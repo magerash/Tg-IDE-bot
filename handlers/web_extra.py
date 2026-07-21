@@ -120,6 +120,29 @@ async def api_paste(request):
         return _err(str(e), 500)
 
 
+async def api_stt(request):
+    """POST raw audio body (webm/ogg/wav) → Groq Whisper → {text}."""
+    from handlers.web import _check_auth, _err, _json
+    if not _check_auth(request):
+        return _err("Unauthorized", 401)
+    try:
+        from utils.stt import MAX_AUDIO_SIZE, STTError, transcribe
+        data = await request.read()
+        if len(data) > MAX_AUDIO_SIZE:
+            return _err("Audio too large (25MB limit)", 413)
+        ctype = request.headers.get("Content-Type", "audio/webm")
+        ext = ("webm" if "webm" in ctype else "ogg" if "ogg" in ctype
+               else "m4a" if "mp4" in ctype else "wav")
+        try:
+            text = await transcribe(data, f"mic.{ext}")
+        except STTError as e:
+            return _err(str(e))
+        return _json({"ok": True, "text": text})
+    except Exception as e:
+        logger.error("web /api/stt error: %s", e)
+        return _err(str(e), 500)
+
+
 async def api_claude(request):
     from handlers.web import _check_auth, _err, _json
     if not _check_auth(request):
@@ -153,4 +176,5 @@ def register_extra_routes(app):
     app.router.add_get("/api/project", api_project)
     app.router.add_post("/api/project", api_project)
     app.router.add_post("/api/paste", api_paste)
+    app.router.add_post("/api/stt", api_stt)
     app.router.add_post("/api/claude", api_claude)

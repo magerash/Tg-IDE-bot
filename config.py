@@ -7,7 +7,7 @@ load_dotenv()
 # Bot settings
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0"))
-VERSION = "0.11.4"
+VERSION = "0.12.0"
 
 # Web dashboard / Mini App
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
@@ -16,6 +16,10 @@ WEBAPP_URL = os.getenv("WEBAPP_URL", "")  # public HTTPS URL for Telegram Mini A
 
 # Projects
 PROJECTS_ROOT = os.getenv("PROJECTS_ROOT", r"C:\Projects")
+
+# Speech-to-text (Groq Whisper — free key at console.groq.com)
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+STT_MODEL = os.getenv("STT_MODEL", "whisper-large-v3-turbo")
 
 # Paths
 LOG_FILE = "bot.log"
