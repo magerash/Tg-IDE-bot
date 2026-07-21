@@ -17,6 +17,7 @@ from handlers.claude import claude_cmd
 from handlers.git import git_cmd
 from handlers.panel import panel_cmd, panel_callback
 from handlers.windows import win_cmd, code_cmd, windows_callback
+from handlers.project import project_cmd, project_callback
 
 logger = logging.getLogger("bot.main")
 
@@ -26,7 +27,7 @@ _COMMANDS = [
     ("key", key_cmd), ("type", type_cmd), ("click", click_cmd), ("focus", focus_cmd),
     ("build", build_cmd), ("apk", apk_cmd), ("file", file_cmd),
     ("sh", sh_cmd), ("claude", claude_cmd), ("git", git_cmd), ("panel", panel_cmd),
-    ("win", win_cmd), ("code", code_cmd),
+    ("win", win_cmd), ("code", code_cmd), ("project", project_cmd),
 ]
 
 
@@ -36,6 +37,7 @@ def _build_tg_app():
         app.add_handler(CommandHandler(cmd, fn))
     app.add_handler(CallbackQueryHandler(panel_callback, pattern="^p:"))
     app.add_handler(CallbackQueryHandler(windows_callback, pattern="^w:"))
+    app.add_handler(CallbackQueryHandler(project_callback, pattern="^pj:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
 
     async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
@@ -69,6 +71,9 @@ async def run():
         await web.TCPSite(runner, "0.0.0.0", WEB_PORT).start()
         logger.info("Web dashboard on http://0.0.0.0:%d", WEB_PORT)
         await setup_menu_button(tg_app.bot)
+        if WEBAPP_URL:
+            from utils.tunnel import tunnel_watchdog
+            asyncio.create_task(tunnel_watchdog())
     else:
         logger.info("WEB_TOKEN/WEBAPP_URL not set — web dashboard disabled")
 

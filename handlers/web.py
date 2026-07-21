@@ -6,15 +6,17 @@ import logging
 import os
 import platform
 import subprocess
+import sys
 import time
 
 from aiohttp import web
 
 from config import (
-    ALLOWED_USER_ID, BOT_TOKEN, MAX_FILE_SIZE, PROJECT_DIR,
+    ALLOWED_USER_ID, BOT_TOKEN, MAX_FILE_SIZE,
     VERSION, WEB_TOKEN, WEBAPP_URL,
 )
 from handlers.files import _find_apks
+from utils import project
 from handlers.screen import _grab_to_jpeg
 from utils.webauth import check_token, validate_init_data
 from utils.window import get_active_window_rect
@@ -176,9 +178,9 @@ async def api_git(request):
         if isinstance(args, str):
             args = args.split()
 
-        from handlers.git import _git_dir
+        git_dir = project.get_dir()
         proc = await asyncio.to_thread(
-            subprocess.run, ["git"] + args, cwd=_git_dir,
+            subprocess.run, ["git"] + args, cwd=git_dir,
             capture_output=True, timeout=60,
         )
         raw = proc.stdout + proc.stderr
@@ -186,7 +188,8 @@ async def api_git(request):
             output = raw.decode("utf-8")
         except UnicodeDecodeError:
             output = raw.decode("cp866", errors="replace")
-        return _json({"ok": True, "output": output, "cwd": _git_dir, "code": proc.returncode})
+        return _json({"ok": True, "output": output, "cwd": git_dir,
+                      "project": project.get_name(), "code": proc.returncode})
     except Exception as e:
         logger.error("web /api/git error: %s", e)
         return _err(str(e), 500)
@@ -205,6 +208,8 @@ async def api_status(request):
         "uptime_sec": uptime,
         "os": f"{platform.system()} {platform.release()}",
         "python": platform.python_version(),
+        "project": project.get_name(),
+        "project_dir": project.get_dir(),
     })
 
 
@@ -214,8 +219,10 @@ async def api_build(request):
     try:
         data = await request.json() if request.body_exists else {}
         send_apk = data.get("apk", False)
-        cwd = data.get("cwd", PROJECT_DIR) or None
-        gradlew = os.path.join(cwd, "gradlew.bat") if cwd else "gradlew.bat"
+        cwd = data.get("cwd") or project.get_dir()
+        gradlew = os.path.join(cwd, "gradlew.bat")
+        if not os.path.isfile(gradlew):
+            return _err(f"No gradlew.bat in {os.path.basename(cwd)} — switch project first")
 
         await asyncio.to_thread(
             subprocess.run, [gradlew, "clean"], cwd=cwd,
@@ -229,7 +236,7 @@ async def api_build(request):
             lines = [l for l in proc.stdout.strip().splitlines() if l.strip()]
             result = {"ok": True, "status": "SUCCESS", "tail": lines[-1] if lines else ""}
             if send_apk:
-                apks = _find_apks("debug")
+                apks = _find_apks("debug", dirs=[cwd])
                 if apks:
                     result["apk"] = os.path.basename(apks[0])
                     result["apk_size"] = os.path.getsize(apks[0])
@@ -262,11 +269,29 @@ async def api_apk_list(request):
         return _err(str(e), 500)
 
 
+def _do_restart():
+    """Replace current process with a fresh bot instance (keeps console/env)."""
+    logger.info("Restarting bot via os.execv")
+    os.execv(sys.executable, [sys.executable, os.path.abspath(sys.argv[0])])
+
+
+async def api_restart(request):
+    if not _check_auth(request):
+        return _err("Unauthorized", 401)
+    logger.warning("Restart requested via web")
+    # Reply first, then re-exec — 0.7s lets the response flush
+    asyncio.get_running_loop().call_later(0.7, _do_restart)
+    return _json({"ok": True, "msg": "Restarting bot..."})
+
+
 async def index_page(request):
-    """Serve the web dashboard."""
+    """Serve the web dashboard (no-cache: webviews must always get fresh HTML)."""
     html_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web", "index.html")
     if os.path.isfile(html_path):
-        return web.FileResponse(html_path)
+        return web.FileResponse(
+            html_path,
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
     return web.Response(text="Dashboard not found", status=404)
 
 
@@ -285,6 +310,7 @@ def create_web_app():
     app.router.add_get("/api/status", api_status)
     app.router.add_post("/api/build", api_build)
     app.router.add_get("/api/apks", api_apk_list)
+    app.router.add_post("/api/restart", api_restart)
 
     from handlers.web_extra import register_extra_routes
     register_extra_routes(app)

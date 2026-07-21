@@ -21,7 +21,8 @@
       "Bash(grep:*)",
       "PowerShell(Get-NetTCPConnection *)",
       "PowerShell(Stop-Process *)",
-      "PowerShell(python -c \"import sys; sys.path.insert\\(0,'.'\\); from utils.window import list_windows; ws = list_windows\\(\\); print\\(len\\(ws\\), 'windows'\\); [print\\(' -', t[:70]\\) for t in ws[:10]]\")"
+      "PowerShell(python -c \"import sys; sys.path.insert\\(0,'.'\\); from utils.window import list_windows; ws = list_windows\\(\\); print\\(len\\(ws\\), 'windows'\\); [print\\(' -', t[:70]\\) for t in ws[:10]]\")",
+      "PowerShell(python -m py_compile bot.py config.py utils\\\\project.py handlers\\\\project.py handlers\\\\git.py handlers\\\\files.py handlers\\\\windows.py handlers\\\\panel.py handlers\\\\web.py handlers\\\\web_extra.py handlers\\\\general.py; if \\($?\\) { \"COMPILE OK\" })"
     ]
   }
 }

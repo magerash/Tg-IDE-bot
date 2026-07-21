@@ -5,18 +5,23 @@ import os
 import subprocess
 from telegram import Update
 from telegram.ext import ContextTypes
-from config import APK_SEARCH_DIRS, APK_GLOB, BUILD_CMD, MAX_FILE_SIZE, PROJECT_DIR
+from config import APK_SEARCH_DIRS, APK_GLOB, BUILD_CMD, MAX_FILE_SIZE
+from utils import project
 from utils.auth import auth_required, rate_limit
 
 logger = logging.getLogger("bot.files")
 
 
-def _find_apks(filter_str: str | None = None) -> list[str]:
-    """Find APKs across search dirs, optionally filtered by name substring."""
-    all_apks = []
-    for search_dir in APK_SEARCH_DIRS:
-        pattern = os.path.join(search_dir, APK_GLOB)
-        all_apks.extend(glob.glob(pattern, recursive=True))
+def _find_apks(filter_str: str | None = None, dirs: list[str] | None = None) -> list[str]:
+    """Find APKs (current project first, then search dirs), filtered by name substring."""
+    search_dirs = dirs or [project.get_dir()] + APK_SEARCH_DIRS
+    all_apks, seen = [], set()
+    for search_dir in search_dirs:
+        for a in glob.glob(os.path.join(search_dir, APK_GLOB), recursive=True):
+            key = os.path.normcase(a)
+            if key not in seen:
+                seen.add(key)
+                all_apks.append(a)
 
     if filter_str:
         all_apks = [a for a in all_apks if filter_str.lower() in os.path.basename(a).lower()]
@@ -25,9 +30,9 @@ def _find_apks(filter_str: str | None = None) -> list[str]:
     return all_apks
 
 
-async def _send_apk(update: Update):
-    """Find and send latest debug APK after successful build."""
-    apks = _find_apks("debug")
+async def _send_apk(update: Update, build_dir: str | None = None):
+    """Find and send latest debug APK of built project after successful build."""
+    apks = _find_apks("debug", dirs=[build_dir or project.get_dir()])
     if not apks:
         await update.message.reply_text("Build done but no APK found.")
         return
@@ -51,11 +56,18 @@ async def build_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         send_apk = True
         args.pop(0)
 
-    cwd = " ".join(args) if args else (PROJECT_DIR or None)
+    cwd = " ".join(args) if args else project.get_dir()
+    pname = os.path.basename(cwd.rstrip("\\/"))
     logger.debug("/build called, cwd=%s, send_apk=%s", cwd, send_apk)
 
-    gradlew = os.path.join(cwd, "gradlew.bat") if cwd else "gradlew.bat"
-    await update.message.reply_text("Cleaning & building...")
+    gradlew = os.path.join(cwd, "gradlew.bat")
+    if not os.path.isfile(gradlew):
+        await update.message.reply_text(
+            f"[{pname}] No gradlew.bat — not a buildable Android project.\n"
+            "Use /project to switch."
+        )
+        return
+    await update.message.reply_text(f"[{pname}] Cleaning & building...")
     try:
         logger.debug("Running clean before build")
         await asyncio.to_thread(
@@ -72,12 +84,12 @@ async def build_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if proc.returncode == 0:
             lines = [l for l in proc.stdout.strip().splitlines() if l.strip()]
             tail = lines[-1] if lines else ""
-            await update.message.reply_text(f"Build SUCCESS\n{tail}")
+            await update.message.reply_text(f"[{pname}] Build SUCCESS\n{tail}")
             if send_apk:
-                await _send_apk(update)
+                await _send_apk(update, cwd)
         else:
             stderr = proc.stderr[-1500:] if len(proc.stderr) > 1500 else proc.stderr
-            msg = f"Build FAILED (code {proc.returncode})\n{stderr}"
+            msg = f"[{pname}] Build FAILED (code {proc.returncode})\n{stderr}"
             if len(msg) > 4000:
                 msg = msg[:4000] + "\n...(truncated)"
             await update.message.reply_text(msg)
@@ -96,17 +108,21 @@ async def apk_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     filter_str = args[0].lower() if args else None
     logger.debug("/apk called, filter=%s", filter_str)
 
-    # /apk list — show available APKs
+    # /apk list — show available APKs grouped by project
     if filter_str == "list":
         apks = _find_apks()
         if not apks:
             await update.message.reply_text("No APKs found.")
             return
+        groups: dict[str, list[str]] = {}
+        for a in apks[:15]:
+            groups.setdefault(project.project_of(a), []).append(a)
         lines = []
-        for a in apks[:10]:
-            size = os.path.getsize(a) // 1024
-            lines.append(f"  {os.path.basename(a)} ({size}KB)")
-        await update.message.reply_text("APKs found:\n" + "\n".join(lines))
+        for name, items in groups.items():
+            lines.append(f"{name}:")
+            for a in items:
+                lines.append(f"  {os.path.basename(a)} ({os.path.getsize(a) // 1024}KB)")
+        await update.message.reply_text("APKs by project:\n" + "\n".join(lines))
         return
 
     await update.message.reply_text("Searching for APK...")

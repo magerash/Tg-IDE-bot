@@ -4,6 +4,7 @@ import time
 from telegram import Update
 from telegram.ext import ContextTypes
 from config import VERSION
+from utils import project
 from utils.auth import auth_required
 
 logger = logging.getLogger("bot.general")
@@ -14,9 +15,10 @@ HELP_TEXT = (
     "Screen:\n/screen — Screenshot\n/window — Active window\n/crop — Crop region\n\n"
     "Input:\n/key <k> [N] — Key + repeat\n/type <text> — Type /commands\n"
     "/click x y — Mouse click\n/focus <title> — Focus window\n"
-    "/win — List windows, tap to focus\n/code [folder] — Open project in VSCode\n\n"
-    "Files:\n/build [dir] — Gradle build\n/build apk — Build + send APK\n"
-    "/apk [filter] — Send APK\n/file <path> — Send file\n\n"
+    "/win — List windows, tap to focus\n/code [folder] — Open project in new VSCode window\n\n"
+    "Project:\n/project [name] — Show/switch current project (git, build, apk follow it)\n\n"
+    "Files:\n/build [dir] — Gradle build (current project)\n/build apk — Build + send APK\n"
+    "/apk [filter] — Send APK\n/apk list — APKs grouped by project\n/file <path> — Send file\n\n"
     "Tools:\n/sh <cmd> — Shell\n/claude <prompt> — Ask Claude\n"
     "/git — status/log/diff/branch/commit/push/pull/cd\n"
     "/panel — Control panel\n/status — Bot info\n/help — This message\n\n"
@@ -45,5 +47,6 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     m, s = divmod(rem, 60)
     await update.message.reply_text(
         f"TG-IDE-Bot v{VERSION}\nUptime: {h}h {m}m {s}s\n"
+        f"Project: {project.get_name()} ({project.get_dir()})\n"
         f"OS: {platform.system()} {platform.release()}\nPython: {platform.python_version()}"
     )

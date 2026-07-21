@@ -7,6 +7,7 @@ from telegram import InlineKeyboardButton as Btn, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from config import ALLOWED_USER_ID, PROJECTS_ROOT
+from utils import project
 from utils.auth import auth_required, rate_limit
 from utils.window import focus_window_exact, list_windows
 
@@ -34,25 +35,17 @@ async def win_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-def _list_project_folders() -> list[str]:
-    """List subfolders of PROJECTS_ROOT."""
-    try:
-        return sorted(
-            d for d in os.listdir(PROJECTS_ROOT)
-            if os.path.isdir(os.path.join(PROJECTS_ROOT, d)) and not d.startswith(".")
-        )
-    except OSError as e:
-        logger.error("PROJECTS_ROOT listing error: %s", e)
-        return []
+_list_project_folders = project.list_projects  # kept for web_extra import
 
 
 def _open_in_vscode(folder: str) -> tuple[bool, str]:
-    """Open/focus a project folder in VSCode via CLI (reuses existing window)."""
+    """Open a project folder in a NEW VSCode window and make it current project."""
     path = os.path.join(PROJECTS_ROOT, folder)
     try:
-        subprocess.Popen(f'code -r "{path}"', shell=True)
-        logger.debug("VSCode open: %s", path)
-        return True, f"VSCode: {folder}"
+        subprocess.Popen(f'code -n "{path}"', shell=True)
+        project.set_by_name(folder)
+        logger.debug("VSCode new window: %s (current project set)", path)
+        return True, f"VSCode (new window): {folder} — now current project"
     except Exception as e:
         logger.error("VSCode open error: %s", e)
         return False, f"VSCode open failed: {e}"

@@ -9,7 +9,8 @@ import pyautogui
 from telegram import InlineKeyboardButton as Btn, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from config import ALLOWED_USER_ID, MAX_FILE_SIZE, PROJECT_DIR, VERSION
+from config import ALLOWED_USER_ID, MAX_FILE_SIZE, VERSION
+from utils import project
 from handlers.files import _find_apks
 from handlers.input import _type_text
 from handlers.screen import _grab_to_jpeg
@@ -82,10 +83,10 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         elif cmd.startswith("git_"):
             await query.answer("Running git...")
-            from handlers.git import _git_dir
+            git_dir = project.get_dir()
             git_args = _GIT_ARGS.get(cmd.removeprefix("git_"), ["status"])
             proc = await asyncio.to_thread(
-                subprocess.run, ["git"] + git_args, cwd=_git_dir,
+                subprocess.run, ["git"] + git_args, cwd=git_dir,
                 capture_output=True, timeout=60,
             )
             raw = proc.stdout + proc.stderr
@@ -93,13 +94,19 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 output = raw.decode("utf-8")
             except UnicodeDecodeError:
                 output = raw.decode("cp866", errors="replace")
-            await send_long_text_to_chat(bot, chat_id, f"[{_git_dir}]\n{output or '(empty)'}")
+            await send_long_text_to_chat(
+                bot, chat_id, f"[{project.get_name()}] {git_dir}\n{output or '(empty)'}"
+            )
 
         elif cmd == "build":
             await query.answer("Building...")
-            cwd = PROJECT_DIR or None
-            gradlew = os.path.join(cwd, "gradlew.bat") if cwd else "gradlew.bat"
-            await bot.send_message(chat_id, "Cleaning & building...")
+            cwd = project.get_dir()
+            gradlew = os.path.join(cwd, "gradlew.bat")
+            if not os.path.isfile(gradlew):
+                await bot.send_message(
+                    chat_id, f"[{project.get_name()}] No gradlew.bat — use /project to switch.")
+                return
+            await bot.send_message(chat_id, f"[{project.get_name()}] Cleaning & building...")
             try:
                 await asyncio.to_thread(
                     subprocess.run, [gradlew, "clean"], cwd=cwd,
@@ -125,9 +132,13 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         elif cmd == "build_apk":
             await query.answer("Build + APK...")
-            cwd = PROJECT_DIR or None
-            gradlew = os.path.join(cwd, "gradlew.bat") if cwd else "gradlew.bat"
-            await bot.send_message(chat_id, "Cleaning & building...")
+            cwd = project.get_dir()
+            gradlew = os.path.join(cwd, "gradlew.bat")
+            if not os.path.isfile(gradlew):
+                await bot.send_message(
+                    chat_id, f"[{project.get_name()}] No gradlew.bat — use /project to switch.")
+                return
+            await bot.send_message(chat_id, f"[{project.get_name()}] Cleaning & building...")
             try:
                 await asyncio.to_thread(
                     subprocess.run, [gradlew, "clean"], cwd=cwd,
@@ -143,7 +154,7 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     return
                 lines = [l for l in proc.stdout.strip().splitlines() if l.strip()]
                 await bot.send_message(chat_id, f"Build SUCCESS\n{lines[-1] if lines else ''}")
-                apks = _find_apks("debug")
+                apks = _find_apks("debug", dirs=[cwd])
                 if not apks:
                     await bot.send_message(chat_id, "No APK found after build.")
                     return

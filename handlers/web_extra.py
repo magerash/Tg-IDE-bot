@@ -3,6 +3,7 @@ import asyncio
 import logging
 import subprocess
 
+from utils import project
 from utils.window import focus_window_exact, list_windows
 
 logger = logging.getLogger("bot.web_extra")
@@ -41,9 +42,8 @@ async def api_folders(request):
     if not _check_auth(request):
         return _err("Unauthorized", 401)
     try:
-        from handlers.windows import _list_project_folders
-        folders = await asyncio.to_thread(_list_project_folders)
-        return _json({"ok": True, "folders": folders})
+        folders = await asyncio.to_thread(project.list_projects)
+        return _json({"ok": True, "folders": folders, "current": project.get_name()})
     except Exception as e:
         logger.error("web /api/folders error: %s", e)
         return _err(str(e), 500)
@@ -56,15 +56,36 @@ async def api_code(request):
     try:
         data = await request.json()
         folder = data.get("folder", "")
-        from handlers.windows import _list_project_folders, _open_in_vscode
+        from handlers.windows import _open_in_vscode
         # Membership check keeps shell command safe from arbitrary paths
-        folders = await asyncio.to_thread(_list_project_folders)
+        folders = await asyncio.to_thread(project.list_projects)
         if folder not in folders:
             return _err(f"Unknown folder: {folder}")
         ok, msg = await asyncio.to_thread(_open_in_vscode, folder)
-        return _json({"ok": ok, "msg": msg})
+        return _json({"ok": ok, "msg": msg, "current": project.get_name()})
     except Exception as e:
         logger.error("web /api/code error: %s", e)
+        return _err(str(e), 500)
+
+
+async def api_project(request):
+    """GET — current project; POST {folder} — switch current project (no VSCode)."""
+    from handlers.web import _check_auth, _err, _json
+    if not _check_auth(request):
+        return _err("Unauthorized", 401)
+    try:
+        if request.method == "GET":
+            return _json({"ok": True, "current": project.get_name(), "dir": project.get_dir()})
+        data = await request.json()
+        folder = data.get("folder", "")
+        folders = await asyncio.to_thread(project.list_projects)
+        if folder not in folders:
+            return _err(f"Unknown folder: {folder}")
+        project.set_by_name(folder)
+        return _json({"ok": True, "current": project.get_name(), "dir": project.get_dir(),
+                      "msg": f"Project: {folder}"})
+    except Exception as e:
+        logger.error("web /api/project error: %s", e)
         return _err(str(e), 500)
 
 
@@ -98,4 +119,6 @@ def register_extra_routes(app):
     app.router.add_post("/api/focus", api_focus)
     app.router.add_get("/api/folders", api_folders)
     app.router.add_post("/api/code", api_code)
+    app.router.add_get("/api/project", api_project)
+    app.router.add_post("/api/project", api_project)
     app.router.add_post("/api/claude", api_claude)
