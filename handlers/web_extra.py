@@ -1,7 +1,8 @@
-"""Extra web API endpoints: window focus, project folders, Claude CLI."""
+"""Extra web API endpoints: window focus, project folders, Claude CLI, scheduling."""
 import asyncio
 import logging
 import subprocess
+import time
 
 from utils import project
 from utils.window import focus_window_exact, get_active_window_title, list_windows
@@ -192,8 +193,75 @@ async def api_ccmetrics(request):
         return _err(str(e), 500)
 
 
+async def api_schedule(request):
+    """Create a scheduled message. Target window defaults to the currently
+    focused window (refocused before typing at fire time)."""
+    from handlers.web import _check_auth, _err, _json
+    if not _check_auth(request):
+        return _err("Unauthorized", 401)
+    try:
+        data = await request.json()
+        text = data.get("text", "").strip()
+        if not text:
+            return _err("Missing 'text'")
+        try:
+            when = int(float(data.get("when")))
+        except (TypeError, ValueError):
+            return _err("Missing or bad 'when' (epoch seconds)")
+        if when < int(time.time()) - 5:
+            return _err("Time is in the past")
+
+        window = data.get("window")
+        if window is None:
+            try:
+                window = await asyncio.to_thread(get_active_window_title)
+            except Exception:
+                window = None
+
+        from utils import scheduler
+        job = await scheduler.add_job(
+            text, when, data.get("enter", True), window, data.get("terminal", True)
+        )
+        return _json({"ok": True, "job": job})
+    except Exception as e:
+        logger.error("web /api/schedule error: %s", e)
+        return _err(str(e), 500)
+
+
+async def api_schedules(request):
+    """List pending scheduled messages."""
+    from handlers.web import _check_auth, _err, _json
+    if not _check_auth(request):
+        return _err("Unauthorized", 401)
+    try:
+        from utils import scheduler
+        jobs = await scheduler.list_jobs()
+        return _json({"ok": True, "jobs": jobs, "now": int(time.time())})
+    except Exception as e:
+        logger.error("web /api/schedules error: %s", e)
+        return _err(str(e), 500)
+
+
+async def api_unschedule(request):
+    """Cancel a scheduled message by id."""
+    from handlers.web import _check_auth, _err, _json
+    if not _check_auth(request):
+        return _err("Unauthorized", 401)
+    try:
+        data = await request.json()
+        from utils import scheduler
+        removed = await scheduler.remove_job(data.get("id", ""))
+        return _json({"ok": removed})
+    except Exception as e:
+        logger.error("web /api/unschedule error: %s", e)
+        return _err(str(e), 500)
+
+
 def register_extra_routes(app):
     app.router.add_get("/api/ccmetrics", api_ccmetrics)
+    app.router.add_post("/api/schedule", api_schedule)
+    app.router.add_get("/api/schedules", api_schedules)
+    app.router.add_post("/api/unschedule", api_unschedule)
     app.router.add_get("/api/windows", api_windows)
     app.router.add_post("/api/focus", api_focus)
     app.router.add_get("/api/folders", api_folders)

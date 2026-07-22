@@ -110,6 +110,35 @@ def test_humanize_module():
     assert asyncio.run(humanize("  ")) == "  "
 
 
+def test_scheduler_add_list_remove(tmp_path):
+    """add_job/list_jobs/remove_job round-trip on an isolated store file."""
+    from utils import scheduler
+    scheduler.SCHEDULE_FILE = str(tmp_path / "sched.json")
+
+    async def go():
+        j = await scheduler.add_job("hello", 9999999999, True, "SomeWindow")
+        jobs = await scheduler.list_jobs()
+        assert any(x["id"] == j["id"] for x in jobs)
+        assert await scheduler.remove_job(j["id"]) is True
+        assert await scheduler.remove_job(j["id"]) is False  # already gone
+    _run(go())
+
+
+def test_schedule_endpoints():
+    """List needs auth; create rejects a past time (no window/file side effects)."""
+    async def go():
+        async with await _client() as c:
+            assert (await c.get("/api/schedules")).status == 401
+            r = await c.get("/api/schedules", headers=AUTH)
+            assert r.status == 200 and (await r.json())["ok"] is True
+            r = await c.post("/api/schedule", headers=AUTH, json={"text": "x", "when": 1})
+            data = await r.json()
+            assert data["ok"] is False and "past" in data["error"].lower()
+            r = await c.post("/api/schedule", headers=AUTH, json={"text": "x"})
+            assert (await r.json())["ok"] is False  # missing 'when'
+    _run(go())
+
+
 def test_ccmetrics_endpoint_and_collect():
     """ccmetrics.collect never raises (missing files → {}); endpoint needs auth."""
     from utils import ccmetrics

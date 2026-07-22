@@ -7,7 +7,7 @@ load_dotenv()
 # Bot settings
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0"))
-VERSION = "0.14.1"
+VERSION = "0.15.0"
 
 # Web dashboard / Mini App
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
@@ -34,6 +34,13 @@ CC_USAGE_CACHE = os.getenv(
 CC_PROJECTS_DIR = os.getenv("CC_PROJECTS_DIR", os.path.join(_CC_HOME, "projects"))
 # Context window for % calc: 1M-context models by default; set 200000 for standard
 CC_CONTEXT_WINDOW = int(os.getenv("CC_CONTEXT_WINDOW", "1000000"))
+
+# Scheduled messages (type text into a window at a set time — e.g. after limit reset)
+SCHEDULE_FILE = os.getenv("SCHEDULE_FILE", "scheduled_messages.json")
+SCHEDULE_POLL = int(os.getenv("SCHEDULE_POLL", "10"))  # seconds between due-checks
+# Delay after focusing the target window before typing — a non-foreground window
+# comes forward asynchronously, so typing too soon pastes into the wrong window
+SCHEDULE_FOCUS_SETTLE = float(os.getenv("SCHEDULE_FOCUS_SETTLE", "0.6"))
 
 # Paths
 LOG_FILE = "bot.log"

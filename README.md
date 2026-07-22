@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.14.1
+# TG-IDE-Bot v0.15.0
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -41,6 +41,12 @@ Set `WEB_TOKEN` (+ optionally `WEBAPP_URL` for Telegram Mini App) in `.env`, the
 Panels: screen (click-to-click remote, zoomable viewer), keys, actions, windows focus, projects (VSCode), type presets, Claude, shell.
 
 ## Changelog
+
+### v0.15.0 2026-07-23
+- Scheduled messages: queue text to type into a window at a set time (e.g. after a Claude Code limit reset) — `Scheduled` panel with reset-time quick buttons, live list + cancel; persistent, survives restart; TG notify on fire
+- Scheduler: focus-settle + VS Code integrated-terminal focus (types into the Claude terminal, not the editor)
+- Web: night theme toggle (🌙/☀ header, persisted); fix: zoomed lightbox now auto-refreshes the live frame
+- New: `utils/scheduler.py`, `/api/schedule` `/api/schedules` `/api/unschedule`, `SCHEDULE_*` config
 
 ### v0.14.1 2026-07-23
 - Web: `1` `2` `3` fast-answer keys in Keys rail (type digit+Enter for numbered prompts)
