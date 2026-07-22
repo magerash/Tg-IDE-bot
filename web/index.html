@@ -108,8 +108,7 @@ h1{font-size:17px;font-weight:600;text-align:center;padding:6px 0 2px;letter-spa
 .action-status.ok b{color:var(--ok)}
 
 /* Screen panel: label + buttons on one row */
-.screen-head{display:flex;align-items:center;gap:6px}
-.screen-head h3{margin:0 auto 0 0}
+.screen-head{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:8px}
 #screen-area{background:#fafbfc;border:1px dashed #d5d9e0;border-radius:10px;min-height:var(--screen-h);display:flex;align-items:center;justify-content:center;overflow:hidden;margin-top:10px;position:relative}
 #screen-area img{max-width:100%;height:auto;display:block;border-radius:9px}
 #screen-area .placeholder{color:var(--dim);font-size:13px}
@@ -229,10 +228,11 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
   <!-- Center column -->
   <div class="center">
 
-    <!-- Screen -->
+    <!-- Screen (controls below image → closer to input for fast tapping) -->
     <div class="panel">
+      <h3>Screen</h3>
+      <div id="screen-area"><span class="placeholder">Click Screenshot to capture</span></div>
       <div class="screen-head">
-        <h3>Screen</h3>
         <button class="btn btn-primary" id="btn-screen" onclick="doScreen()">Screenshot</button>
         <button class="btn" id="btn-window" onclick="doWindow()">Window</button>
         <button class="btn btn-sm btn-soft" onclick="autoRefresh()" id="auto-btn">Auto: OFF</button>
@@ -245,7 +245,6 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
         </select>
         <button class="btn btn-sm btn-soft" onclick="toggleClickMode()" id="click-btn">Click: OFF</button>
       </div>
-      <div id="screen-area"><span class="placeholder">Click Screenshot to capture</span></div>
     </div>
 
     <!-- Windows + Projects -->
@@ -295,7 +294,7 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
       <div class="btn-grid">
         <button class="btn btn-sm btn-soft" onclick="doTypePreset('/clear')">/clear</button>
         <button class="btn btn-sm btn-soft" onclick="doTypePreset('/caveman')">/caveman</button>
-        <button class="btn btn-sm btn-soft" onclick="doTypePreset('/ultrathink')">/ultrathink</button>
+        <button class="btn btn-sm btn-soft" onclick="doTypePreset('/ultrathink')">Ultrathink</button>
         <button class="btn btn-sm btn-soft" onclick="doTypePreset('/plan')">/plan</button>
         <button class="btn btn-sm btn-soft" onclick="doTypePreset('/hae:release-plan')">/hae:release-plan</button>
         <button class="btn btn-sm btn-soft" onclick="doTypePreset('/twin')">/twin</button>
@@ -375,14 +374,16 @@ let lastRect = null, clickMode = false, lastCapture = 'window';  // window captu
 /* ===== Keys / Actions rendered from one source of truth =====
    Same arrays feed the desktop rails AND the mobile chip rows,
    so the two layouts can never drift apart. */
+/* [label, key, repeat, fn?] — fn overrides the default doKey() (used by 1/2/3,
+   which type the digit + Enter to answer numbered prompts). */
 const KEYS = [
+  ['1',null,null,()=>doTypePreset('1')],['2',null,null,()=>doTypePreset('2')],['3',null,null,()=>doTypePreset('3')],
   ['Enter','enter'],['Esc','escape'],['Ctrl+C','ctrl+c'],['Tab','tab'],
   ['Sh+Tab','shift+tab'],['Bksp×30','backspace',30],['Up','up'],['Down','down'],
   ['Left','left'],['Right','right'],['Space','space'],['Ctrl+V','ctrl+v'],
   ['Ctrl+Z','ctrl+z'],['Ctrl+S','ctrl+s'],['Ctrl+A','ctrl+a'],['F5','f5']
 ];
 const ACTIONS = [
-  ['Click 250,1000','btn-red-soft',()=>doClick(250,1000)],
   ['Git Status','btn-soft',()=>doGit('status')],
   ['Git Log','btn-soft',()=>doGit('log')],
   ['Git Diff','btn-soft',()=>doGit('diff')],
@@ -394,10 +395,10 @@ const ACTIONS = [
 function renderTools(){
   document.querySelectorAll('[data-keys]').forEach(el=>{
     el.innerHTML='';
-    KEYS.forEach(([label,key,repeat])=>{
+    KEYS.forEach(([label,key,repeat,fn])=>{
       const b=document.createElement('button');
       b.className='btn'; b.textContent=label;
-      b.onclick=()=>doKey(key,repeat);
+      b.onclick=fn||(()=>doKey(key,repeat));
       el.appendChild(b);
     });
   });
