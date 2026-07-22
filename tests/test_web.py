@@ -97,7 +97,17 @@ def test_stt_requires_auth_and_key():
             from config import GROQ_API_KEY
             if not GROQ_API_KEY:
                 assert data["ok"] is False and "GROQ_API_KEY" in data["error"]
+            # humanize flag must not break the endpoint
+            r = await c.post("/api/stt?humanize=1", headers=AUTH, data=b"xxx",
+                             skip_auto_headers=["Content-Type"])
+            assert r.status in (200, 400)
     _run(go())
+
+
+def test_humanize_module():
+    """humanize() passes empty text through and module imports clean."""
+    from utils.humanize import humanize
+    assert asyncio.run(humanize("  ")) == "  "
 
 
 def test_index_served():

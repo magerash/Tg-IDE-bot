@@ -4,7 +4,7 @@ import logging
 import subprocess
 
 from utils import project
-from utils.window import focus_window_exact, list_windows
+from utils.window import focus_window_exact, get_active_window_title, list_windows
 
 logger = logging.getLogger("bot.web_extra")
 
@@ -15,7 +15,8 @@ async def api_windows(request):
         return _err("Unauthorized", 401)
     try:
         titles = await asyncio.to_thread(list_windows)
-        return _json({"ok": True, "windows": titles})
+        active = await asyncio.to_thread(get_active_window_title)
+        return _json({"ok": True, "windows": titles, "active": active})
     except Exception as e:
         logger.error("web /api/windows error: %s", e)
         return _err(str(e), 500)
@@ -121,7 +122,8 @@ async def api_paste(request):
 
 
 async def api_stt(request):
-    """POST raw audio body (webm/ogg/wav) → Groq Whisper → {text}."""
+    """POST raw audio body (webm/ogg/wav) → Groq Whisper → {text, raw}.
+    ?humanize=1 also cleans the transcript via LLM (falls back to raw on error)."""
     from handlers.web import _check_auth, _err, _json
     if not _check_auth(request):
         return _err("Unauthorized", 401)
@@ -134,10 +136,18 @@ async def api_stt(request):
         ext = ("webm" if "webm" in ctype else "ogg" if "ogg" in ctype
                else "m4a" if "mp4" in ctype else "wav")
         try:
-            text = await transcribe(data, f"mic.{ext}")
+            raw = await transcribe(data, f"mic.{ext}")
         except STTError as e:
             return _err(str(e))
-        return _json({"ok": True, "text": text})
+
+        text = raw
+        if raw and request.query.get("humanize") == "1":
+            from utils.humanize import humanize
+            try:
+                text = await humanize(raw)
+            except Exception as e:
+                logger.warning("humanize failed, returning raw: %s", e)
+        return _json({"ok": True, "text": text, "raw": raw})
     except Exception as e:
         logger.error("web /api/stt error: %s", e)
         return _err(str(e), 500)
