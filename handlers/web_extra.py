@@ -178,7 +178,22 @@ async def api_claude(request):
         return _err(str(e), 500)
 
 
+async def api_ccmetrics(request):
+    from handlers.web import _check_auth, _err, _json
+    if not _check_auth(request):
+        return _err("Unauthorized", 401)
+    try:
+        from utils import ccmetrics
+        pdir = project.get_dir()  # metrics follow the dashboard's selected project
+        m = await asyncio.to_thread(ccmetrics.collect, pdir)
+        return _json({"ok": True, "metrics": m})
+    except Exception as e:
+        logger.error("web /api/ccmetrics error: %s", e)
+        return _err(str(e), 500)
+
+
 def register_extra_routes(app):
+    app.router.add_get("/api/ccmetrics", api_ccmetrics)
     app.router.add_get("/api/windows", api_windows)
     app.router.add_post("/api/focus", api_focus)
     app.router.add_get("/api/folders", api_folders)
