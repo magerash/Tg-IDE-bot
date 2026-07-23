@@ -66,6 +66,9 @@ async def run():
     await tg_app.updater.start_polling()
     logger.info("Telegram bot started (v%s)", VERSION)
 
+    from utils.scheduler import run_scheduler_loop
+    asyncio.create_task(run_scheduler_loop(tg_app.bot))
+
     runner = None
     if WEB_TOKEN or WEBAPP_URL:
         from handlers.web import create_web_app, setup_menu_button

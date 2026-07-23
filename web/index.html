@@ -5,19 +5,32 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TG-IDE-Bot</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script>try{var _t=localStorage.getItem('tg_theme');if(_t)document.documentElement.dataset.theme=_t;}catch(e){}</script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
   --bg:#faf9f7;--card:#fff;--text:#1c1917;--dim:#a09b93;--border:#eae7e2;
   --accent:#1c1917;--accent-hover:#3f3a36;--accent-soft:#f0eeea;--accent-soft-hover:#e6e3dd;
+  --accent-fg:#fff;        /* text on --accent (primary buttons) */
   --ok:#16a34a;--ok-soft:#e9f7ee;--ok-soft-hover:#daf0e2;
   --err:#dc2626;--err-hover:#c7202f;--err-soft:#fdeceb;--err-soft-hover:#fadcda;
   --dark:#1c1917;--shadow:0 1px 2px rgba(28,25,23,.05);
   --rail-w:170px;          /* width of Keys / Actions side rails */
   --screen-h:260px;        /* min-height of the screenshot area */
 }
+/* Night theme (Warm Mono dark) — toggled via data-theme on <html> */
+:root[data-theme="dark"]{
+  --bg:#1a1917;--card:#242220;--text:#ece9e4;--dim:#8a847c;--border:#35322e;
+  --accent:#ece9e4;--accent-hover:#d8d4cd;--accent-soft:#302d2a;--accent-soft-hover:#3a3733;
+  --accent-fg:#1a1917;
+  --ok:#22c55e;--ok-soft:#183a25;--ok-soft-hover:#1f4a2f;
+  --err:#f05252;--err-hover:#e23b3b;--err-soft:#3a1e1e;--err-soft-hover:#4a2525;
+  --dark:#100f0d;--shadow:0 1px 3px rgba(0,0,0,.45);
+}
 body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:16px}
 h1{font-size:17px;font-weight:600;text-align:center;padding:6px 0 2px;letter-spacing:-.2px}
+.theme-toggle{position:absolute;top:16px;right:16px;width:34px;height:34px;border:1px solid var(--border);border-radius:9px;background:var(--card);color:var(--text);font-size:16px;cursor:pointer;line-height:1;z-index:50;box-shadow:var(--shadow)}
+.theme-toggle:hover{background:var(--accent-soft)}
 .status-bar{display:flex;justify-content:center;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--dim);padding:4px 0 14px}
 .status-bar span{color:var(--text);font-weight:500}
 
@@ -58,9 +71,9 @@ h1{font-size:17px;font-weight:600;text-align:center;padding:6px 0 2px;letter-spa
 
 /* Buttons */
 .btn{padding:8px 14px;border:1px solid var(--border);border-radius:9px;cursor:pointer;font-size:13px;font-weight:500;font-family:inherit;background:var(--card);color:var(--text);transition:background .15s,transform .1s,border-color .15s}
-.btn:hover{background:#f1f0ed}
+.btn:hover{background:var(--accent-soft)}
 .btn:active{transform:scale(.96)}
-.btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
 .btn-primary:hover{background:var(--accent-hover)}
 .btn-red{background:var(--err);border-color:var(--err);color:#fff}
 .btn-red:hover{background:var(--err-hover)}
@@ -108,8 +121,7 @@ h1{font-size:17px;font-weight:600;text-align:center;padding:6px 0 2px;letter-spa
 .action-status.ok b{color:var(--ok)}
 
 /* Screen panel: label + buttons on one row */
-.screen-head{display:flex;align-items:center;gap:6px}
-.screen-head h3{margin:0 auto 0 0}
+.screen-head{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:8px}
 #screen-area{background:#fafbfc;border:1px dashed #d5d9e0;border-radius:10px;min-height:var(--screen-h);display:flex;align-items:center;justify-content:center;overflow:hidden;margin-top:10px;position:relative}
 #screen-area img{max-width:100%;height:auto;display:block;border-radius:9px}
 #screen-area .placeholder{color:var(--dim);font-size:13px}
@@ -128,6 +140,15 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 .input-row input:focus,.input-row textarea:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
 .input-row .btn{flex-shrink:0}
 .btn-grid{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.sched-when{padding:8px 10px;border:1px solid var(--border);border-radius:9px;background:var(--card);color:var(--text);font-family:inherit;font-size:13px}
+.sched-opt{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--dim);cursor:pointer;white-space:nowrap}
+.sched-opt input{cursor:pointer}
+#sched-list{margin-top:8px}
+.sched-row{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:9px;margin-top:6px}
+.sched-row .sched-info{flex:1;min-width:0}
+.sched-txt{font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sched-meta{font-size:11px;color:var(--dim);margin-top:2px}
+.sched-row .btn{flex-shrink:0}
 
 /* Mobile tool chips (hidden on desktop) */
 .mob-tools{display:none;flex-direction:column;gap:8px}
@@ -200,6 +221,7 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 <!-- Main UI -->
 <div id="main" style="display:none">
 <div class="wrap">
+<button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle night theme">🌙</button>
 <h1>TG-IDE-Bot</h1>
 <div class="status-bar" id="status-bar">Connecting...</div>
 
@@ -229,10 +251,11 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
   <!-- Center column -->
   <div class="center">
 
-    <!-- Screen -->
+    <!-- Screen (controls below image → closer to input for fast tapping) -->
     <div class="panel">
+      <h3>Screen</h3>
+      <div id="screen-area"><span class="placeholder">Click Screenshot to capture</span></div>
       <div class="screen-head">
-        <h3>Screen</h3>
         <button class="btn btn-primary" id="btn-screen" onclick="doScreen()">Screenshot</button>
         <button class="btn" id="btn-window" onclick="doWindow()">Window</button>
         <button class="btn btn-sm btn-soft" onclick="autoRefresh()" id="auto-btn">Auto: OFF</button>
@@ -245,7 +268,6 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
         </select>
         <button class="btn btn-sm btn-soft" onclick="toggleClickMode()" id="click-btn">Click: OFF</button>
       </div>
-      <div id="screen-area"><span class="placeholder">Click Screenshot to capture</span></div>
     </div>
 
     <!-- Windows + Projects -->
@@ -295,7 +317,7 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
       <div class="btn-grid">
         <button class="btn btn-sm btn-soft" onclick="doTypePreset('/clear')">/clear</button>
         <button class="btn btn-sm btn-soft" onclick="doTypePreset('/caveman')">/caveman</button>
-        <button class="btn btn-sm btn-soft" onclick="doTypePreset('/ultrathink')">/ultrathink</button>
+        <button class="btn btn-sm btn-soft" onclick="doTypePreset('/ultrathink')">Ultrathink</button>
         <button class="btn btn-sm btn-soft" onclick="doTypePreset('/plan')">/plan</button>
         <button class="btn btn-sm btn-soft" onclick="doTypePreset('/hae:release-plan')">/hae:release-plan</button>
         <button class="btn btn-sm btn-soft" onclick="doTypePreset('/twin')">/twin</button>
@@ -310,6 +332,23 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
     <div class="panel">
       <h3>History <button class="btn btn-sm btn-soft" style="float:right;margin-top:-4px" onclick="clearHistory()">Clear</button></h3>
       <div id="history-list"><span class="hint">Sent messages appear here — click one to refill its input</span></div>
+    </div>
+
+    <!-- Scheduled Messages -->
+    <div class="panel">
+      <h3>Scheduled <button class="btn btn-sm btn-soft" style="float:right;margin-top:-4px" onclick="loadSchedules()">&#10227; Refresh</button></h3>
+      <div class="input-row">
+        <textarea id="sched-text" rows="2" placeholder="Message to type into the focused window at the scheduled time..."></textarea>
+      </div>
+      <div class="btn-grid">
+        <input type="datetime-local" id="sched-when" class="sched-when">
+        <button class="btn btn-sm btn-soft" onclick="schedAtReset('5h')">After 5h reset</button>
+        <button class="btn btn-sm btn-soft" onclick="schedAtReset('wk')">After weekly reset</button>
+        <label class="sched-opt"><input type="checkbox" id="sched-term" checked> VS Code terminal</label>
+        <button class="btn btn-primary" onclick="doSchedule()">Schedule</button>
+      </div>
+      <div id="sched-list"><span class="hint">No scheduled messages</span></div>
+      <p class="hint">Fires text + Enter into the window focused when you scheduled it. "VS Code terminal" moves focus into the integrated terminal first (for Claude Code). Reset buttons need metrics loaded.</p>
     </div>
 
     <!-- Mobile-only Actions chips (below the type zone) -->
@@ -375,14 +414,16 @@ let lastRect = null, clickMode = false, lastCapture = 'window';  // window captu
 /* ===== Keys / Actions rendered from one source of truth =====
    Same arrays feed the desktop rails AND the mobile chip rows,
    so the two layouts can never drift apart. */
+/* [label, key, repeat, fn?] — fn overrides the default doKey() (used by 1/2/3,
+   which type the digit + Enter to answer numbered prompts). */
 const KEYS = [
+  ['1',null,null,()=>doTypePreset('1')],['2',null,null,()=>doTypePreset('2')],['3',null,null,()=>doTypePreset('3')],
   ['Enter','enter'],['Esc','escape'],['Ctrl+C','ctrl+c'],['Tab','tab'],
   ['Sh+Tab','shift+tab'],['Bksp×30','backspace',30],['Up','up'],['Down','down'],
   ['Left','left'],['Right','right'],['Space','space'],['Ctrl+V','ctrl+v'],
   ['Ctrl+Z','ctrl+z'],['Ctrl+S','ctrl+s'],['Ctrl+A','ctrl+a'],['F5','f5']
 ];
 const ACTIONS = [
-  ['Click 250,1000','btn-red-soft',()=>doClick(250,1000)],
   ['Git Status','btn-soft',()=>doGit('status')],
   ['Git Log','btn-soft',()=>doGit('log')],
   ['Git Diff','btn-soft',()=>doGit('diff')],
@@ -391,13 +432,27 @@ const ACTIONS = [
   ['APK List','btn-soft',()=>doApks()],
   ['Restart Bot','btn-red-soft',()=>doRestart()]
 ];
+/* ===== Theme (night/day) ===== */
+function applyTheme(t){
+  if(t==='dark') document.documentElement.dataset.theme='dark';
+  else document.documentElement.removeAttribute('data-theme');
+  const b=document.getElementById('theme-toggle');
+  if(b) b.textContent = t==='dark' ? '☀' : '🌙';
+}
+function toggleTheme(){
+  const next = document.documentElement.dataset.theme==='dark' ? 'light' : 'dark';
+  try{ localStorage.setItem('tg_theme', next); }catch(e){}
+  applyTheme(next);
+}
+applyTheme(localStorage.getItem('tg_theme')||'light');
+
 function renderTools(){
   document.querySelectorAll('[data-keys]').forEach(el=>{
     el.innerHTML='';
-    KEYS.forEach(([label,key,repeat])=>{
+    KEYS.forEach(([label,key,repeat,fn])=>{
       const b=document.createElement('button');
       b.className='btn'; b.textContent=label;
-      b.onclick=()=>doKey(key,repeat);
+      b.onclick=fn||(()=>doKey(key,repeat));
       el.appendChild(b);
     });
   });
@@ -456,7 +511,7 @@ async function checkAuth() {
       document.getElementById('auth-overlay').style.display = 'none';
       document.getElementById('main').style.display = 'block';
       updateStatus(r);
-      loadWindows(); loadFolders(); loadCCMetrics();
+      loadWindows(); loadFolders(); loadCCMetrics(); loadSchedules();
       setInterval(refreshStatus, 30000);
       // Screen live from the start: capture + Auto refresh (3s default), Click stays OFF
       if (!autoTimer) autoRefresh();
@@ -518,6 +573,7 @@ async function refreshStatus() {
     if (r.ok) updateStatus(r);
   } catch(e) {}
   loadCCMetrics();
+  loadSchedules();
 }
 
 /* ===== Claude Code metrics (model/effort/context + 5h/weekly limits) ===== */
@@ -611,6 +667,10 @@ async function capture(path, kind) {
       area.replaceChildren(im);     // atomic swap of a fresh node — no flicker, no old handlers
       bindImgClick();
       _syncModeButtons();
+      // Push the fresh frame to the open lightbox (keeps zoom/pan; no stale-frame lag)
+      if (_lbBox().style.display === 'block') {
+        const li = _lbImg(); li.onload = null; li.src = im.src;
+      }
       setStatus(kind === 'window' ? 'Window updated' : 'Screen updated', false);
     };
     im.onerror = () => { if (seq === _capSeq) setStatus('Image decode failed', true); };
@@ -894,13 +954,9 @@ async function _lbClickAt(cx, cy, double) {
 }
 
 async function _lbRefresh() {
+  // capture()'s onload pushes the fresh frame into the lightbox once decoded —
+  // no manual copy here (that read #screen-area before the new node was swapped in).
   await refreshCurrent();
-  const cur = document.querySelector("#screen-area img");
-  if (cur && _lbBox().style.display === "block") {
-    const img = _lbImg();
-    img.onload = null;
-    img.src = cur.src;
-  }
 }
 
 /* ===== Windows / Projects ===== */
@@ -1225,6 +1281,78 @@ async function doType() {
     attachments.forEach(a => a.url && URL.revokeObjectURL(a.url));
     attachments.length = 0;
     renderAttachments();
+  } catch(e) { toast(e.message, true); }
+}
+
+/* ===== Scheduled messages ===== */
+function _toLocalInput(d) {
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function schedAtReset(which) {
+  const iso = which === '5h' ? _cc5hReset : _ccWkReset;
+  if (!iso) { toast('No reset time yet — refresh metrics', true); return; }
+  const d = new Date(new Date(iso).getTime() + 60000);  // +1 min after reset
+  document.getElementById('sched-when').value = _toLocalInput(d);
+  toast('Time set to ' + (which === '5h' ? '5-hour' : 'weekly') + ' reset +1m');
+}
+
+async function doSchedule() {
+  const text = document.getElementById('sched-text').value.trim();
+  const w = document.getElementById('sched-when').value;
+  if (!text) { toast('Enter a message', true); return; }
+  if (!w) { toast('Pick a time', true); return; }
+  const when = Math.floor(new Date(w).getTime() / 1000);
+  const terminal = document.getElementById('sched-term').checked;
+  try {
+    const r = await api('POST', '/api/schedule', {text, when, enter: true, terminal});
+    if (r.ok) { toast('Scheduled'); document.getElementById('sched-text').value = ''; loadSchedules(); }
+    else toast(r.error, true);
+  } catch(e) { toast(e.message, true); }
+}
+
+function _fmtIn(sec) {
+  if (sec <= 0) return 'due';
+  const m = Math.floor(sec / 60), h = Math.floor(m / 60), d = Math.floor(h / 24);
+  if (d > 0) return `in ${d}d ${h % 24}h`;
+  if (h > 0) return `in ${h}h ${m % 60}m`;
+  if (m > 0) return `in ${m}m`;
+  return `in ${sec}s`;
+}
+
+function _schedRow(j, now) {
+  const row = document.createElement('div'); row.className = 'sched-row';
+  const info = document.createElement('div'); info.className = 'sched-info';
+  const txt = document.createElement('div'); txt.className = 'sched-txt';
+  txt.textContent = j.text; txt.title = j.text;
+  const meta = document.createElement('div'); meta.className = 'sched-meta';
+  const when = new Date(j.when * 1000);
+  meta.textContent = when.toLocaleString() + ' · ' + _fmtIn(j.when - now)
+    + (j.window ? ' · ' + j.window : '') + (j.terminal ? ' · ⌨ terminal' : '');
+  info.appendChild(txt); info.appendChild(meta);
+  const x = document.createElement('button');
+  x.className = 'btn btn-sm btn-red-soft'; x.textContent = '✕';
+  x.onclick = () => cancelSchedule(j.id);
+  row.appendChild(info); row.appendChild(x);
+  return row;
+}
+
+async function loadSchedules() {
+  try {
+    const r = await api('GET', '/api/schedules');
+    if (!r.ok) return;
+    const box = document.getElementById('sched-list');
+    if (!r.jobs.length) { box.innerHTML = '<span class="hint">No scheduled messages</span>'; return; }
+    box.replaceChildren(...r.jobs.map(j => _schedRow(j, r.now)));
+  } catch(e) {}
+}
+
+async function cancelSchedule(id) {
+  try {
+    const r = await api('POST', '/api/unschedule', {id});
+    toast(r.ok ? 'Cancelled' : 'Not found', !r.ok);
+    loadSchedules();
   } catch(e) { toast(e.message, true); }
 }
 
