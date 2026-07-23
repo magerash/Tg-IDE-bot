@@ -21,6 +21,26 @@ h1{font-size:17px;font-weight:600;text-align:center;padding:6px 0 2px;letter-spa
 .status-bar{display:flex;justify-content:center;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--dim);padding:4px 0 14px}
 .status-bar span{color:var(--text);font-weight:500}
 
+/* ===== Claude Code metrics card ===== */
+.cc-metrics{max-width:640px;margin:0 auto 14px;background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);padding:10px 14px}
+.cc-tags{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:9px}
+.cc-refresh{margin-left:auto;flex-shrink:0;width:26px;height:26px;border:1px solid var(--border);border-radius:7px;background:var(--card);color:var(--dim);font-size:14px;cursor:pointer;line-height:1;transition:background .15s,color .15s}
+.cc-refresh:hover{background:var(--accent-soft);color:var(--text)}
+.cc-refresh.spin{animation:cc-spin .6s linear}
+@keyframes cc-spin{to{transform:rotate(360deg)}}
+.cc-chip{font-size:11px;font-weight:600;padding:3px 9px;border-radius:7px;background:var(--accent-soft);color:var(--text);letter-spacing:.2px}
+.cc-chip.cc-effort{background:var(--dark);color:#fff;text-transform:capitalize}
+.cc-chip.cc-dim{background:transparent;border:1px solid var(--border);color:var(--dim);font-weight:500}
+.cc-meters{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.cc-meter-head{display:flex;justify-content:space-between;font-size:11px;color:var(--dim);margin-bottom:4px}
+.cc-meter-head span:last-child{color:var(--text);font-weight:600}
+.cc-bar{height:6px;border-radius:4px;background:var(--accent-soft);overflow:hidden}
+.cc-bar i{display:block;height:100%;width:0;border-radius:4px;background:var(--ok);transition:width .4s,background .4s}
+.cc-bar i.warn{background:#d97706}
+.cc-bar i.danger{background:var(--err)}
+.cc-reset{font-size:10px;color:var(--dim);margin-top:3px;min-height:12px}
+@media(max-width:560px){.cc-meters{grid-template-columns:1fr}}
+
 /* ===== Layout: rails + fluid center =====
    The page is fluid up to 1500px, so inputs scale with the window.
    Desktop: [Keys rail] [center column, flex] [Actions rail]
@@ -105,13 +125,6 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 .input-row input,.input-row textarea{flex:1 1 auto;min-width:0;background:var(--card);border:1px solid var(--border);border-radius:9px;padding:9px 12px;color:var(--text);font-size:13px;font-family:inherit;transition:border-color .15s,box-shadow .15s}
 .input-row textarea{resize:vertical;min-height:84px;max-height:400px;line-height:1.4}
 .input-row input::placeholder,.input-row textarea::placeholder{color:var(--dim)}
-/* Visible diagonal-grip resize handle (default webkit dot is near-invisible) */
-.input-row textarea::-webkit-resizer{
-  background:linear-gradient(135deg,
-    transparent 0 35%, var(--dim) 35% 43%, transparent 43% 57%,
-    var(--dim) 57% 65%, transparent 65% 79%, var(--dim) 79% 87%, transparent 87%);
-  border-radius:0 0 8px 0;
-}
 .input-row input:focus,.input-row textarea:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
 .input-row .btn{flex-shrink:0}
 .btn-grid{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
@@ -189,6 +202,21 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 <div class="wrap">
 <h1>TG-IDE-Bot</h1>
 <div class="status-bar" id="status-bar">Connecting...</div>
+
+<!-- Claude Code live metrics -->
+<div class="cc-metrics" id="cc-metrics" style="display:none">
+  <div class="cc-tags">
+    <span class="cc-chip" id="cc-model">—</span>
+    <span class="cc-chip cc-effort" id="cc-effort" style="display:none"></span>
+    <span class="cc-chip cc-dim" id="cc-session" style="display:none" title="active Claude Code session"></span>
+    <button class="cc-refresh" id="cc-refresh" onclick="loadCCMetrics()" title="Refresh Claude metrics">↻</button>
+  </div>
+  <div class="cc-meters">
+    <div class="cc-meter"><div class="cc-meter-head"><span>Context</span><span id="cc-ctx-val">—</span></div><div class="cc-bar"><i id="cc-ctx-bar"></i></div><div class="cc-reset"></div></div>
+    <div class="cc-meter"><div class="cc-meter-head"><span>5-hour</span><span id="cc-5h-val">—</span></div><div class="cc-bar"><i id="cc-5h-bar"></i></div><div class="cc-reset" id="cc-5h-reset"></div></div>
+    <div class="cc-meter"><div class="cc-meter-head"><span>Weekly</span><span id="cc-wk-val">—</span></div><div class="cc-bar"><i id="cc-wk-bar"></i></div><div class="cc-reset" id="cc-wk-reset"></div></div>
+  </div>
+</div>
 
 <div class="main-row">
 
@@ -428,7 +456,7 @@ async function checkAuth() {
       document.getElementById('auth-overlay').style.display = 'none';
       document.getElementById('main').style.display = 'block';
       updateStatus(r);
-      loadWindows(); loadFolders();
+      loadWindows(); loadFolders(); loadCCMetrics();
       setInterval(refreshStatus, 30000);
       // Screen live from the start: capture + Auto refresh (3s default), Click stays OFF
       if (!autoTimer) autoRefresh();
@@ -489,6 +517,65 @@ async function refreshStatus() {
     const r = await api('GET', '/api/status');
     if (r.ok) updateStatus(r);
   } catch(e) {}
+  loadCCMetrics();
+}
+
+/* ===== Claude Code metrics (model/effort/context + 5h/weekly limits) ===== */
+let _cc5hReset = null, _ccWkReset = null, _ccTick = null;
+
+function _ccMeter(barId, valId, percent, label) {
+  const bar = document.getElementById(barId), val = document.getElementById(valId);
+  if (percent == null) { val.textContent = '—'; bar.style.width = '0'; return; }
+  const p = Math.max(0, Math.min(100, percent));
+  bar.style.width = p + '%';
+  bar.className = p >= 90 ? 'danger' : p >= 70 ? 'warn' : '';
+  val.textContent = label || (Number.isInteger(percent) ? percent : percent.toFixed(1)) + '%';
+}
+
+function _ccFmtLeft(iso) {
+  if (!iso) return '';
+  const ms = new Date(iso) - new Date();
+  if (ms <= 0) return 'resetting…';
+  const m = Math.floor(ms / 60000), h = Math.floor(m / 60), d = Math.floor(h / 24);
+  if (d > 0) return `resets in ${d}d ${h % 24}h`;
+  if (h > 0) return `resets in ${h}h ${m % 60}m`;
+  return `resets in ${m}m`;
+}
+
+function _ccTickCountdown() {
+  document.getElementById('cc-5h-reset').textContent = _ccFmtLeft(_cc5hReset);
+  document.getElementById('cc-wk-reset').textContent = _ccFmtLeft(_ccWkReset);
+}
+
+async function loadCCMetrics() {
+  const rf = document.getElementById('cc-refresh');
+  if (rf) rf.classList.add('spin');
+  try {
+    const r = await api('GET', '/api/ccmetrics');
+    if (!r.ok || !r.metrics) return;
+    const m = r.metrics;
+    document.getElementById('cc-metrics').style.display = 'block';
+    document.getElementById('cc-model').textContent = (m.model || '—').replace(/^claude-/, '');
+    const ef = document.getElementById('cc-effort');
+    if (m.effort) { ef.textContent = 'effort: ' + m.effort; ef.style.display = ''; }
+    else ef.style.display = 'none';
+    const se = document.getElementById('cc-session');
+    if (m.session_project) {
+      se.textContent = m.session_project + (m.session_branch ? ' · ' + m.session_branch : '');
+      se.style.display = '';
+    } else se.style.display = 'none';
+    const ctxLabel = m.context_percent != null
+      ? `${m.context_percent}% · ${Math.round((m.context_tokens || 0) / 1000)}k` : null;
+    _ccMeter('cc-ctx-bar', 'cc-ctx-val', m.context_percent, ctxLabel);
+    _ccMeter('cc-5h-bar', 'cc-5h-val', m.five_hour_percent);
+    _ccMeter('cc-wk-bar', 'cc-wk-val', m.weekly_percent);
+    _cc5hReset = m.five_hour_resets_at; _ccWkReset = m.weekly_resets_at;
+    _ccTickCountdown();
+    if (!_ccTick) _ccTick = setInterval(_ccTickCountdown, 1000);
+  } catch(e) {
+  } finally {
+    if (rf) setTimeout(() => rf.classList.remove('spin'), 600);
+  }
 }
 
 /* ===== Screen =====
@@ -910,7 +997,7 @@ async function _setProject(folder) {
   try {
     const r = await api('POST', '/api/project', {folder});
     toast(r.msg || r.error, !r.ok);
-    if (r.ok) { bumpRecent('proj', folder); loadFolders(); }
+    if (r.ok) { bumpRecent('proj', folder); loadFolders(); loadCCMetrics(); }
   } catch(e) { toast(e.message, true); }
 }
 
@@ -926,7 +1013,7 @@ async function doCodeSel() {
   try {
     const r = await api('POST', '/api/code', {folder});
     toast(r.msg || r.error, !r.ok);
-    if (r.ok) { bumpRecent('proj', folder); loadFolders(); }
+    if (r.ok) { bumpRecent('proj', folder); loadFolders(); loadCCMetrics(); }
   } catch(e) { toast(e.message, true); }
 }
 

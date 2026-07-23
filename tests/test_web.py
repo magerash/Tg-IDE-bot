@@ -110,6 +110,23 @@ def test_humanize_module():
     assert asyncio.run(humanize("  ")) == "  "
 
 
+def test_ccmetrics_endpoint_and_collect():
+    """ccmetrics.collect never raises (missing files → {}); endpoint needs auth."""
+    from utils import ccmetrics
+    m = ccmetrics.collect()
+    assert isinstance(m, dict)
+
+    async def go():
+        async with await _client() as c:
+            r = await c.get("/api/ccmetrics")
+            assert r.status == 401  # auth required
+            r = await c.get("/api/ccmetrics", headers=AUTH)
+            assert r.status == 200
+            data = await r.json()
+            assert data["ok"] is True and isinstance(data["metrics"], dict)
+    _run(go())
+
+
 def test_index_served():
     async def go():
         async with await _client() as c:

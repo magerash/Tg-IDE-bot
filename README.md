@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.13.0
+# TG-IDE-Bot v0.14.0
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -41,6 +41,12 @@ Set `WEB_TOKEN` (+ optionally `WEBAPP_URL` for Telegram Mini App) in `.env`, the
 Panels: screen (click-to-click remote, zoomable viewer), keys, actions, windows focus, projects (VSCode), type presets, Claude, shell.
 
 ## Changelog
+
+### v0.14.0 2026-07-22
+- Claude Code metrics: live web card — model + effort tags, context %, 5-hour & weekly limit blocks with reset countdowns
+- Reads local `~/.claude` state (OMC usage cache + session transcripts); metrics follow the selected project
+- ↻ refresh button + 30s auto-poll; `/api/ccmetrics`, `utils/ccmetrics.py`, `CC_*` config
+- Fix: oversized textarea resize grip → subtle default handle
 
 ### v0.13.0 2026-07-22
 - Humanize: raw dictation → clean prompt text via Groq LLM; TG Raw/Clean toggle, web AI: ON/OFF toggle

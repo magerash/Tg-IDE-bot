@@ -7,7 +7,7 @@ load_dotenv()
 # Bot settings
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0"))
-VERSION = "0.13.0"
+VERSION = "0.14.0"
 
 # Web dashboard / Mini App
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
@@ -24,6 +24,16 @@ STT_MODEL = os.getenv("STT_MODEL", "whisper-large-v3-turbo")
 # Transcript cleanup (same Groq key)
 HUMANIZE_MODEL = os.getenv("HUMANIZE_MODEL", "llama-3.3-70b-versatile")
 HUMANIZE_DEFAULT = os.getenv("HUMANIZE_DEFAULT", "1") == "1"
+
+# Claude Code metrics (live model/effort/context + 5h/weekly limits)
+_CC_HOME = os.path.join(os.path.expanduser("~"), ".claude")
+CC_USAGE_CACHE = os.getenv(
+    "CC_USAGE_CACHE",
+    os.path.join(_CC_HOME, "plugins", "oh-my-claudecode", ".usage-cache-anthropic.json"),
+)
+CC_PROJECTS_DIR = os.getenv("CC_PROJECTS_DIR", os.path.join(_CC_HOME, "projects"))
+# Context window for % calc: 1M-context models by default; set 200000 for standard
+CC_CONTEXT_WINDOW = int(os.getenv("CC_CONTEXT_WINDOW", "1000000"))
 
 # Paths
 LOG_FILE = "bot.log"
