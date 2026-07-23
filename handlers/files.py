@@ -54,9 +54,15 @@ async def build_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.debug("/build called, cwd=%s, send_apk=%s", cwd, send_apk)
 
     gradlew = os.path.join(cwd, "gradlew.bat") if cwd else "gradlew.bat"
-    cmd = [gradlew, "assembleDebug"]
-    await update.message.reply_text("Building...")
+    await update.message.reply_text("Cleaning & building...")
     try:
+        logger.debug("Running clean before build")
+        subprocess.run(
+            [gradlew, "clean"], cwd=cwd,
+            capture_output=True, timeout=120,
+            encoding="utf-8", errors="replace",
+        )
+        cmd = [gradlew, "assembleDebug"]
         proc = subprocess.run(
             cmd, cwd=cwd,
             capture_output=True, timeout=300,

@@ -12,7 +12,11 @@
       "WebSearch",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "WebFetch(domain:core.telegram.org)"
+      "WebFetch(domain:core.telegram.org)",
+      "Bash(git add:*)",
+      "Bash(git push:*)",
+      "Bash(wmic process:*)",
+      "Bash(start python:*)"
     ]
   }
 }
