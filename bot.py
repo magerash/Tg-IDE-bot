@@ -91,6 +91,8 @@ def main():
     if not BOT_TOKEN:
         logger.error("BOT_TOKEN not set. Create .env file from .env.example")
         return
+    from utils.singleton import kill_other_instances
+    kill_other_instances()
     asyncio.run(run())
 
 

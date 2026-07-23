@@ -1,23 +1,14 @@
 import logging
-import time
 import pygetwindow as gw
+
+from utils.winfocus import force_foreground
 
 logger = logging.getLogger("bot.window")
 
 
-def _activate_window(win):
-    """Activate window with minimize/restore fallback for Windows."""
-    try:
-        win.activate()
-    except Exception:
-        # Windows blocks .activate() when caller isn't foreground —
-        # minimize+restore forces the OS to bring it forward
-        if win.isMinimized:
-            win.restore()
-        else:
-            win.minimize()
-            time.sleep(0.1)
-            win.restore()
+def _activate_window(win) -> bool:
+    """Activate window via Win32 foreground chain; returns real success."""
+    return force_foreground(win._hWnd)
 
 
 def focus_window(title: str) -> tuple[bool, str]:
@@ -29,10 +20,11 @@ def focus_window(title: str) -> tuple[bool, str]:
             return False, f"No window found matching '{title}'"
 
         win = matches[0]
-        _activate_window(win)
-        time.sleep(0.3)
-        logger.debug("Focused window: %s", win.title)
-        return True, f"Focused: {win.title}"
+        ok = _activate_window(win)
+        logger.debug("Focused window: %s (ok=%s)", win.title, ok)
+        if ok:
+            return True, f"Focused: {win.title}"
+        return False, f"Focus blocked: {win.title} (admin window?)"
     except Exception as e:
         logger.error("focus_window error: %s", e)
         return False, f"Focus failed: {e}"
@@ -58,15 +50,28 @@ def list_windows(limit: int = 30) -> list[str]:
 
 
 def focus_window_exact(title: str) -> tuple[bool, str]:
-    """Focus window by exact title match."""
+    """Focus window by exact title; fuzzy fallback for titles that changed since listing."""
     try:
-        for w in gw.getAllWindows():
-            if w.title == title:
-                _activate_window(w)
-                time.sleep(0.3)
-                logger.debug("Focused window (exact): %s", title)
-                return True, f"Focused: {title}"
-        return False, f"Window gone: '{title}'"
+        windows = [w for w in gw.getAllWindows() if (w.title or "").strip()]
+        target = next((w for w in windows if w.title == title), None)
+        if target is None:
+            # Title changed since /win list (VSCode retitles per open file etc.) —
+            # match by longest shared prefix / containment
+            t = title.lower()
+            target = next(
+                (w for w in windows
+                 if t in w.title.lower() or w.title.lower() in t
+                 or w.title.lower()[:25] == t[:25]),
+                None,
+            )
+        if target is None:
+            return False, f"Window gone: '{title}'"
+
+        ok = _activate_window(target)
+        logger.debug("Focused window (exact): %s (ok=%s)", target.title, ok)
+        if ok:
+            return True, f"Focused: {target.title}"
+        return False, f"Focus blocked: {target.title} (admin window?)"
     except Exception as e:
         logger.error("focus_window_exact error: %s", e)
         return False, f"Focus failed: {e}"

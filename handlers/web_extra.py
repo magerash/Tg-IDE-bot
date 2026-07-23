@@ -89,6 +89,37 @@ async def api_project(request):
         return _err(str(e), 500)
 
 
+async def api_paste(request):
+    """POST {image: base64, paste: bool} — put image on PC clipboard, optionally Ctrl+V it."""
+    import base64
+
+    from handlers.web import _check_auth, _err, _json
+    if not _check_auth(request):
+        return _err("Unauthorized", 401)
+    try:
+        data = await request.json()
+        b64 = data.get("image", "")
+        if not b64:
+            return _err("Missing 'image'")
+        raw = base64.b64decode(b64)
+        if len(raw) > 15 * 1024 * 1024:
+            return _err("Image too large (15MB limit)")
+
+        from utils.clipimg import set_clipboard_image
+        ok = await asyncio.to_thread(set_clipboard_image, raw)
+        if not ok:
+            return _err("Clipboard set failed", 500)
+
+        if data.get("paste", True):
+            import pyautogui
+            await asyncio.to_thread(pyautogui.hotkey, "ctrl", "v")
+        logger.debug("web /api/paste: %d bytes, paste=%s", len(raw), data.get("paste", True))
+        return _json({"ok": True, "msg": f"Image pasted ({len(raw) // 1024}KB)"})
+    except Exception as e:
+        logger.error("web /api/paste error: %s", e)
+        return _err(str(e), 500)
+
+
 async def api_claude(request):
     from handlers.web import _check_auth, _err, _json
     if not _check_auth(request):
@@ -121,4 +152,5 @@ def register_extra_routes(app):
     app.router.add_post("/api/code", api_code)
     app.router.add_get("/api/project", api_project)
     app.router.add_post("/api/project", api_project)
+    app.router.add_post("/api/paste", api_paste)
     app.router.add_post("/api/claude", api_claude)

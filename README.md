@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.10.0
+# TG-IDE-Bot v0.11.0
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -41,6 +41,13 @@ Set `WEB_TOKEN` (+ optionally `WEBAPP_URL` for Telegram Mini App) in `.env`, the
 Panels: screen (click-to-click remote, zoomable viewer), keys, actions, windows focus, projects (VSCode), type presets, Claude, shell.
 
 ## Changelog
+
+### v0.11.0 2026-07-21
+- Web UI: multi-row inputs (Type/Claude/Shell), paste compose with text-block and image chips, History panel
+- Screen: auto-refresh interval selector, lightbox Auto/seconds pills, active-mode highlight
+- Fix: capture race guard, one-click lag, token wipe on empty login
+- Focus: Win32 activation chain — works on all windows, fuzzy title fallback
+- Ops: single-instance guard (port crash loop fix), windowless tunnel launcher
 
 ### v0.10.0 2026-07-21
 - Web UI: compact layout — sticky Keys/Actions side rails, fluid width, Windows+Projects side by side, mobile chip rows
