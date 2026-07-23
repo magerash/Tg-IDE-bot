@@ -14,6 +14,7 @@
   --accent-fg:#fff;        /* text on --accent (primary buttons) */
   --ok:#16a34a;--ok-soft:#e9f7ee;--ok-soft-hover:#daf0e2;
   --err:#dc2626;--err-hover:#c7202f;--err-soft:#fdeceb;--err-soft-hover:#fadcda;
+  --warn:#b45309;--warn-soft:#fdf3e3;--warn-soft-hover:#f8e9cf;
   --dark:#1c1917;--shadow:0 1px 2px rgba(28,25,23,.05);
   --rail-w:170px;          /* width of Keys / Actions side rails */
   --screen-h:260px;        /* min-height of the screenshot area */
@@ -25,6 +26,7 @@
   --accent-fg:#1a1917;
   --ok:#22c55e;--ok-soft:#183a25;--ok-soft-hover:#1f4a2f;
   --err:#f05252;--err-hover:#e23b3b;--err-soft:#3a1e1e;--err-soft-hover:#4a2525;
+  --warn:#eab308;--warn-soft:#3a2f18;--warn-soft-hover:#4a3d1f;
   --dark:#100f0d;--shadow:0 1px 3px rgba(0,0,0,.45);
 }
 body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:16px}
@@ -85,6 +87,8 @@ h1{font-size:17px;font-weight:600;text-align:center;padding:6px 0 2px;letter-spa
 .btn-ok-soft:hover{background:var(--ok-soft-hover)}
 .btn-red-soft{background:var(--err-soft);border-color:transparent;color:var(--err)}
 .btn-red-soft:hover{background:var(--err-soft-hover)}
+.btn-warn-soft{background:var(--warn-soft);border-color:transparent;color:var(--warn)}
+.btn-warn-soft:hover{background:var(--warn-soft-hover)}
 .btn-sm{padding:6px 11px;font-size:12px}
 .btn-block{width:100%}
 .btn[disabled]{opacity:.4;cursor:not-allowed}
@@ -324,6 +328,8 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
         <button class="btn btn-sm btn-soft" onclick="doTypePreset('let\'s finish')">Let's finish (LF)</button>
         <button class="btn btn-sm btn-soft" onclick="doTypePreset('let\'s finish. current branch')">LF CB</button>
         <button class="btn btn-sm btn-soft" onclick="doTypePreset('let\'s finish. new branch')">LF NB</button>
+        <button class="btn btn-sm btn-soft" onclick="doTypePreset('/model')">/model</button>
+        <button class="btn btn-sm btn-ok-soft" onclick="doTypePreset('continue')">continue</button>
       </div>
       <p class="hint">LF = let's finish · CB = commit to current branch · NB = commit + new branch</p>
     </div>
@@ -414,12 +420,12 @@ let lastRect = null, clickMode = false, lastCapture = 'window';  // window captu
 /* ===== Keys / Actions rendered from one source of truth =====
    Same arrays feed the desktop rails AND the mobile chip rows,
    so the two layouts can never drift apart. */
-/* [label, key, repeat, fn?] — fn overrides the default doKey() (used by 1/2/3,
-   which type the digit + Enter to answer numbered prompts). */
+/* [label, key, repeat, fn?, cls?] — fn overrides the default doKey() (used by 1/2/3,
+   which type the digit + Enter to answer numbered prompts); cls tints the button. */
 const KEYS = [
   ['1',null,null,()=>doTypePreset('1')],['2',null,null,()=>doTypePreset('2')],['3',null,null,()=>doTypePreset('3')],
-  ['Enter','enter'],['Esc','escape'],['Ctrl+C','ctrl+c'],['Tab','tab'],
-  ['Sh+Tab','shift+tab'],['Bksp×30','backspace',30],['Up','up'],['Down','down'],
+  ['Enter','enter',null,null,'btn-ok-soft'],['Esc','escape',null,null,'btn-red-soft'],['Ctrl+C','ctrl+c'],['Tab','tab'],
+  ['Sh+Tab','shift+tab',null,null,'btn-ok-soft'],['Bksp×30','backspace',30],['Up','up'],['Down','down'],
   ['Left','left'],['Right','right'],['Space','space'],['Ctrl+V','ctrl+v'],
   ['Ctrl+Z','ctrl+z'],['Ctrl+S','ctrl+s'],['Ctrl+A','ctrl+a'],['F5','f5']
 ];
@@ -449,9 +455,9 @@ applyTheme(localStorage.getItem('tg_theme')||'light');
 function renderTools(){
   document.querySelectorAll('[data-keys]').forEach(el=>{
     el.innerHTML='';
-    KEYS.forEach(([label,key,repeat,fn])=>{
+    KEYS.forEach(([label,key,repeat,fn,cls])=>{
       const b=document.createElement('button');
-      b.className='btn'; b.textContent=label;
+      b.className='btn'+(cls?' '+cls:''); b.textContent=label;
       b.onclick=fn||(()=>doKey(key,repeat));
       el.appendChild(b);
     });

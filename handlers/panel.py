@@ -32,7 +32,7 @@ KEYBOARD = InlineKeyboardMarkup([
     [Btn("Shift+Tab", callback_data="p:key_shifttab"), Btn("Bksp×30", callback_data="p:key_bksp30"), Btn("Click 250,1000", callback_data="p:click500")],
     [Btn("/clear", callback_data="p:type_clear"), Btn("/caveman", callback_data="p:type_caveman"), Btn("Ultrathink", callback_data="p:type_ultra")],
     [Btn("/plan", callback_data="p:type_plan"), Btn("/hae:release-plan", callback_data="p:type_rplan"), Btn("/twin", callback_data="p:type_twin")],
-    [Btn("Let's finish (LF)", callback_data="p:type_finish"), Btn("LF CB", callback_data="p:type_finish_cur"), Btn("LF NB", callback_data="p:type_finish_new")],
+    [Btn("Let's finish (LF)", callback_data="p:type_finish"), Btn("LF CB", callback_data="p:type_finish_cur"), Btn("LF NB", callback_data="p:type_finish_new"), Btn("/model", callback_data="p:type_model")],
 ])
 
 _TYPE_PRESETS = {
@@ -45,6 +45,7 @@ _TYPE_PRESETS = {
     "type_plan": "/plan",
     "type_rplan": "/hae:release-plan",
     "type_twin": "/twin",
+    "type_model": "/model",
 }
 
 _GIT_ARGS = {"status": ["status"], "log": ["log", "--oneline", "-20"], "diff": ["diff", "--stat"]}
