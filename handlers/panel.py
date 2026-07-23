@@ -29,9 +29,23 @@ KEYBOARD = InlineKeyboardMarkup([
     [Btn("Git Status", callback_data="p:git_status"), Btn("Git Log", callback_data="p:git_log"), Btn("Git Diff", callback_data="p:git_diff")],
     [Btn("Build", callback_data="p:build"), Btn("Build APK", callback_data="p:build_apk"), Btn("APK", callback_data="p:apk"), Btn("Status", callback_data="p:status")],
     [Btn("Enter", callback_data="p:key_enter"), Btn("Esc", callback_data="p:key_esc"), Btn("Ctrl+C", callback_data="p:key_ctrlc"), Btn("Tab", callback_data="p:key_tab")],
-    [Btn("Shift+Tab", callback_data="p:key_shifttab"), Btn("Bksp×30", callback_data="p:key_bksp30"), Btn("Let's finish (F)", callback_data="p:type_finish")],
-    [Btn("F-cur bra", callback_data="p:type_finish_cur"), Btn("F-new bra", callback_data="p:type_finish_new"), Btn("Click 250,1000", callback_data="p:click500")],
+    [Btn("Shift+Tab", callback_data="p:key_shifttab"), Btn("Bksp×30", callback_data="p:key_bksp30"), Btn("Click 250,1000", callback_data="p:click500")],
+    [Btn("/clear", callback_data="p:type_clear"), Btn("/caveman", callback_data="p:type_caveman"), Btn("/ultrathink", callback_data="p:type_ultra")],
+    [Btn("/plan", callback_data="p:type_plan"), Btn("/hae:release-plan", callback_data="p:type_rplan"), Btn("/twin", callback_data="p:type_twin")],
+    [Btn("Let's finish (LF)", callback_data="p:type_finish"), Btn("LF CB", callback_data="p:type_finish_cur"), Btn("LF NB", callback_data="p:type_finish_new")],
 ])
+
+_TYPE_PRESETS = {
+    "type_finish": "let's finish",
+    "type_finish_cur": "let's finish. current branch",
+    "type_finish_new": "let's finish. new branch",
+    "type_clear": "/clear",
+    "type_caveman": "/caveman",
+    "type_ultra": "/ultrathink",
+    "type_plan": "/plan",
+    "type_rplan": "/hae:release-plan",
+    "type_twin": "/twin",
+}
 
 _GIT_ARGS = {"status": ["status"], "log": ["log", "--oneline", "-20"], "diff": ["diff", "--stat"]}
 _KEY_MAP = {"enter": "enter", "esc": "escape", "ctrlc": ("ctrl", "c"), "tab": "tab", "shifttab": ("shift", "tab")}
@@ -194,20 +208,11 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"TG-IDE-Bot v{VERSION}\nUptime: {h}h {m}m {s}s\n"
                 f"OS: {platform.system()} {platform.release()}\nPython: {platform.python_version()}")
 
-        elif cmd == "type_finish":
-            _type_text("let's finish")
+        elif cmd in _TYPE_PRESETS:
+            text = _TYPE_PRESETS[cmd]
+            _type_text(text)
             pyautogui.press("enter")
-            await query.answer("Typed: let's finish")
-
-        elif cmd == "type_finish_cur":
-            _type_text("let's finish. current branch")
-            pyautogui.press("enter")
-            await query.answer("Typed: finish current branch")
-
-        elif cmd == "type_finish_new":
-            _type_text("let's finish. new branch")
-            pyautogui.press("enter")
-            await query.answer("Typed: finish new branch")
+            await query.answer(f"Typed: {text}")
 
         elif cmd == "click500":
             pyautogui.click(250, 1000)

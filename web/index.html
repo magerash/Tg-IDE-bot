@@ -24,6 +24,7 @@ h1{font-size:17px;font-weight:600;text-align:center;padding:6px 0 2px;letter-spa
 /* ===== Layout: rails + fluid center =====
    The page is fluid up to 1500px, so inputs scale with the window.
    Desktop: [Keys rail] [center column, flex] [Actions rail]
+   Rails top-align with the Type Text panel (see alignRails() in JS).
    <=920px: rails hidden, #mob-tools chip rows shown near Type Text. */
 .wrap{max-width:1500px;margin:0 auto}
 .main-row{display:flex;gap:12px;align-items:flex-start}
@@ -43,6 +44,8 @@ h1{font-size:17px;font-weight:600;text-align:center;padding:6px 0 2px;letter-spa
 .btn-primary:hover{background:var(--accent-hover)}
 .btn-red{background:var(--err);border-color:var(--err);color:#fff}
 .btn-red:hover{background:var(--err-hover)}
+.btn-ok{background:var(--ok);border-color:var(--ok);color:#fff}
+.btn-ok:hover{background:#12833c}
 .btn-soft{background:var(--accent-soft);border-color:transparent;color:var(--text)}
 .btn-soft:hover{background:var(--accent-soft-hover)}
 .btn-ok-soft{background:var(--ok-soft);border-color:transparent;color:var(--ok)}
@@ -227,7 +230,7 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
     </div>
 
     <!-- Type Text -->
-    <div class="panel">
+    <div class="panel" id="type-panel">
       <h3>Type Text</h3>
       <div id="attach-row"></div>
       <div class="input-row">
@@ -235,10 +238,23 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
         <button class="btn btn-primary" onclick="doType()">Type</button>
       </div>
       <div class="btn-grid">
-        <button class="btn btn-sm btn-soft" onclick="doTypePreset('let\'s finish')">Let's finish</button>
-        <button class="btn btn-sm btn-soft" onclick="doTypePreset('let\'s finish. current branch')">F-cur bra</button>
-        <button class="btn btn-sm btn-soft" onclick="doTypePreset('let\'s finish. new branch')">F-new bra</button>
+        <button class="btn btn-sm btn-soft" onclick="doTypePreset('/clear')">/clear</button>
+        <button class="btn btn-sm btn-soft" onclick="doTypePreset('/caveman')">/caveman</button>
+        <button class="btn btn-sm btn-soft" onclick="doTypePreset('/ultrathink')">/ultrathink</button>
+        <button class="btn btn-sm btn-soft" onclick="doTypePreset('/plan')">/plan</button>
+        <button class="btn btn-sm btn-soft" onclick="doTypePreset('/hae:release-plan')">/hae:release-plan</button>
+        <button class="btn btn-sm btn-soft" onclick="doTypePreset('/twin')">/twin</button>
+        <button class="btn btn-sm btn-soft" onclick="doTypePreset('let\'s finish')">Let's finish (LF)</button>
+        <button class="btn btn-sm btn-soft" onclick="doTypePreset('let\'s finish. current branch')">LF CB</button>
+        <button class="btn btn-sm btn-soft" onclick="doTypePreset('let\'s finish. new branch')">LF NB</button>
       </div>
+      <p class="hint">LF = let's finish · CB = commit to current branch · NB = commit + new branch</p>
+    </div>
+
+    <!-- History -->
+    <div class="panel">
+      <h3>History <button class="btn btn-sm btn-soft" style="float:right;margin-top:-4px" onclick="clearHistory()">Clear</button></h3>
+      <div id="history-list"><span class="hint">Sent messages appear here — click one to refill its input</span></div>
     </div>
 
     <!-- Mobile-only Keys/Actions chips (near the type zone) -->
@@ -271,12 +287,6 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
         <button class="btn btn-red" onclick="doSh()">Run</button>
       </div>
       <div id="terminal"><span style="color:#7c8595">Output will appear here...</span></div>
-    </div>
-
-    <!-- History -->
-    <div class="panel">
-      <h3>History <button class="btn btn-sm btn-soft" style="float:right;margin-top:-4px" onclick="clearHistory()">Clear</button></h3>
-      <div id="history-list"><span class="hint">Sent messages appear here — click one to refill its input</span></div>
     </div>
 
   </div>
@@ -351,6 +361,22 @@ function renderTools(){
   });
 }
 renderTools();
+
+/* Keys/Actions rails ("ears") always start at Type Text panel height.
+   Screen panel height is dynamic (screenshots load/resize), so alignment
+   is recomputed via ResizeObserver on the center column + window resize. */
+function alignRails(){
+  const tp = document.getElementById('type-panel');
+  const row = document.querySelector('.main-row');
+  if (!tp || !row) return;
+  const top = Math.max(0, tp.getBoundingClientRect().top - row.getBoundingClientRect().top);
+  document.querySelectorAll('.main-row > .rail').forEach(r => {
+    r.style.marginTop = (window.innerWidth <= 920) ? '' : top + 'px';
+  });
+}
+window.addEventListener('resize', alignRails);
+new ResizeObserver(alignRails).observe(document.querySelector('.center'));
+alignRails();
 
 // Telegram Mini App mode: auth via initData, no token needed
 const _twa = (window.Telegram && Telegram.WebApp) || null;
@@ -509,6 +535,8 @@ function autoRefresh() {
     autoTimer = setInterval(_autoTick, _autoInterval());
     btn.textContent = 'Auto: ON';
   }
+  btn.classList.toggle('btn-ok', !!autoTimer);    // green while running
+  btn.classList.toggle('btn-soft', !autoTimer);
 }
 
 /* Auto tick skips while a capture is in flight — no pile-up at short intervals */
@@ -532,7 +560,10 @@ function autoIntChanged() {
    rect from the server (pyautogui coordinate space) handles window captures with offsets. */
 function toggleClickMode() {
   clickMode = !clickMode;
-  document.getElementById('click-btn').textContent = 'Click: ' + (clickMode ? 'ON' : 'OFF');
+  const btn = document.getElementById('click-btn');
+  btn.textContent = 'Click: ' + (clickMode ? 'ON' : 'OFF');
+  btn.classList.toggle('btn-red', clickMode);     // red while armed
+  btn.classList.toggle('btn-soft', !clickMode);
   bindImgClick();
 }
 
