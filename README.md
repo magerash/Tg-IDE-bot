@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.7.8
+# TG-IDE-Bot v0.10.0
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -29,11 +29,40 @@ python bot.py
 | `/claude <prompt>` | Ask Claude |
 | `/git [cmd]` | Git CLI (status/log/diff/branch/commit/push/pull/cd) |
 | `/panel` | Inline keyboard control panel |
+| `/win` | List open windows, tap to focus |
+| `/code [name]` | Open project in new VSCode window + set current |
+| `/project [name]` | Show/switch current project (git, build, apk follow it) |
 | `/status` | Bot uptime & system info |
 | `/help` | List all commands |
 | Plain text | Typed into active window + Enter |
 
+## Web Dashboard
+Set `WEB_TOKEN` (+ optionally `WEBAPP_URL` for Telegram Mini App) in `.env`, then open `http://localhost:8080`.
+Panels: screen (click-to-click remote, zoomable viewer), keys, actions, windows focus, projects (VSCode), type presets, Claude, shell.
+
 ## Changelog
+
+### v0.10.0 2026-07-21
+- Web UI: compact layout — sticky Keys/Actions side rails, fluid width, Windows+Projects side by side, mobile chip rows
+- Web: "Restart Bot" action with reconnect polling; persistent action status field in Actions rail
+- Fix: macOS Telegram Mini App red screen (skip hex color calls on macOS platform)
+- Fix: dashboard HTML served with no-cache headers
+- Ops: tunnel watchdog — bot auto-restarts TgBotTunnel task if SSH tunnel dies
+
+### v0.9.0 2026-07-21
+- Project switching: `/project` command + shared current-project state — git, build, APK, panel and web all follow it
+- `/code` opens project in new VSCode window (`code -n`) and sets it current; no longer replaces active window
+- Build: friendly error when no `gradlew.bat`, output prefixed with project name; `/apk list` grouped by project
+- Web UI: Windows and Projects panels redesigned as dropdowns with action buttons; current project in status bar; auto-load after login
+- Web API: `/api/project` GET/POST; client hardened against non-JSON error replies
+- Autotests: `tests/test_web.py` (pytest) — API smoke + HTML/JS consistency checks
+- Docs: tunnel troubleshooting (502 = TgBotTunnel down)
+
+### v0.8.0 2026-07-21
+- Web dashboard: aiohttp server + Telegram Mini App (WEB_TOKEN / initData auth), tunnel scripts
+- Web UI: light minimal theme, panels — screen, keys, actions, type presets, shell, git, build/APK, Claude
+- Web UI: Windows focus + Projects (VSCode) panels, click-on-image remote clicks with resolution mapping, zoomable lightbox viewer
+- New commands: `/win` — list & focus windows, `/code` — open project folder in VSCode
 
 ### v0.7.8 2026-04-07
 - Panel: added "Click 500" button, renamed "Let's finish" → "Let's finish (F)"

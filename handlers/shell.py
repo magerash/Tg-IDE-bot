@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import subprocess
 from telegram import Update
@@ -31,8 +32,8 @@ async def sh_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         use_shell = True
 
     try:
-        proc = subprocess.run(
-            run_cmd, shell=use_shell,
+        proc = await asyncio.to_thread(
+            subprocess.run, run_cmd, shell=use_shell,
             capture_output=True, timeout=60,
         )
         raw = proc.stdout + proc.stderr

@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TG-IDE-Bot</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#faf9f7;--card:#fff;--text:#1c1917;--dim:#a09b93;--border:#eae7e2;
+  --accent:#1c1917;--accent-hover:#3f3a36;--accent-soft:#f0eeea;--accent-soft-hover:#e6e3dd;
+  --ok:#16a34a;--ok-soft:#e9f7ee;--ok-soft-hover:#daf0e2;
+  --err:#dc2626;--err-hover:#c7202f;--err-soft:#fdeceb;--err-soft-hover:#fadcda;
+  --dark:#1c1917;--shadow:0 1px 2px rgba(28,25,23,.05);
+  --rail-w:170px;          /* width of Keys / Actions side rails */
+  --screen-h:260px;        /* min-height of the screenshot area */
+}
+body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:16px}
+h1{font-size:17px;font-weight:600;text-align:center;padding:6px 0 2px;letter-spacing:-.2px}
+.status-bar{display:flex;justify-content:center;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--dim);padding:4px 0 14px}
+.status-bar span{color:var(--text);font-weight:500}
+
+/* ===== Layout: rails + fluid center =====
+   The page is fluid up to 1500px, so inputs scale with the window.
+   Desktop: [Keys rail] [center column, flex] [Actions rail]
+   <=920px: rails hidden, #mob-tools chip rows shown near Type Text. */
+.wrap{max-width:1500px;margin:0 auto}
+.main-row{display:flex;gap:12px;align-items:flex-start}
+.rail{flex:0 0 var(--rail-w);width:var(--rail-w);position:sticky;top:12px}
+.center{flex:1 1 480px;min-width:0;display:flex;flex-direction:column;gap:12px}
+
+.panel{background:var(--card);border-radius:14px;padding:14px;border:1px solid var(--border);box-shadow:var(--shadow);min-width:0}
+.panel.tight{padding:12px}
+.panel h3{font-size:11px;font-weight:600;color:var(--dim);margin-bottom:10px;text-transform:uppercase;letter-spacing:1.2px}
+.panel h3 b{color:var(--text)}
+
+/* Buttons */
+.btn{padding:8px 14px;border:1px solid var(--border);border-radius:9px;cursor:pointer;font-size:13px;font-weight:500;font-family:inherit;background:var(--card);color:var(--text);transition:background .15s,transform .1s,border-color .15s}
+.btn:hover{background:#f1f0ed}
+.btn:active{transform:scale(.96)}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn-primary:hover{background:var(--accent-hover)}
+.btn-red{background:var(--err);border-color:var(--err);color:#fff}
+.btn-red:hover{background:var(--err-hover)}
+.btn-soft{background:var(--accent-soft);border-color:transparent;color:var(--text)}
+.btn-soft:hover{background:var(--accent-soft-hover)}
+.btn-ok-soft{background:var(--ok-soft);border-color:transparent;color:var(--ok)}
+.btn-ok-soft:hover{background:var(--ok-soft-hover)}
+.btn-red-soft{background:var(--err-soft);border-color:transparent;color:var(--err)}
+.btn-red-soft:hover{background:var(--err-soft-hover)}
+.btn-sm{padding:6px 11px;font-size:12px}
+.btn-block{width:100%}
+.btn[disabled]{opacity:.4;cursor:not-allowed}
+
+/* Keys rail: 2-col grid; Actions rail: stacked */
+.keys-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.keys-grid .btn{padding:7px 4px;font-size:12px}
+.actions-col{display:flex;flex-direction:column;gap:6px}
+.actions-col .btn{width:100%;padding:8px 10px;font-size:12px}
+
+/* Action status field: last action result, stays visible (unlike toast) */
+.action-status{margin-top:10px;padding:8px 10px;border-radius:9px;background:var(--accent-soft);font-size:11px;line-height:1.45;color:var(--dim);word-break:break-word;min-height:33px}
+.action-status b{display:block;color:var(--text);font-weight:500}
+.action-status.err b{color:var(--err)}
+.action-status.ok b{color:var(--ok)}
+
+/* Screen panel: label + buttons on one row */
+.screen-head{display:flex;align-items:center;gap:6px}
+.screen-head h3{margin:0 auto 0 0}
+#screen-area{background:#fafbfc;border:1px dashed #d5d9e0;border-radius:10px;min-height:var(--screen-h);display:flex;align-items:center;justify-content:center;overflow:hidden;margin-top:10px;position:relative}
+#screen-area img{max-width:100%;height:auto;display:block;border-radius:9px}
+#screen-area .placeholder{color:var(--dim);font-size:13px}
+
+/* Windows + Projects side by side */
+.wp-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:9px;background:var(--card);color:var(--text);font-size:13px;font-family:inherit;cursor:pointer}
+.hint{font-size:11px;color:var(--dim);margin-top:8px;line-height:1.4}
+.btn-row{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+
+/* Inputs: flex:1 + min-width:0 => scale horizontally with the window */
+.input-row{display:flex;gap:6px}
+.input-row input{flex:1 1 auto;min-width:0;background:var(--card);border:1px solid var(--border);border-radius:9px;padding:9px 12px;color:var(--text);font-size:13px;font-family:inherit;transition:border-color .15s,box-shadow .15s}
+.input-row input::placeholder{color:var(--dim)}
+.input-row input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.input-row .btn{flex-shrink:0}
+.btn-grid{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+
+/* Mobile tool chips (hidden on desktop) */
+#mob-tools{display:none;flex-direction:column;gap:8px}
+.chip-row{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch}
+.chip-row .btn{flex-shrink:0;padding:8px 12px;font-size:12px}
+.chip-row::-webkit-scrollbar{height:4px}
+.chip-row::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+
+/* Terminal */
+#terminal{background:var(--dark);border-radius:10px;padding:12px;font-family:'Cascadia Code','Fira Code',monospace;font-size:12px;color:#d7dce4;min-height:90px;max-height:260px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;margin-top:8px}
+
+/* Lightbox */
+#lightbox{position:fixed;inset:0;background:rgba(15,14,12,.93);display:none;z-index:200;overflow:hidden;touch-action:none;user-select:none}
+#lightbox img{position:absolute;left:0;top:0;transform-origin:0 0;max-width:none;cursor:grab;-webkit-user-drag:none}
+#lb-close{position:fixed;top:14px;right:14px;z-index:201;width:38px;height:38px;border-radius:50%;border:none;background:rgba(255,255,255,.12);color:#fff;font-size:20px;cursor:pointer;line-height:1}
+#lb-close:hover{background:rgba(255,255,255,.24)}
+#lb-click{position:fixed;top:14px;right:62px;z-index:201;height:38px;padding:0 14px;border-radius:19px;border:none;background:rgba(255,255,255,.12);color:#fff;font-size:13px;font-family:inherit;cursor:pointer}
+#lb-click:hover{background:rgba(255,255,255,.24)}
+#lb-click.on{background:var(--err)}
+
+/* Toast */
+#toast{position:fixed;bottom:20px;right:20px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 16px;font-size:13px;display:none;z-index:300;max-width:300px;box-shadow:0 4px 16px rgba(28,25,23,.1)}
+#toast.error{border-color:var(--err);color:var(--err)}
+#toast.ok{border-color:var(--ok);color:var(--ok)}
+
+/* Auth */
+#auth-overlay{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:100}
+#auth-box{background:var(--card);padding:28px;border-radius:16px;text-align:center;border:1px solid var(--border);box-shadow:var(--shadow)}
+#auth-box h2{margin-bottom:16px;font-size:17px;font-weight:600}
+#auth-box input{width:240px;padding:10px 12px;border-radius:9px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:14px;margin-bottom:12px;font-family:inherit}
+#auth-box input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+
+/* ===== Responsive ===== */
+@media(max-width:920px){
+  .rail{display:none}
+  #mob-tools{display:flex}
+  .wp-grid{grid-template-columns:1fr}
+}
+@media(max-width:560px){
+  body{padding:10px}
+  .screen-head{flex-wrap:wrap}
+}
+
+/* Loading */
+.loading{opacity:.5;pointer-events:none}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;margin-right:6px;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<!-- Auth overlay -->
+<div id="auth-overlay">
+<div id="auth-box">
+  <h2>TG-IDE-Bot</h2>
+  <input type="password" id="token-input" placeholder="WEB_TOKEN from .env" autofocus>
+  <br>
+  <button class="btn btn-primary btn-block" onclick="doAuth()">Connect</button>
+</div>
+</div>
+
+<!-- Main UI -->
+<div id="main" style="display:none">
+<div class="wrap">
+<h1>TG-IDE-Bot</h1>
+<div class="status-bar" id="status-bar">Connecting...</div>
+
+<div class="main-row">
+
+  <!-- Keys rail (desktop) -->
+  <div class="rail panel tight">
+    <h3>Keys</h3>
+    <div class="keys-grid" data-keys></div>
+  </div>
+
+  <!-- Center column -->
+  <div class="center">
+
+    <!-- Screen -->
+    <div class="panel">
+      <div class="screen-head">
+        <h3>Screen</h3>
+        <button class="btn btn-primary" onclick="doScreen()">Screenshot</button>
+        <button class="btn" onclick="doWindow()">Window</button>
+        <button class="btn btn-sm btn-soft" onclick="autoRefresh()" id="auto-btn">Auto: OFF</button>
+        <button class="btn btn-sm btn-soft" onclick="toggleClickMode()" id="click-btn">Click: OFF</button>
+      </div>
+      <div id="screen-area"><span class="placeholder">Click Screenshot to capture</span></div>
+    </div>
+
+    <!-- Windows + Projects -->
+    <div class="wp-grid">
+      <div class="panel">
+        <h3>Windows</h3>
+        <select id="win-select"><option value="">— select window —</option></select>
+        <div class="btn-row">
+          <button class="btn btn-sm btn-soft" onclick="loadWindows()">&#10227; Refresh</button>
+          <button class="btn btn-sm btn-primary" onclick="doFocusSel()">Focus</button>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Projects — current: <b id="proj-current">…</b></h3>
+        <select id="proj-select"><option value="">— select project —</option></select>
+        <div class="btn-row">
+          <button class="btn btn-sm btn-soft" onclick="loadFolders()">&#10227; Refresh</button>
+          <button class="btn btn-sm btn-primary" onclick="setProjectSel()">Set Current</button>
+          <button class="btn btn-sm btn-ok-soft" onclick="doCodeSel()">Open VSCode</button>
+        </div>
+        <p class="hint">Current project drives git / build / apk. VSCode opens new window + sets current.</p>
+      </div>
+    </div>
+
+    <!-- Type Text -->
+    <div class="panel">
+      <h3>Type Text</h3>
+      <div class="input-row">
+        <input type="text" id="type-input" placeholder="Text to type..." onkeydown="if(event.key==='Enter')doType()">
+        <button class="btn btn-primary" onclick="doType()">Type</button>
+      </div>
+      <div class="btn-grid">
+        <button class="btn btn-sm btn-soft" onclick="doTypePreset('let\'s finish')">Let's finish</button>
+        <button class="btn btn-sm btn-soft" onclick="doTypePreset('let\'s finish. current branch')">F-cur bra</button>
+        <button class="btn btn-sm btn-soft" onclick="doTypePreset('let\'s finish. new branch')">F-new bra</button>
+      </div>
+    </div>
+
+    <!-- Mobile-only Keys/Actions chips (near the type zone) -->
+    <div id="mob-tools">
+      <div class="panel tight">
+        <h3>Keys</h3>
+        <div class="chip-row" data-keys></div>
+      </div>
+      <div class="panel tight">
+        <h3>Actions</h3>
+        <div class="chip-row" data-actions></div>
+        <div class="action-status" data-status><b>Ready</b>Push an action to see status</div>
+      </div>
+    </div>
+
+    <!-- Claude -->
+    <div class="panel">
+      <h3>Claude</h3>
+      <div class="input-row">
+        <input type="text" id="claude-input" placeholder="Ask Claude..." onkeydown="if(event.key==='Enter')doClaude()">
+        <button class="btn btn-primary" onclick="doClaude()">Ask</button>
+      </div>
+    </div>
+
+    <!-- Shell -->
+    <div class="panel">
+      <h3>Shell</h3>
+      <div class="input-row">
+        <input type="text" id="sh-input" placeholder="Shell command..." onkeydown="if(event.key==='Enter')doSh()">
+        <button class="btn btn-red" onclick="doSh()">Run</button>
+      </div>
+      <div id="terminal"><span style="color:#7c8595">Output will appear here...</span></div>
+    </div>
+
+  </div>
+
+  <!-- Actions rail (desktop) -->
+  <div class="rail panel tight">
+    <h3>Actions</h3>
+    <div class="actions-col" data-actions></div>
+    <div class="action-status" data-status><b>Ready</b>Push an action to see status</div>
+  </div>
+
+</div>
+</div>
+</div>
+
+<!-- Lightbox viewer -->
+<div id="lightbox">
+  <button id="lb-click" onclick="lbToggleClick()">Click: OFF</button>
+  <button id="lb-close" onclick="closeLightbox()">&times;</button>
+  <img id="lb-img" alt="preview">
+</div>
+
+<div id="toast"></div>
+
+<script>
+let TOKEN = localStorage.getItem('tg_bot_token') || '';
+let BASE = location.origin;
+let autoTimer = null;
+let lastRect = null, clickMode = false, lastCapture = 'screen';
+
+/* ===== Keys / Actions rendered from one source of truth =====
+   Same arrays feed the desktop rails AND the mobile chip rows,
+   so the two layouts can never drift apart. */
+const KEYS = [
+  ['Enter','enter'],['Esc','escape'],['Ctrl+C','ctrl+c'],['Tab','tab'],
+  ['Sh+Tab','shift+tab'],['Bksp×30','backspace',30],['Up','up'],['Down','down'],
+  ['Left','left'],['Right','right'],['Space','space'],['Ctrl+V','ctrl+v'],
+  ['Ctrl+Z','ctrl+z'],['Ctrl+S','ctrl+s'],['Ctrl+A','ctrl+a'],['F5','f5']
+];
+const ACTIONS = [
+  ['Click 250,1000','btn-red-soft',()=>doClick(250,1000)],
+  ['Git Status','btn-soft',()=>doGit('status')],
+  ['Git Log','btn-soft',()=>doGit('log')],
+  ['Git Diff','btn-soft',()=>doGit('diff')],
+  ['Build','btn-ok-soft',()=>doBuild(false)],
+  ['Build APK','btn-ok-soft',()=>doBuild(true)],
+  ['APK List','btn-soft',()=>doApks()],
+  ['Restart Bot','btn-red-soft',()=>doRestart()]
+];
+function renderTools(){
+  document.querySelectorAll('[data-keys]').forEach(el=>{
+    el.innerHTML='';
+    KEYS.forEach(([label,key,repeat])=>{
+      const b=document.createElement('button');
+      b.className='btn'; b.textContent=label;
+      b.onclick=()=>doKey(key,repeat);
+      el.appendChild(b);
+    });
+  });
+  document.querySelectorAll('[data-actions]').forEach(el=>{
+    el.innerHTML='';
+    ACTIONS.forEach(([label,cls,fn])=>{
+      const b=document.createElement('button');
+      b.className='btn '+cls; b.textContent=label;
+      b.onclick=fn;
+      el.appendChild(b);
+    });
+  });
+}
+renderTools();
+
+// Telegram Mini App mode: auth via initData, no token needed
+const _twa = (window.Telegram && Telegram.WebApp) || null;
+if (_twa) {
+  _twa.ready();
+  _twa.expand();
+  // macOS Telegram: hex colors here break webview rendering (solid red screen) — skip
+  if (_twa.platform !== 'macos') {
+    try { _twa.setBackgroundColor('#faf9f7'); _twa.setHeaderColor('#ffffff'); } catch (e) {}
+  }
+}
+const TG = (_twa && _twa.initData) ? _twa : null;
+
+function doAuth() {
+  TOKEN = document.getElementById('token-input').value.trim();
+  if (!TOKEN) return;
+  localStorage.setItem('tg_bot_token', TOKEN);
+  checkAuth();
+}
+
+async function checkAuth() {
+  try {
+    const r = await api('GET', '/api/status');
+    if (r.ok) {
+      document.getElementById('auth-overlay').style.display = 'none';
+      document.getElementById('main').style.display = 'block';
+      updateStatus(r);
+      loadWindows(); loadFolders();
+      setInterval(refreshStatus, 30000);
+    } else {
+      toast('Invalid token', true);
+    }
+  } catch(e) {
+    toast('Connection failed: ' + e.message, true);
+  }
+}
+
+async function api(method, path, body) {
+  const headers = {'Content-Type': 'application/json'};
+  if (TG) headers['X-Telegram-Init-Data'] = TG.initData;
+  else headers['Authorization'] = 'Bearer ' + TOKEN;
+  const opts = {method, headers};
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(BASE + path, opts);
+  const text = await r.text();
+  try {
+    return JSON.parse(text);
+  } catch(e) {
+    // Non-JSON reply (404 page, proxy error) — surface readable error
+    return {ok: false, error: 'HTTP ' + r.status + ': ' + text.slice(0, 120)};
+  }
+}
+
+function toast(msg, isErr) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = isErr ? 'error' : 'ok';
+  t.style.display = 'block';
+  setTimeout(() => t.style.display = 'none', 3000);
+  setStatus(msg, isErr);
+}
+
+/* Persistent status field in Actions rail (+ mobile) — last action result with time */
+function setStatus(msg, isErr) {
+  const time = new Date().toLocaleTimeString();
+  document.querySelectorAll('[data-status]').forEach(el => {
+    el.className = 'action-status ' + (isErr ? 'err' : 'ok');
+    el.innerHTML = '';
+    const b = document.createElement('b');
+    b.textContent = msg;
+    el.appendChild(b);
+    el.appendChild(document.createTextNode(time));
+  });
+}
+
+function updateStatus(data) {
+  document.getElementById('status-bar').innerHTML =
+    `v<span>${data.version}</span> | Project: <span>${data.project||'—'}</span> | Uptime: <span>${data.uptime}</span> | <span>${data.os}</span> | Python <span>${data.python}</span>`;
+  if (data.project) document.getElementById('proj-current').textContent = data.project;
+}
+
+async function refreshStatus() {
+  try {
+    const r = await api('GET', '/api/status');
+    if (r.ok) updateStatus(r);
+  } catch(e) {}
+}
+
+/* ===== Screen ===== */
+async function doScreen() { await capture('/api/screen', 'screen'); }
+async function doWindow() { await capture('/api/window', 'window'); }
+async function capture(path, kind) {
+  const area = document.getElementById('screen-area');
+  area.innerHTML = '<span class="placeholder"><span class="spinner"></span>Capturing...</span>';
+  try {
+    const r = await api('POST', path);
+    if (r.ok) {
+      area.innerHTML = `<img src="data:image/jpeg;base64,${r.image}" alt="screen">`;
+      lastRect = r.rect || null;
+      lastCapture = kind;
+      bindImgClick();
+    } else {
+      area.innerHTML = `<span class="placeholder">${r.error}</span>`;
+    }
+  } catch(e) {
+    area.innerHTML = `<span class="placeholder">Error: ${e.message}</span>`;
+  }
+}
+
+function autoRefresh() {
+  const btn = document.getElementById('auto-btn');
+  if (autoTimer) {
+    clearInterval(autoTimer); autoTimer = null;
+    btn.textContent = 'Auto: OFF';
+  } else {
+    doScreen();
+    autoTimer = setInterval(doScreen, 3000);
+    btn.textContent = 'Auto: ON';
+  }
+}
+
+/* Click-on-image: Click mode ON -> remote click at rect-mapped coords; OFF -> zoomable lightbox.
+   rect from the server (pyautogui coordinate space) handles window captures with offsets. */
+function toggleClickMode() {
+  clickMode = !clickMode;
+  document.getElementById('click-btn').textContent = 'Click: ' + (clickMode ? 'ON' : 'OFF');
+  bindImgClick();
+}
+
+function bindImgClick() {
+  const img = document.querySelector('#screen-area img');
+  if (!img) return;
+  img.style.cursor = clickMode ? 'crosshair' : 'zoom-in';
+  img.onclick = e => {
+    if (!clickMode) { openLightbox(img.src); return; }
+    if (!lastRect) return;
+    const box = img.getBoundingClientRect();
+    const fx = (e.clientX - box.left) / box.width;
+    const fy = (e.clientY - box.top) / box.height;
+    const x = Math.round(lastRect[0] + fx * lastRect[2]);
+    const y = Math.round(lastRect[1] + fy * lastRect[3]);
+    doClick(x, y);
+    setTimeout(lastCapture === 'window' ? doWindow : doScreen, 700);
+  };
+}
+
+/* ===== Lightbox viewer: wheel/pinch zoom, drag pan, double-tap zoom ===== */
+const _lb = {sc: 1, min: 1, tx: 0, ty: 0, ptrs: new Map(), dist: 0, moved: false, lastTap: 0, click: false};
+const _lbBox = () => document.getElementById('lightbox');
+const _lbImg = () => document.getElementById('lb-img');
+
+function openLightbox(src) {
+  const img = _lbImg();
+  _lb.click = false;
+  _lbSyncClickBtn();
+  img.onload = () => {
+    const fit = Math.min(innerWidth / img.naturalWidth, innerHeight / img.naturalHeight);
+    _lb.min = fit; _lb.sc = fit;
+    _lb.tx = (innerWidth - img.naturalWidth * fit) / 2;
+    _lb.ty = (innerHeight - img.naturalHeight * fit) / 2;
+    _lbApply();
+  };
+  img.src = src;
+  _lbBox().style.display = 'block';
+  if (img.complete) img.onload();
+}
+
+function closeLightbox() { _lbBox().style.display = 'none'; _lb.ptrs.clear(); }
+
+function _lbApply() {
+  _lbImg().style.transform = `translate(${_lb.tx}px,${_lb.ty}px) scale(${_lb.sc})`;
+}
+
+function _lbZoomAt(cx, cy, factor) {
+  const ns = Math.min(Math.max(_lb.sc * factor, _lb.min * 0.8), _lb.min * 12);
+  _lb.tx = cx - (cx - _lb.tx) * (ns / _lb.sc);
+  _lb.ty = cy - (cy - _lb.ty) * (ns / _lb.sc);
+  _lb.sc = ns;
+  _lbApply();
+}
+
+(() => {
+  const box = document.getElementById('lightbox');
+  box.addEventListener('wheel', e => {
+    e.preventDefault();
+    _lbZoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 1.2 : 1 / 1.2);
+  }, {passive: false});
+
+  box.addEventListener('pointerdown', e => {
+    if (e.target.tagName === 'BUTTON') return;
+    e.preventDefault();
+    box.setPointerCapture(e.pointerId);
+    _lb.ptrs.set(e.pointerId, {x: e.clientX, y: e.clientY});
+    _lb.moved = false;
+    if (_lb.ptrs.size === 2) {
+      const [a, b] = [..._lb.ptrs.values()];
+      _lb.dist = Math.hypot(a.x - b.x, a.y - b.y);
+    }
+  });
+
+  box.addEventListener('pointermove', e => {
+    const p = _lb.ptrs.get(e.pointerId);
+    if (!p) return;
+    if (_lb.ptrs.size === 1) {
+      const dx = e.clientX - p.x, dy = e.clientY - p.y;
+      if (Math.abs(dx) + Math.abs(dy) > 3) _lb.moved = true;
+      _lb.tx += dx; _lb.ty += dy;
+      _lbApply();
+    }
+    p.x = e.clientX; p.y = e.clientY;
+    if (_lb.ptrs.size === 2) {
+      const [a, b] = [..._lb.ptrs.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (_lb.dist > 0) _lbZoomAt((a.x + b.x) / 2, (a.y + b.y) / 2, d / _lb.dist);
+      _lb.dist = d;
+      _lb.moved = true;
+    }
+  });
+
+  box.addEventListener('pointerup', e => {
+    if (e.target.tagName === 'BUTTON') return;
+    _lb.ptrs.delete(e.pointerId);
+    _lb.dist = 0;
+    if (_lb.moved) return;
+    if (_lb.click) { _lbClickAt(e.clientX, e.clientY); return; }
+    const now = Date.now();
+    if (now - _lb.lastTap < 300) {
+      // Double-tap: toggle fit <-> 3x
+      if (_lb.sc > _lb.min * 1.05) {
+        const img = _lbImg();
+        _lb.sc = _lb.min;
+        _lb.tx = (innerWidth - img.naturalWidth * _lb.min) / 2;
+        _lb.ty = (innerHeight - img.naturalHeight * _lb.min) / 2;
+        _lbApply();
+      } else {
+        _lbZoomAt(e.clientX, e.clientY, 3);
+      }
+      _lb.lastTap = 0;
+    } else {
+      _lb.lastTap = now;
+      // Single tap outside image closes
+      if (e.target.id === 'lightbox') setTimeout(() => { if (Date.now() - _lb.lastTap >= 300) closeLightbox(); }, 300);
+    }
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && box.style.display === 'block') closeLightbox();
+  });
+})();
+
+// Lightbox click mode: tap on zoomed image -> remote click (zoom/pan inverted exactly)
+function _lbSyncClickBtn() {
+  const b = document.getElementById("lb-click");
+  b.textContent = "Click: " + (_lb.click ? "ON" : "OFF");
+  b.classList.toggle("on", _lb.click);
+  _lbImg().style.cursor = _lb.click ? "crosshair" : "grab";
+}
+
+function lbToggleClick() { _lb.click = !_lb.click; _lbSyncClickBtn(); }
+
+function _lbClickAt(cx, cy) {
+  if (!lastRect) return;
+  const img = _lbImg();
+  const nx = (cx - _lb.tx) / _lb.sc, ny = (cy - _lb.ty) / _lb.sc;
+  if (nx < 0 || ny < 0 || nx > img.naturalWidth || ny > img.naturalHeight) return;
+  const x = Math.round(lastRect[0] + nx / img.naturalWidth * lastRect[2]);
+  const y = Math.round(lastRect[1] + ny / img.naturalHeight * lastRect[3]);
+  doClick(x, y);
+  setTimeout(_lbRefresh, 700);
+}
+
+async function _lbRefresh() {
+  await (lastCapture === "window" ? doWindow() : doScreen());
+  const cur = document.querySelector("#screen-area img");
+  if (cur && _lbBox().style.display === "block") {
+    const img = _lbImg();
+    img.onload = null;
+    img.src = cur.src;
+  }
+}
+
+/* ===== Windows / Projects ===== */
+function _fillSelect(selId, items, placeholder, selected) {
+  const sel = document.getElementById(selId);
+  sel.innerHTML = '';
+  const p = document.createElement('option');
+  p.value = '';
+  p.textContent = items.length ? placeholder : '— nothing found —';
+  sel.appendChild(p);
+  items.forEach(it => {
+    const o = document.createElement('option');
+    o.value = it;
+    o.textContent = it.length > 60 ? it.slice(0, 60) + '…' : it;
+    if (it === selected) o.selected = true;
+    sel.appendChild(o);
+  });
+}
+
+async function loadWindows() {
+  try {
+    const r = await api('GET', '/api/windows');
+    if (r.ok) _fillSelect('win-select', r.windows, '— select window —');
+    else toast(r.error, true);
+  } catch(e) { toast(e.message, true); }
+}
+
+async function doFocusSel() {
+  const title = document.getElementById('win-select').value;
+  if (!title) { toast('Select window first', true); return; }
+  try {
+    const r = await api('POST', '/api/focus', {title});
+    toast(r.msg || r.error, !r.ok);
+  } catch(e) { toast(e.message, true); }
+}
+
+async function loadFolders() {
+  try {
+    const r = await api('GET', '/api/folders');
+    if (!r.ok) { toast(r.error, true); return; }
+    document.getElementById('proj-current').textContent = r.current || '?';
+    _fillSelect('proj-select', r.folders, '— select project —', r.current);
+  } catch(e) { toast(e.message, true); }
+}
+
+function _selectedProject() {
+  const folder = document.getElementById('proj-select').value;
+  if (!folder) toast('Select project first', true);
+  return folder;
+}
+
+async function setProjectSel() {
+  const folder = _selectedProject();
+  if (!folder) return;
+  try {
+    const r = await api('POST', '/api/project', {folder});
+    toast(r.msg || r.error, !r.ok);
+    if (r.ok) loadFolders();
+  } catch(e) { toast(e.message, true); }
+}
+
+async function doCodeSel() {
+  const folder = _selectedProject();
+  if (!folder) return;
+  try {
+    const r = await api('POST', '/api/code', {folder});
+    toast(r.msg || r.error, !r.ok);
+    if (r.ok) loadFolders();
+  } catch(e) { toast(e.message, true); }
+}
+
+/* ===== Input actions ===== */
+async function doKey(key, repeat) {
+  try {
+    const r = await api('POST', '/api/key', {key, repeat: repeat||1});
+    if (r.ok) toast(`Pressed: ${key}` + (repeat > 1 ? ` x${repeat}` : ''));
+    else toast(r.error, true);
+  } catch(e) { toast(e.message, true); }
+}
+
+async function doClick(x, y) {
+  try {
+    const r = await api('POST', '/api/click', {x, y});
+    if (r.ok) toast(`Clicked: (${x}, ${y})`);
+    else toast(r.error, true);
+  } catch(e) { toast(e.message, true); }
+}
+
+async function doType() {
+  const input = document.getElementById('type-input');
+  const text = input.value.trim();
+  if (!text) return;
+  try {
+    const r = await api('POST', '/api/type', {text, enter: true});
+    if (r.ok) { toast('Typed: ' + text); input.value = ''; }
+    else toast(r.error, true);
+  } catch(e) { toast(e.message, true); }
+}
+
+async function doTypePreset(text) {
+  try {
+    const r = await api('POST', '/api/type', {text, enter: true});
+    if (r.ok) toast('Typed: ' + text);
+    else toast(r.error, true);
+  } catch(e) { toast(e.message, true); }
+}
+
+async function doClaude() {
+  const input = document.getElementById('claude-input');
+  const q = input.value.trim();
+  if (!q) return;
+  const term = document.getElementById('terminal');
+  term.textContent = '> claude: ' + q + '\n\nAsking Claude (may take minutes)...';
+  try {
+    const r = await api('POST', '/api/claude', {prompt: q});
+    term.textContent = '> claude: ' + q + '\n\n' + (r.ok ? (r.output || '(no output)') : 'Error: ' + r.error);
+    if (r.ok) input.value = '';
+  } catch(e) { term.textContent = 'Error: ' + e.message; }
+}
+
+async function doSh() {
+  const input = document.getElementById('sh-input');
+  const cmd = input.value.trim();
+  if (!cmd) return;
+  const term = document.getElementById('terminal');
+  term.textContent = '$ ' + cmd + '\n\nRunning...';
+  try {
+    const r = await api('POST', '/api/sh', {cmd});
+    if (r.ok) term.textContent = '$ ' + cmd + '\n\n' + (r.output || '(no output)') + '\n\n[exit code: ' + r.code + ']';
+    else term.textContent = '$ ' + cmd + '\n\nError: ' + r.error;
+    input.value = '';
+  } catch(e) {
+    term.textContent = '$ ' + cmd + '\n\nError: ' + e.message;
+  }
+}
+
+async function doGit(sub) {
+  const term = document.getElementById('terminal');
+  const args = sub === 'log' ? ['log','--oneline','-20'] : sub === 'diff' ? ['diff','--stat'] : [sub];
+  term.textContent = '$ git ' + args.join(' ') + '\n\nRunning...';
+  try {
+    const r = await api('POST', '/api/git', {args});
+    if (r.ok) term.textContent = '[' + (r.project ? r.project + '] ' : '') + r.cwd + '\n$ git ' + args.join(' ') + '\n\n' + r.output;
+    else term.textContent = 'Error: ' + r.error;
+  } catch(e) { term.textContent = 'Error: ' + e.message; }
+}
+
+async function doBuild(apk) {
+  const term = document.getElementById('terminal');
+  term.textContent = 'Building' + (apk ? ' + APK' : '') + '...\nThis may take a few minutes.';
+  try {
+    const r = await api('POST', '/api/build', {apk});
+    if (r.ok) {
+      let msg = 'Build ' + r.status + '\n' + (r.tail || '');
+      if (r.apk) msg += '\nAPK: ' + r.apk + ' (' + Math.round(r.apk_size/1024) + 'KB)';
+      term.textContent = msg;
+      toast('Build ' + r.status);
+    } else {
+      term.textContent = 'Build ' + (r.status||'FAILED') + '\n' + (r.stderr || r.error || '');
+      toast('Build failed', true);
+    }
+  } catch(e) {
+    term.textContent = 'Build error: ' + e.message;
+    toast(e.message, true);
+  }
+}
+
+async function doRestart() {
+  if (!confirm('Restart bot process?')) return;
+  try {
+    const r = await api('POST', '/api/restart');
+    if (!r.ok) { toast(r.error, true); return; }
+    setStatus('Restarting bot...', false);
+    // Poll /api/status until the new process answers
+    const started = Date.now();
+    const timer = setInterval(async () => {
+      if (Date.now() - started > 60000) {
+        clearInterval(timer);
+        setStatus('Restart timeout — check PC', true);
+        return;
+      }
+      try {
+        const s = await api('GET', '/api/status');
+        if (s.ok) {
+          clearInterval(timer);
+          updateStatus(s);
+          loadWindows(); loadFolders();
+          toast('Bot online — v' + s.version + ', up ' + s.uptime);
+        }
+      } catch(e) {} // still down, keep polling
+    }, 2000);
+  } catch(e) { toast(e.message, true); }
+}
+
+async function doApks() {
+  const term = document.getElementById('terminal');
+  term.textContent = 'Searching APKs...';
+  try {
+    const r = await api('GET', '/api/apks');
+    if (r.ok && r.apks.length) {
+      term.textContent = 'APKs found:\n' + r.apks.map(
+        a => `  ${a.name} (${Math.round(a.size/1024)}KB)`
+      ).join('\n');
+    } else {
+      term.textContent = 'No APKs found.';
+    }
+  } catch(e) {
+    term.textContent = 'Error: ' + e.message;
+  }
+}
+
+// Auto-login: Mini App mode needs no token; browser mode uses saved token
+if (TG || TOKEN) checkAuth();
+
+// Keyboard shortcut: backtick to focus shell input
+document.addEventListener('keydown', e => {
+  if (e.key === '`' && !e.target.matches('input')) {
+    e.preventDefault();
+    document.getElementById('sh-input').focus();
+  }
+});
+</script>
+</body>
+</html>

@@ -38,6 +38,40 @@ def focus_window(title: str) -> tuple[bool, str]:
         return False, f"Focus failed: {e}"
 
 
+def list_windows(limit: int = 30) -> list[str]:
+    """Return titles of visible windows (non-empty, deduplicated)."""
+    titles: list[str] = []
+    seen: set[str] = set()
+    try:
+        for w in gw.getAllWindows():
+            title = (w.title or "").strip()
+            if not title or title in seen or not w.visible:
+                continue
+            seen.add(title)
+            titles.append(title)
+            if len(titles) >= limit:
+                break
+    except Exception as e:
+        logger.error("list_windows error: %s", e)
+    logger.debug("list_windows: %d windows", len(titles))
+    return titles
+
+
+def focus_window_exact(title: str) -> tuple[bool, str]:
+    """Focus window by exact title match."""
+    try:
+        for w in gw.getAllWindows():
+            if w.title == title:
+                _activate_window(w)
+                time.sleep(0.3)
+                logger.debug("Focused window (exact): %s", title)
+                return True, f"Focused: {title}"
+        return False, f"Window gone: '{title}'"
+    except Exception as e:
+        logger.error("focus_window_exact error: %s", e)
+        return False, f"Focus failed: {e}"
+
+
 def get_active_window_rect() -> tuple[int, int, int, int] | None:
     """Return (left, top, width, height) of active window, or None."""
     try:

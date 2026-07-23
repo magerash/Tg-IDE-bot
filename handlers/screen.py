@@ -1,3 +1,4 @@
+import asyncio
 import io
 import logging
 import mss
@@ -35,7 +36,7 @@ async def screen_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/screen — capture full monitor (or crop region if set)."""
     logger.debug("/screen called")
     try:
-        buf = _grab_to_jpeg(_crop_region)
+        buf = await asyncio.to_thread(_grab_to_jpeg, _crop_region)
         await update.message.reply_photo(photo=buf)
         logger.debug("/screen sent successfully")
     except Exception as e:
@@ -60,7 +61,7 @@ async def window_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     region = {"left": left, "top": top, "width": width, "height": height}
     try:
-        buf = _grab_to_jpeg(region)
+        buf = await asyncio.to_thread(_grab_to_jpeg, region)
         await update.message.reply_photo(photo=buf)
         logger.debug("/window sent successfully (%s)", rect)
     except Exception as e:

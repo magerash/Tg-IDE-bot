@@ -1,37 +1,34 @@
+import asyncio
 import logging
 import os
 import subprocess
 from telegram import Update
 from telegram.ext import ContextTypes
-from config import GIT_DIR
+from utils import project
 from utils.auth import auth_required, rate_limit
 from utils.chunks import send_long_text
 
 logger = logging.getLogger("bot.git")
 
-_git_dir: str = GIT_DIR
-
 
 @auth_required
 @rate_limit(3.0)
 async def git_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/git [subcommand] — run git commands in working directory."""
-    global _git_dir
+    """/git [subcommand] — run git commands in current project."""
     args = list(context.args or [])
     logger.debug("/git called: %s", args)
 
-    # /git cd — switch or show working directory
+    # /git cd — switch or show working directory (also switches current project)
     if args and args[0] == "cd":
         if len(args) < 2:
-            await update.message.reply_text(f"Git dir: {_git_dir}")
+            await update.message.reply_text(f"Git dir: {project.get_dir()}")
             return
         new_dir = " ".join(args[1:])
         if not os.path.isdir(new_dir):
             await update.message.reply_text(f"Not a directory: {new_dir}")
             return
-        _git_dir = os.path.abspath(new_dir)
-        logger.debug("Git dir changed to: %s", _git_dir)
-        await update.message.reply_text(f"Git dir: {_git_dir}")
+        project.set_dir(new_dir)
+        await update.message.reply_text(f"Git dir: {project.get_dir()}")
         return
 
     # Smart defaults
@@ -50,11 +47,12 @@ async def git_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             args = args[:m_idx + 1] + [" ".join(msg_parts)]
 
     cmd = ["git"] + args
-    logger.debug("Running: %s in %s", cmd, _git_dir)
+    git_dir = project.get_dir()
+    logger.debug("Running: %s in %s", cmd, git_dir)
 
     try:
-        proc = subprocess.run(
-            cmd, cwd=_git_dir,
+        proc = await asyncio.to_thread(
+            subprocess.run, cmd, cwd=git_dir,
             capture_output=True, timeout=60,
         )
         raw = proc.stdout + proc.stderr
@@ -65,7 +63,7 @@ async def git_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not output.strip():
             output = f"(no output, exit code {proc.returncode})"
 
-        header = f"[{_git_dir}]\n"
+        header = f"[{project.get_name()}] {git_dir}\n"
         await send_long_text(update, header + output)
     except FileNotFoundError:
         logger.error("git not found in PATH")

@@ -1,6 +1,7 @@
 import asyncio
 import ctypes
 import logging
+import threading
 import time
 import pyautogui
 from telegram import Update
@@ -9,6 +10,7 @@ from utils.auth import auth_required, rate_limit
 from utils.window import focus_window
 
 logger = logging.getLogger("bot.input")
+_input_lock = threading.Lock()
 
 pyautogui.FAILSAFE = False
 
@@ -44,9 +46,10 @@ def _set_clipboard(text: str):
 
 def _type_text(text: str):
     """Type text via clipboard paste — instant, reliable, supports any language."""
-    _set_clipboard(text)
-    pyautogui.hotkey("ctrl", "v")
-    time.sleep(0.1)
+    with _input_lock:
+        _set_clipboard(text)
+        pyautogui.hotkey("ctrl", "v")
+        time.sleep(0.1)
 
 @auth_required
 @rate_limit(1.0)
@@ -55,12 +58,12 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     logger.debug("Typing text: %s", text)
     try:
-        _type_text(text)
-        pyautogui.press("enter")
+        await asyncio.to_thread(_type_text, text)
+        await asyncio.to_thread(pyautogui.press, "enter")
         await update.message.reply_text(f"Typed: {text}")
         await asyncio.sleep(2)
         from handlers.screen import _grab_to_jpeg
-        buf = _grab_to_jpeg()
+        buf = await asyncio.to_thread(_grab_to_jpeg)
         await update.message.reply_photo(photo=buf)
     except Exception as e:
         logger.error("text_handler error: %s", e)
@@ -89,11 +92,14 @@ async def key_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         parts = key_str.split("+")
-        for _ in range(repeat):
-            if len(parts) > 1:
-                pyautogui.hotkey(*parts)
-            else:
-                pyautogui.press(parts[0])
+        def _do_keys():
+            with _input_lock:
+                for _ in range(repeat):
+                    if len(parts) > 1:
+                        pyautogui.hotkey(*parts)
+                    else:
+                        pyautogui.press(parts[0])
+        await asyncio.to_thread(_do_keys)
         label = f"Pressed: {key_str}" + (f" x{repeat}" if repeat > 1 else "")
         await update.message.reply_text(label)
     except Exception as e:
@@ -110,8 +116,8 @@ async def type_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = " ".join(context.args)
     logger.debug("/type called: %s", text)
     try:
-        _type_text(text)
-        pyautogui.press("enter")
+        await asyncio.to_thread(_type_text, text)
+        await asyncio.to_thread(pyautogui.press, "enter")
         await update.message.reply_text(f"Typed: {text}")
     except Exception as e:
         logger.error("/type error: %s", e)
@@ -131,7 +137,7 @@ async def click_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     logger.debug("/click at (%d, %d)", x, y)
     try:
-        pyautogui.click(x, y)
+        await asyncio.to_thread(pyautogui.click, x, y)
         await update.message.reply_text(f"Clicked: ({x}, {y})")
     except Exception as e:
         logger.error("/click error: %s", e)
@@ -146,5 +152,5 @@ async def focus_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     title = " ".join(context.args)
     logger.debug("/focus called: %s", title)
-    success, msg = focus_window(title)
+    success, msg = await asyncio.to_thread(focus_window, title)
     await update.message.reply_text(msg)

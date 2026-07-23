@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import subprocess
 from telegram import Update
@@ -22,8 +23,8 @@ async def claude_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Asking Claude...")
 
     try:
-        proc = subprocess.run(
-            ["claude", "-p", prompt],
+        proc = await asyncio.to_thread(
+            subprocess.run, ["claude", "-p", prompt],
             capture_output=True, timeout=120,
             encoding="utf-8", errors="replace",
         )

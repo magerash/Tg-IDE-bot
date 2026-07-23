@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import platform
@@ -8,7 +9,8 @@ import pyautogui
 from telegram import InlineKeyboardButton as Btn, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from config import ALLOWED_USER_ID, MAX_FILE_SIZE, PROJECT_DIR, VERSION
+from config import ALLOWED_USER_ID, MAX_FILE_SIZE, VERSION
+from utils import project
 from handlers.files import _find_apks
 from handlers.input import _type_text
 from handlers.screen import _grab_to_jpeg
@@ -28,7 +30,7 @@ KEYBOARD = InlineKeyboardMarkup([
     [Btn("Build", callback_data="p:build"), Btn("Build APK", callback_data="p:build_apk"), Btn("APK", callback_data="p:apk"), Btn("Status", callback_data="p:status")],
     [Btn("Enter", callback_data="p:key_enter"), Btn("Esc", callback_data="p:key_esc"), Btn("Ctrl+C", callback_data="p:key_ctrlc"), Btn("Tab", callback_data="p:key_tab")],
     [Btn("Shift+Tab", callback_data="p:key_shifttab"), Btn("Bksp×30", callback_data="p:key_bksp30"), Btn("Let's finish (F)", callback_data="p:type_finish")],
-    [Btn("F-cur bra", callback_data="p:type_finish_cur"), Btn("F-new bra", callback_data="p:type_finish_new"), Btn("Click 500", callback_data="p:click500")],
+    [Btn("F-cur bra", callback_data="p:type_finish_cur"), Btn("F-new bra", callback_data="p:type_finish_new"), Btn("Click 250,1000", callback_data="p:click500")],
 ])
 
 _GIT_ARGS = {"status": ["status"], "log": ["log", "--oneline", "-20"], "diff": ["diff", "--stat"]}
@@ -81,70 +83,93 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         elif cmd.startswith("git_"):
             await query.answer("Running git...")
-            from handlers.git import _git_dir
+            git_dir = project.get_dir()
             git_args = _GIT_ARGS.get(cmd.removeprefix("git_"), ["status"])
-            proc = subprocess.run(
-                ["git"] + git_args, cwd=_git_dir, capture_output=True, timeout=60,
+            proc = await asyncio.to_thread(
+                subprocess.run, ["git"] + git_args, cwd=git_dir,
+                capture_output=True, timeout=60,
             )
             raw = proc.stdout + proc.stderr
             try:
                 output = raw.decode("utf-8")
             except UnicodeDecodeError:
                 output = raw.decode("cp866", errors="replace")
-            await send_long_text_to_chat(bot, chat_id, f"[{_git_dir}]\n{output or '(empty)'}")
+            await send_long_text_to_chat(
+                bot, chat_id, f"[{project.get_name()}] {git_dir}\n{output or '(empty)'}"
+            )
 
         elif cmd == "build":
             await query.answer("Building...")
-            cwd = PROJECT_DIR or None
-            gradlew = os.path.join(cwd, "gradlew.bat") if cwd else "gradlew.bat"
-            await bot.send_message(chat_id, "Cleaning & building...")
-            subprocess.run(
-                [gradlew, "clean"], cwd=cwd,
-                capture_output=True, timeout=120, encoding="utf-8", errors="replace",
-            )
-            proc = subprocess.run(
-                [gradlew, "assembleDebug"], cwd=cwd,
-                capture_output=True, timeout=300, encoding="utf-8", errors="replace",
-            )
-            if proc.returncode == 0:
-                lines = [l for l in proc.stdout.strip().splitlines() if l.strip()]
-                tail = lines[-1] if lines else ""
-                msg = f"Build SUCCESS\n{tail}"
-            else:
-                stderr = proc.stderr[-1500:] if len(proc.stderr) > 1500 else proc.stderr
-                msg = f"Build FAILED (code {proc.returncode})\n{stderr}"
-            await bot.send_message(chat_id, msg[:4000])
+            cwd = project.get_dir()
+            gradlew = os.path.join(cwd, "gradlew.bat")
+            if not os.path.isfile(gradlew):
+                await bot.send_message(
+                    chat_id, f"[{project.get_name()}] No gradlew.bat — use /project to switch.")
+                return
+            await bot.send_message(chat_id, f"[{project.get_name()}] Cleaning & building...")
+            try:
+                await asyncio.to_thread(
+                    subprocess.run, [gradlew, "clean"], cwd=cwd,
+                    capture_output=True, timeout=120, encoding="utf-8", errors="replace",
+                )
+                proc = await asyncio.to_thread(
+                    subprocess.run, [gradlew, "assembleDebug"], cwd=cwd,
+                    capture_output=True, timeout=300, encoding="utf-8", errors="replace",
+                )
+                if proc.returncode == 0:
+                    lines = [l for l in proc.stdout.strip().splitlines() if l.strip()]
+                    tail = lines[-1] if lines else ""
+                    msg = f"Build SUCCESS\n{tail}"
+                else:
+                    stderr = proc.stderr[-1500:] if len(proc.stderr) > 1500 else proc.stderr
+                    msg = f"Build FAILED (code {proc.returncode})\n{stderr}"
+                await bot.send_message(chat_id, msg[:4000])
+            except subprocess.TimeoutExpired:
+                await bot.send_message(chat_id, "Build timed out (5 min limit).")
+            except Exception as e:
+                logger.error("Panel build error: %s", e)
+                await bot.send_message(chat_id, f"Build failed: {e}")
 
         elif cmd == "build_apk":
             await query.answer("Build + APK...")
-            cwd = PROJECT_DIR or None
-            gradlew = os.path.join(cwd, "gradlew.bat") if cwd else "gradlew.bat"
-            await bot.send_message(chat_id, "Cleaning & building...")
-            subprocess.run(
-                [gradlew, "clean"], cwd=cwd,
-                capture_output=True, timeout=120, encoding="utf-8", errors="replace",
-            )
-            proc = subprocess.run(
-                [gradlew, "assembleDebug"], cwd=cwd,
-                capture_output=True, timeout=300, encoding="utf-8", errors="replace",
-            )
-            if proc.returncode != 0:
-                stderr = proc.stderr[-1500:] if len(proc.stderr) > 1500 else proc.stderr
-                await bot.send_message(chat_id, f"Build FAILED (code {proc.returncode})\n{stderr}"[:4000])
+            cwd = project.get_dir()
+            gradlew = os.path.join(cwd, "gradlew.bat")
+            if not os.path.isfile(gradlew):
+                await bot.send_message(
+                    chat_id, f"[{project.get_name()}] No gradlew.bat — use /project to switch.")
                 return
-            lines = [l for l in proc.stdout.strip().splitlines() if l.strip()]
-            await bot.send_message(chat_id, f"Build SUCCESS\n{lines[-1] if lines else ''}")
-            apks = _find_apks("debug")
-            if not apks:
-                await bot.send_message(chat_id, "No APK found after build.")
-                return
-            apk_path, size = apks[0], os.path.getsize(apks[0])
-            if size > MAX_FILE_SIZE:
-                await bot.send_message(chat_id, f"APK too large: {size // 1024 // 1024}MB")
-                return
-            name = os.path.basename(apk_path)
-            with open(apk_path, "rb") as f:
-                await bot.send_document(chat_id, document=f, filename=name, caption=f"{name} ({size // 1024}KB)")
+            await bot.send_message(chat_id, f"[{project.get_name()}] Cleaning & building...")
+            try:
+                await asyncio.to_thread(
+                    subprocess.run, [gradlew, "clean"], cwd=cwd,
+                    capture_output=True, timeout=120, encoding="utf-8", errors="replace",
+                )
+                proc = await asyncio.to_thread(
+                    subprocess.run, [gradlew, "assembleDebug"], cwd=cwd,
+                    capture_output=True, timeout=300, encoding="utf-8", errors="replace",
+                )
+                if proc.returncode != 0:
+                    stderr = proc.stderr[-1500:] if len(proc.stderr) > 1500 else proc.stderr
+                    await bot.send_message(chat_id, f"Build FAILED (code {proc.returncode})\n{stderr}"[:4000])
+                    return
+                lines = [l for l in proc.stdout.strip().splitlines() if l.strip()]
+                await bot.send_message(chat_id, f"Build SUCCESS\n{lines[-1] if lines else ''}")
+                apks = _find_apks("debug", dirs=[cwd])
+                if not apks:
+                    await bot.send_message(chat_id, "No APK found after build.")
+                    return
+                apk_path, size = apks[0], os.path.getsize(apks[0])
+                if size > MAX_FILE_SIZE:
+                    await bot.send_message(chat_id, f"APK too large: {size // 1024 // 1024}MB")
+                    return
+                name = os.path.basename(apk_path)
+                with open(apk_path, "rb") as f:
+                    await bot.send_document(chat_id, document=f, filename=name, caption=f"{name} ({size // 1024}KB)")
+            except subprocess.TimeoutExpired:
+                await bot.send_message(chat_id, "Build timed out (5 min limit).")
+            except Exception as e:
+                logger.error("Panel build_apk error: %s", e)
+                await bot.send_message(chat_id, f"Build failed: {e}")
 
         elif cmd == "apk":
             await query.answer("Searching APK...")
@@ -185,8 +210,8 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("Typed: finish new branch")
 
         elif cmd == "click500":
-            pyautogui.click(500, 500)
-            await query.answer("Clicked 500,500")
+            pyautogui.click(250, 1000)
+            await query.answer("Clicked 250,1000")
 
         elif cmd == "key_bksp30":
             pyautogui.press("backspace", presses=30, interval=0.02)
