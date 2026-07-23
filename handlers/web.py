@@ -134,9 +134,11 @@ async def api_click(request):
     try:
         data = await request.json()
         x, y = int(data["x"]), int(data["y"])
+        double = bool(data.get("double", False))
         import pyautogui
-        await asyncio.to_thread(pyautogui.click, x, y)
-        return _json({"ok": True, "clicked": [x, y]})
+        fn = pyautogui.doubleClick if double else pyautogui.click
+        await asyncio.to_thread(fn, x, y)
+        return _json({"ok": True, "clicked": [x, y], "double": double})
     except Exception as e:
         logger.error("web /api/click error: %s", e)
         return _err(str(e), 500)
@@ -296,8 +298,9 @@ async def index_page(request):
 
 
 def create_web_app():
-    """Create and configure the aiohttp web application."""
-    app = web.Application()
+    """Create and configure the aiohttp web application.
+    client_max_size: default 1MB kills long voice WAV uploads (10 min ≈ 19MB)."""
+    app = web.Application(client_max_size=30 * 1024 * 1024)
 
     # API routes
     app.router.add_post("/api/screen", api_screen)

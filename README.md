@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.11.4
+# TG-IDE-Bot v0.13.0
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -41,6 +41,22 @@ Set `WEB_TOKEN` (+ optionally `WEBAPP_URL` for Telegram Mini App) in `.env`, the
 Panels: screen (click-to-click remote, zoomable viewer), keys, actions, windows focus, projects (VSCode), type presets, Claude, shell.
 
 ## Changelog
+
+### v0.13.0 2026-07-22
+- Humanize: raw dictation → clean prompt text via Groq LLM; TG Raw/Clean toggle, web AI: ON/OFF toggle
+- Recording: 10 min cap with ticking timer; fix 1MB body limit that killed long uploads
+- Remote double-click (tap-delay pattern) on screen + zoomed viewer; double-tap-zoom close bug fixed
+- Screen: auto-capture + Auto 3s on login (Window mode default), viewer inherits Auto
+- Windows/Projects: current-window tag + top-3 recent one-tap chips
+- Type panel: big center record button, AI/Type on sides; auto-grow inputs; visible resize grip
+
+### v0.12.0 2026-07-22
+- Audio-to-text: TG voice message → Groq Whisper transcript + action buttons (Type / Type+Enter / Claude)
+- Web: mic button in Type panel — record → WAV re-encode (Web Audio) → `/api/stt` → text into Type field
+- Web: silence detector with mic device label (skips API call, shows diagnostic toast)
+- Web UI: mobile Keys chips above Type Text, Actions below; mic SVG icon; Type+mic column on mobile; inputs min-height 84px
+- Web: Screenshot/Window buttons highlight instantly on click (optimistic, capture confirms)
+- New modules: `utils/stt.py`, `handlers/audio.py`; config `GROQ_API_KEY`, `STT_MODEL`
 
 ### v0.11.4 2026-07-21
 - Panel + Web: `/plan`, `/hae:release-plan`, `/twin` quick-type buttons

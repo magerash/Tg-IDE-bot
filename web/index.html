@@ -103,15 +103,28 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 /* Inputs: flex:1 + min-width:0 => scale horizontally with the window */
 .input-row{display:flex;gap:6px;align-items:flex-start}
 .input-row input,.input-row textarea{flex:1 1 auto;min-width:0;background:var(--card);border:1px solid var(--border);border-radius:9px;padding:9px 12px;color:var(--text);font-size:13px;font-family:inherit;transition:border-color .15s,box-shadow .15s}
-.input-row textarea{resize:vertical;min-height:38px;max-height:400px;line-height:1.4}
+.input-row textarea{resize:vertical;min-height:84px;max-height:400px;line-height:1.4}
 .input-row input::placeholder,.input-row textarea::placeholder{color:var(--dim)}
+/* Visible diagonal-grip resize handle (default webkit dot is near-invisible) */
+.input-row textarea::-webkit-resizer{
+  background:linear-gradient(135deg,
+    transparent 0 35%, var(--dim) 35% 43%, transparent 43% 57%,
+    var(--dim) 57% 65%, transparent 65% 79%, var(--dim) 79% 87%, transparent 87%);
+  border-radius:0 0 8px 0;
+}
 .input-row input:focus,.input-row textarea:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
 .input-row .btn{flex-shrink:0}
 .btn-grid{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 
 /* Mobile tool chips (hidden on desktop) */
-#mob-tools{display:none;flex-direction:column;gap:8px}
+.mob-tools{display:none;flex-direction:column;gap:8px}
+/* Type controls: big record button center, small Type/AI on the sides */
+.type-controls{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.type-controls .btn:not(#mic-btn){width:88px;flex-shrink:0}
+#mic-btn{flex:1;min-height:46px;font-size:15px;display:flex;align-items:center;justify-content:center}
 .chip-row{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch}
+#win-recent,#proj-recent{margin-top:8px}
+#win-recent:empty,#proj-recent:empty{display:none}
 .chip-row .btn{flex-shrink:0;padding:8px 12px;font-size:12px}
 .chip-row::-webkit-scrollbar{height:4px}
 .chip-row::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
@@ -145,7 +158,7 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 /* ===== Responsive ===== */
 @media(max-width:920px){
   .rail{display:none}
-  #mob-tools{display:flex}
+  .mob-tools{display:flex}
   .wp-grid{grid-template-columns:1fr}
 }
 @media(max-width:560px){
@@ -210,12 +223,13 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
     <!-- Windows + Projects -->
     <div class="wp-grid">
       <div class="panel">
-        <h3>Windows</h3>
+        <h3>Windows — current: <b id="win-current">…</b></h3>
         <select id="win-select"><option value="">— select window —</option></select>
         <div class="btn-row">
           <button class="btn btn-sm btn-soft" onclick="loadWindows()">&#10227; Refresh</button>
           <button class="btn btn-sm btn-primary" onclick="doFocusSel()">Focus</button>
         </div>
+        <div class="chip-row" id="win-recent"></div>
       </div>
       <div class="panel">
         <h3>Projects — current: <b id="proj-current">…</b></h3>
@@ -225,7 +239,16 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
           <button class="btn btn-sm btn-primary" onclick="setProjectSel()">Set Current</button>
           <button class="btn btn-sm btn-ok-soft" onclick="doCodeSel()">Open VSCode</button>
         </div>
+        <div class="chip-row" id="proj-recent"></div>
         <p class="hint">Current project drives git / build / apk. VSCode opens new window + sets current.</p>
+      </div>
+    </div>
+
+    <!-- Mobile-only Keys chips (above the type zone) -->
+    <div class="mob-tools">
+      <div class="panel tight">
+        <h3>Keys</h3>
+        <div class="chip-row" data-keys></div>
       </div>
     </div>
 
@@ -233,9 +256,13 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
     <div class="panel" id="type-panel">
       <h3>Type Text</h3>
       <div id="attach-row"></div>
+      <div class="type-controls">
+        <button class="btn btn-soft" id="human-btn" onclick="toggleHumanize()" title="Clean up transcript via LLM">AI: OFF</button>
+        <button class="btn btn-soft" id="mic-btn" onclick="toggleMic()" title="Voice to text"></button>
+        <button class="btn btn-primary" onclick="doType()">Type</button>
+      </div>
       <div class="input-row">
         <textarea id="type-input" rows="2" placeholder="Text to type... (Enter = send, Shift+Enter = new row, paste image = send to PC)"></textarea>
-        <button class="btn btn-primary" onclick="doType()">Type</button>
       </div>
       <div class="btn-grid">
         <button class="btn btn-sm btn-soft" onclick="doTypePreset('/clear')">/clear</button>
@@ -257,12 +284,8 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
       <div id="history-list"><span class="hint">Sent messages appear here — click one to refill its input</span></div>
     </div>
 
-    <!-- Mobile-only Keys/Actions chips (near the type zone) -->
-    <div id="mob-tools">
-      <div class="panel tight">
-        <h3>Keys</h3>
-        <div class="chip-row" data-keys></div>
-      </div>
+    <!-- Mobile-only Actions chips (below the type zone) -->
+    <div class="mob-tools">
       <div class="panel tight">
         <h3>Actions</h3>
         <div class="chip-row" data-actions></div>
@@ -319,7 +342,7 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 let TOKEN = localStorage.getItem('tg_bot_token') || '';
 let BASE = location.origin;
 let autoTimer = null;
-let lastRect = null, clickMode = false, lastCapture = 'screen';
+let lastRect = null, clickMode = false, lastCapture = 'window';  // window capture is the entry default
 
 /* ===== Keys / Actions rendered from one source of truth =====
    Same arrays feed the desktop rails AND the mobile chip rows,
@@ -407,6 +430,8 @@ async function checkAuth() {
       updateStatus(r);
       loadWindows(); loadFolders();
       setInterval(refreshStatus, 30000);
+      // Screen live from the start: capture + Auto refresh (3s default), Click stays OFF
+      if (!autoTimer) autoRefresh();
     } else {
       toast('Invalid token', true);
     }
@@ -469,8 +494,8 @@ async function refreshStatus() {
 /* ===== Screen =====
    No-flicker update: old image stays visible while the new one loads in
    background; src swaps only when decoded. Progress goes to the status field. */
-async function doScreen() { await capture('/api/screen', 'screen'); }
-async function doWindow() { await capture('/api/window', 'window'); }
+async function doScreen() { _syncModeButtons('screen'); await capture('/api/screen', 'screen'); }
+async function doWindow() { _syncModeButtons('window'); await capture('/api/window', 'window'); }
 
 /* Race guard: concurrent captures (auto tick vs click-refresh vs mode switch) can
    finish out of order — an older capture completing late must never overwrite a
@@ -519,10 +544,12 @@ function refreshCurrent() {
   return lastCapture === 'window' ? doWindow() : doScreen();
 }
 
-/* Highlight the active capture mode button */
-function _syncModeButtons() {
-  document.getElementById('btn-screen').classList.toggle('btn-primary', lastCapture === 'screen');
-  document.getElementById('btn-window').classList.toggle('btn-primary', lastCapture === 'window');
+/* Highlight the active capture mode button.
+   Optional mode arg = optimistic highlight on click, before the capture lands. */
+function _syncModeButtons(mode) {
+  const m = mode || lastCapture;
+  document.getElementById('btn-screen').classList.toggle('btn-primary', m === 'screen');
+  document.getElementById('btn-window').classList.toggle('btn-primary', m === 'window');
 }
 
 function autoRefresh() {
@@ -567,11 +594,12 @@ function toggleClickMode() {
   bindImgClick();
 }
 
+let _imgTapTimer = null;
 function bindImgClick() {
   const img = document.querySelector('#screen-area img');
   if (!img) return;
   img.style.cursor = clickMode ? 'crosshair' : 'zoom-in';
-  img.onclick = async e => {
+  img.onclick = e => {
     if (!clickMode) { openLightbox(img.src); return; }
     if (!lastRect) return;
     const box = img.getBoundingClientRect();
@@ -579,14 +607,19 @@ function bindImgClick() {
     const fy = (e.clientY - box.top) / box.height;
     const x = Math.round(lastRect[0] + fx * lastRect[2]);
     const y = Math.round(lastRect[1] + fy * lastRect[3]);
-    await doClick(x, y);          // wait until the PC actually executed the click
-    setTimeout(refreshCurrent, 500);   // quick feedback
-    setTimeout(refreshCurrent, 1600);  // second pass catches slow UI updates
+    const fire = async double => {
+      await doClick(x, y, double);       // wait until the PC actually executed the click
+      setTimeout(refreshCurrent, 500);   // quick feedback
+      setTimeout(refreshCurrent, 1600);  // second pass catches slow UI updates
+    };
+    // Tap-delay: second tap within 280ms upgrades to a remote double click
+    if (_imgTapTimer) { clearTimeout(_imgTapTimer); _imgTapTimer = null; fire(true); return; }
+    _imgTapTimer = setTimeout(() => { _imgTapTimer = null; fire(false); }, 280);
   };
 }
 
 /* ===== Lightbox viewer: wheel/pinch zoom, drag pan, double-tap zoom ===== */
-const _lb = {sc: 1, min: 1, tx: 0, ty: 0, ptrs: new Map(), dist: 0, moved: false, lastTap: 0, click: false};
+const _lb = {sc: 1, min: 1, tx: 0, ty: 0, ptrs: new Map(), dist: 0, moved: false, lastTap: 0, click: false, closeTimer: null};
 const _lbBox = () => document.getElementById('lightbox');
 const _lbImg = () => document.getElementById('lb-img');
 
@@ -605,6 +638,8 @@ function openLightbox(src) {
   img.src = src;
   _lbBox().style.display = 'block';
   if (img.complete) img.onload();
+  // Inherit main-screen Auto state — viewer keeps refreshing without re-arming
+  if (autoTimer && !_lbAutoTimer) lbToggleAuto();
 }
 
 function closeLightbox() {
@@ -702,10 +737,12 @@ function _lbZoomAt(cx, cy, factor) {
     _lb.ptrs.delete(e.pointerId);
     _lb.dist = 0;
     if (_lb.moved) return;
-    if (_lb.click) { _lbClickAt(e.clientX, e.clientY); return; }
+    if (_lb.click) { _lbTapClick(e.clientX, e.clientY); return; }
     const now = Date.now();
     if (now - _lb.lastTap < 300) {
-      // Double-tap: toggle fit <-> 3x
+      // Double-tap: toggle fit <-> 3x. Cancel any pending backdrop-close —
+      // otherwise the first tap's close timer fires right after the zoom.
+      clearTimeout(_lb.closeTimer);
       if (_lb.sc > _lb.min * 1.05) {
         const img = _lbImg();
         _lb.sc = _lb.min;
@@ -718,8 +755,11 @@ function _lbZoomAt(cx, cy, factor) {
       _lb.lastTap = 0;
     } else {
       _lb.lastTap = now;
-      // Single tap outside image closes
-      if (e.target.id === 'lightbox') setTimeout(() => { if (Date.now() - _lb.lastTap >= 300) closeLightbox(); }, 300);
+      // Single tap outside image closes (unless a second tap arrives)
+      if (e.target.id === 'lightbox') {
+        clearTimeout(_lb.closeTimer);
+        _lb.closeTimer = setTimeout(() => { if (Date.now() - _lb.lastTap >= 300) closeLightbox(); }, 300);
+      }
     }
   });
 
@@ -738,14 +778,30 @@ function _lbSyncClickBtn() {
 
 function lbToggleClick() { _lb.click = !_lb.click; _lbSyncClickBtn(); }
 
-async function _lbClickAt(cx, cy) {
+/* Tap-delay disambiguation: 1 tap = single click (after 280ms), 2 taps = double click.
+   Standard remote-desktop pattern — zoom stays on pinch/wheel while Click is armed. */
+let _lbTapTimer = null, _lbTapXY = null;
+function _lbTapClick(cx, cy) {
+  if (_lbTapTimer) {
+    clearTimeout(_lbTapTimer); _lbTapTimer = null;
+    _lbClickAt(_lbTapXY[0], _lbTapXY[1], true);
+    return;
+  }
+  _lbTapXY = [cx, cy];
+  _lbTapTimer = setTimeout(() => {
+    _lbTapTimer = null;
+    _lbClickAt(_lbTapXY[0], _lbTapXY[1], false);
+  }, 280);
+}
+
+async function _lbClickAt(cx, cy, double) {
   if (!lastRect) return;
   const img = _lbImg();
   const nx = (cx - _lb.tx) / _lb.sc, ny = (cy - _lb.ty) / _lb.sc;
   if (nx < 0 || ny < 0 || nx > img.naturalWidth || ny > img.naturalHeight) return;
   const x = Math.round(lastRect[0] + nx / img.naturalWidth * lastRect[2]);
   const y = Math.round(lastRect[1] + ny / img.naturalHeight * lastRect[3]);
-  await doClick(x, y);          // wait until the PC actually executed the click
+  await doClick(x, y, double);  // wait until the PC actually executed the click
   setTimeout(_lbRefresh, 500);
   setTimeout(_lbRefresh, 1600);
 }
@@ -780,18 +836,58 @@ function _fillSelect(selId, items, placeholder, selected) {
 async function loadWindows() {
   try {
     const r = await api('GET', '/api/windows');
-    if (r.ok) _fillSelect('win-select', r.windows, '— select window —');
-    else toast(r.error, true);
+    if (r.ok) {
+      _fillSelect('win-select', r.windows, '— select window —');
+      const cur = r.active || '?';
+      document.getElementById('win-current').textContent =
+        cur.length > 40 ? cur.slice(0, 40) + '…' : cur;
+      renderRecents('win');
+    } else toast(r.error, true);
+  } catch(e) { toast(e.message, true); }
+}
+
+async function _focusTitle(title) {
+  try {
+    const r = await api('POST', '/api/focus', {title});
+    toast(r.msg || r.error, !r.ok);
+    if (r.ok) { bumpRecent('win', title); loadWindows(); }
   } catch(e) { toast(e.message, true); }
 }
 
 async function doFocusSel() {
   const title = document.getElementById('win-select').value;
   if (!title) { toast('Select window first', true); return; }
-  try {
-    const r = await api('POST', '/api/focus', {title});
-    toast(r.msg || r.error, !r.ok);
-  } catch(e) { toast(e.message, true); }
+  await _focusTitle(title);
+}
+
+/* ===== Recently used windows/projects — one-tap chips (frequency-sorted) ===== */
+function _recents(kind) {
+  try { return JSON.parse(localStorage.getItem('tg_recent_' + kind)) || {}; }
+  catch(e) { return {}; }
+}
+
+function bumpRecent(kind, name) {
+  const m = _recents(kind);
+  m[name] = {n: (m[name]?.n || 0) + 1, t: Date.now()};
+  // keep the map small: top 8 by count
+  const top = Object.entries(m).sort((a, b) => b[1].n - a[1].n).slice(0, 8);
+  localStorage.setItem('tg_recent_' + kind, JSON.stringify(Object.fromEntries(top)));
+  renderRecents(kind);
+}
+
+function renderRecents(kind) {
+  const box = document.getElementById(kind + '-recent');
+  if (!box) return;
+  const top = Object.entries(_recents(kind))
+    .sort((a, b) => b[1].n - a[1].n).slice(0, 3);
+  box.replaceChildren(...top.map(([name]) => {
+    const b = document.createElement('button');
+    b.className = 'btn btn-sm btn-soft';
+    b.textContent = name.length > 26 ? name.slice(0, 26) + '…' : name;
+    b.title = name;
+    b.onclick = () => kind === 'win' ? _focusTitle(name) : _setProject(name);
+    return b;
+  }));
 }
 
 async function loadFolders() {
@@ -800,6 +896,7 @@ async function loadFolders() {
     if (!r.ok) { toast(r.error, true); return; }
     document.getElementById('proj-current').textContent = r.current || '?';
     _fillSelect('proj-select', r.folders, '— select project —', r.current);
+    renderRecents('proj');
   } catch(e) { toast(e.message, true); }
 }
 
@@ -809,14 +906,18 @@ function _selectedProject() {
   return folder;
 }
 
-async function setProjectSel() {
-  const folder = _selectedProject();
-  if (!folder) return;
+async function _setProject(folder) {
   try {
     const r = await api('POST', '/api/project', {folder});
     toast(r.msg || r.error, !r.ok);
-    if (r.ok) loadFolders();
+    if (r.ok) { bumpRecent('proj', folder); loadFolders(); }
   } catch(e) { toast(e.message, true); }
+}
+
+async function setProjectSel() {
+  const folder = _selectedProject();
+  if (!folder) return;
+  await _setProject(folder);
 }
 
 async function doCodeSel() {
@@ -825,7 +926,7 @@ async function doCodeSel() {
   try {
     const r = await api('POST', '/api/code', {folder});
     toast(r.msg || r.error, !r.ok);
-    if (r.ok) loadFolders();
+    if (r.ok) { bumpRecent('proj', folder); loadFolders(); }
   } catch(e) { toast(e.message, true); }
 }
 
@@ -838,10 +939,10 @@ async function doKey(key, repeat) {
   } catch(e) { toast(e.message, true); }
 }
 
-async function doClick(x, y) {
+async function doClick(x, y, double) {
   try {
-    const r = await api('POST', '/api/click', {x, y});
-    if (r.ok) toast(`Clicked: (${x}, ${y})`);
+    const r = await api('POST', '/api/click', {x, y, double: !!double});
+    if (r.ok) toast(`${double ? 'Double-clicked' : 'Clicked'}: (${x}, ${y})`);
     else toast(r.error, true);
   } catch(e) { toast(e.message, true); }
 }
@@ -855,6 +956,16 @@ function bindSendKeys(id, sendFn) {
 bindSendKeys('type-input', () => doType());
 bindSendKeys('claude-input', () => doClaude());
 bindSendKeys('sh-input', () => doSh());
+
+/* ===== Auto-grow inputs to fit content (long humanized prompts) ===== */
+function autoGrow(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight + 2, 400) + 'px';
+}
+['type-input', 'claude-input', 'sh-input'].forEach(id => {
+  const el = document.getElementById(id);
+  el.addEventListener('input', () => autoGrow(el));
+});
 
 /* ===== History (localStorage, newest first, cap 100) ===== */
 function _history() {
@@ -899,7 +1010,10 @@ function renderHistory() {
     row.append(time, kind, text);
     row.onclick = () => {
       const target = targets[item.kind];
-      if (target) { document.getElementById(target).value = item.text; document.getElementById(target).focus(); }
+      if (target) {
+        const el = document.getElementById(target);
+        el.value = item.text; autoGrow(el); el.focus();
+      }
     };
     box.appendChild(row);
   });
@@ -1020,6 +1134,7 @@ async function doType() {
     toast('Sent: ' + (imgs.length ? `${imgs.length} image(s)` : '') +
           (imgs.length && text ? ' + ' : '') + (text ? text.slice(0, 50) : ''));
     input.value = '';
+    autoGrow(input);
     attachments.forEach(a => a.url && URL.revokeObjectURL(a.url));
     attachments.length = 0;
     renderAttachments();
@@ -1034,6 +1149,143 @@ async function doTypePreset(text) {
   } catch(e) { toast(e.message, true); }
 }
 
+/* ===== Voice to text: mic button records, /api/stt transcribes into Type field ===== */
+const MIC_ICON = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>';
+const STOP_ICON = '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+let _rec = null, _recTimer = null, _recTick = null, _recT0 = 0;
+const REC_MAX_S = 600;   // 10 min — WAV stays under Groq 25MB cap
+document.getElementById('mic-btn').innerHTML = MIC_ICON;
+
+/* Humanize toggle: clean transcript via LLM server-side (persisted) */
+let _humanize = localStorage.getItem('tg_humanize') !== '0';
+function toggleHumanize() {
+  _humanize = !_humanize;
+  localStorage.setItem('tg_humanize', _humanize ? '1' : '0');
+  _syncHumanBtn();
+  toast('Transcript cleanup: ' + (_humanize ? 'ON' : 'OFF (raw)'));
+}
+function _syncHumanBtn() {
+  // Monochrome toggle: dark = ON, gray = OFF (palette: gray/white/black/red only)
+  const b = document.getElementById('human-btn');
+  b.textContent = 'AI: ' + (_humanize ? 'ON' : 'OFF');
+  b.classList.toggle('btn-primary', _humanize);
+  b.classList.toggle('btn-soft', !_humanize);
+}
+_syncHumanBtn();
+
+async function toggleMic() {
+  const btn = document.getElementById('mic-btn');
+  if (_rec) { _rec.stop(); return; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+    _micLabel = stream.getAudioTracks()[0]?.label || 'unknown device';
+    const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus'
+               : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '';
+    const chunks = [];
+    _rec = new MediaRecorder(stream, mime ? {mimeType: mime} : undefined);
+    _rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+    _rec.onstop = async () => {
+      clearTimeout(_recTimer);
+      clearInterval(_recTick);
+      stream.getTracks().forEach(t => t.stop());
+      const blob = new Blob(chunks, {type: _rec.mimeType || 'audio/webm'});
+      _rec = null;
+      btn.classList.remove('btn-red');
+      if (blob.size < 1000) { btn.innerHTML = MIC_ICON; toast('Recording too short', true); return; }
+      btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>';
+      // MediaRecorder webm lacks duration metadata — some decoders read it as 0s
+      // silence ("Thank you." hallucination). Re-encode to WAV via Web Audio.
+      let payload = blob;
+      _lastPeak = -1;
+      try { payload = await blobToWav(blob); } catch(e) { /* fall back to raw blob */ }
+      if (_lastPeak >= 0 && _lastPeak < 0.005) {
+        btn.disabled = false; btn.innerHTML = MIC_ICON;
+        toast(`Mic "${_micLabel}" captured pure silence (peak ${_lastPeak.toFixed(4)}) — check mic permission / input device / OS mic privacy`, true);
+        return;
+      }
+      setStatus(`Uploading audio (${(payload.size / 1024 / 1024).toFixed(1)}MB)...`, false);
+      const r = await sttUpload(payload);
+      btn.disabled = false; btn.innerHTML = MIC_ICON;
+      if (r.ok && r.text) {
+        const input = document.getElementById('type-input');
+        input.value = input.value ? input.value.replace(/\s*$/, ' ') + r.text : r.text;
+        autoGrow(input);
+        input.focus();
+        addHistory('type', r.text);
+        toast(r.raw && r.raw !== r.text
+          ? `Transcribed + cleaned (raw ${r.raw.length} → ${r.text.length} chars)`
+          : 'Transcribed (' + r.text.length + ' chars)');
+      } else toast(r.error || 'STT: empty result', true);
+    };
+    _rec.start();
+    btn.classList.add('btn-red');
+    btn.innerHTML = STOP_ICON;
+    // Ticking mm:ss on the button; ⚠ during the last minute
+    _recT0 = Date.now();
+    _recTick = setInterval(() => {
+      const s = Math.floor((Date.now() - _recT0) / 1000);
+      const mm = String(Math.floor(s / 60)), ss = String(s % 60).padStart(2, '0');
+      btn.innerHTML = (s >= REC_MAX_S - 60 ? '⚠ ' : '') + mm + ':' + ss;
+    }, 1000);
+    _recTimer = setTimeout(() => {
+      if (_rec) { toast('Max 10 min reached, transcribing...', true); _rec.stop(); }
+    }, REC_MAX_S * 1000);
+  } catch(e) { toast('Mic: ' + e.message + ' — Telegram webview may block mic, try browser', true); }
+}
+
+let _lastPeak = -1;   // max |sample| of last recording; -1 = unknown (decode failed)
+let _micLabel = '';   // device label of last used mic (for diagnostics)
+
+/* Decode any recorded blob -> mono 16kHz 16-bit WAV (small, decodes everywhere) */
+async function blobToWav(blob) {
+  const raw = await blob.arrayBuffer();
+  const ac = new (window.AudioContext || window.webkitAudioContext)();
+  const decoded = await ac.decodeAudioData(raw);
+  ac.close();
+  const rate = 16000;
+  const frames = Math.ceil(decoded.duration * rate);
+  const oc = new OfflineAudioContext(1, frames, rate);
+  const src = oc.createBufferSource();
+  src.buffer = decoded;
+  src.connect(oc.destination);
+  src.start();
+  const rendered = await oc.startRendering();
+  const pcm = rendered.getChannelData(0);
+  _lastPeak = 0;
+  for (let i = 0; i < pcm.length; i++) { const a = Math.abs(pcm[i]); if (a > _lastPeak) _lastPeak = a; }
+  const buf = new ArrayBuffer(44 + pcm.length * 2);
+  const v = new DataView(buf);
+  const wstr = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  wstr(0, 'RIFF'); v.setUint32(4, 36 + pcm.length * 2, true); wstr(8, 'WAVE');
+  wstr(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  wstr(36, 'data'); v.setUint32(40, pcm.length * 2, true);
+  for (let i = 0; i < pcm.length; i++) {
+    const s = Math.max(-1, Math.min(1, pcm[i]));
+    v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+  return new Blob([buf], {type: 'audio/wav'});
+}
+
+async function sttUpload(blob) {
+  const headers = {'Content-Type': blob.type || 'audio/webm'};
+  if (TG) headers['X-Telegram-Init-Data'] = TG.initData;
+  else headers['Authorization'] = 'Bearer ' + TOKEN;
+  try {
+    const url = BASE + '/api/stt' + (_humanize ? '?humanize=1' : '');
+    // Abort guard: big WAV over mobile + tunnel can stall — fail loud, not spin forever
+    const ctl = new AbortController();
+    const kill = setTimeout(() => ctl.abort(), 180000);
+    const r = await fetch(url, {method: 'POST', headers, body: blob, signal: ctl.signal});
+    clearTimeout(kill);
+    const text = await r.text();
+    try { return JSON.parse(text); }
+    catch(e) { return {ok: false, error: 'HTTP ' + r.status + ': ' + text.slice(0, 120)}; }
+  } catch(e) {
+    return {ok: false, error: e.name === 'AbortError' ? 'Upload timed out (3 min)' : e.message};
+  }
+}
+
 async function doClaude() {
   const input = document.getElementById('claude-input');
   const q = input.value.trim();
@@ -1044,7 +1296,7 @@ async function doClaude() {
   try {
     const r = await api('POST', '/api/claude', {prompt: q});
     term.textContent = '> claude: ' + q + '\n\n' + (r.ok ? (r.output || '(no output)') : 'Error: ' + r.error);
-    if (r.ok) input.value = '';
+    if (r.ok) { input.value = ''; autoGrow(input); }
   } catch(e) { term.textContent = 'Error: ' + e.message; }
 }
 
@@ -1060,6 +1312,7 @@ async function doSh() {
     if (r.ok) term.textContent = '$ ' + cmd + '\n\n' + (r.output || '(no output)') + '\n\n[exit code: ' + r.code + ']';
     else term.textContent = '$ ' + cmd + '\n\nError: ' + r.error;
     input.value = '';
+    autoGrow(input);
   } catch(e) {
     term.textContent = '$ ' + cmd + '\n\nError: ' + e.message;
   }

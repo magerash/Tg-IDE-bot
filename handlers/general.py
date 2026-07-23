@@ -22,7 +22,8 @@ HELP_TEXT = (
     "Tools:\n/sh <cmd> — Shell\n/claude <prompt> — Ask Claude\n"
     "/git — status/log/diff/branch/commit/push/pull/cd\n"
     "/panel — Control panel\n/status — Bot info\n/help — This message\n\n"
-    "Plain text → typed + auto-screenshot"
+    "Plain text → typed + auto-screenshot\n"
+    "Voice message → transcribed (buttons: Type / Type+Enter / Claude)"
 )
 
 

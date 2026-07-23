@@ -85,6 +85,31 @@ def test_restart_requires_auth():
     _run(go())
 
 
+def test_stt_requires_auth_and_key():
+    """STT endpoint rejects unauthenticated; authorized without key → friendly error."""
+    async def go():
+        async with await _client() as c:
+            r = await c.post("/api/stt", data=b"xxx")
+            assert r.status == 401
+            r = await c.post("/api/stt", headers=AUTH, data=b"xxx",
+                             skip_auto_headers=["Content-Type"])
+            data = await r.json()
+            from config import GROQ_API_KEY
+            if not GROQ_API_KEY:
+                assert data["ok"] is False and "GROQ_API_KEY" in data["error"]
+            # humanize flag must not break the endpoint
+            r = await c.post("/api/stt?humanize=1", headers=AUTH, data=b"xxx",
+                             skip_auto_headers=["Content-Type"])
+            assert r.status in (200, 400)
+    _run(go())
+
+
+def test_humanize_module():
+    """humanize() passes empty text through and module imports clean."""
+    from utils.humanize import humanize
+    assert asyncio.run(humanize("  ")) == "  "
+
+
 def test_index_served():
     async def go():
         async with await _client() as c:
@@ -134,6 +159,7 @@ def test_api_paths_in_js_are_registered():
 # --- Python side sanity ---
 
 def test_all_handlers_import():
+    import handlers.audio  # noqa: F401
     import handlers.claude  # noqa: F401
     import handlers.files  # noqa: F401
     import handlers.general  # noqa: F401

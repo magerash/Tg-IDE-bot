@@ -77,6 +77,18 @@ def focus_window_exact(title: str) -> tuple[bool, str]:
         return False, f"Focus failed: {e}"
 
 
+def get_active_window_title() -> str:
+    """Return title of the currently focused window ('' if none)."""
+    try:
+        win = gw.getActiveWindow()
+        title = (win.title or "").strip() if win else ""
+        logger.debug("Active window title: %s", title)
+        return title
+    except Exception as e:
+        logger.error("get_active_window_title error: %s", e)
+        return ""
+
+
 def get_active_window_rect() -> tuple[int, int, int, int] | None:
     """Return (left, top, width, height) of active window, or None."""
     try:
