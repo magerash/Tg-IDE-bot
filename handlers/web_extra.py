@@ -92,8 +92,17 @@ async def api_project(request):
 
 
 async def api_paste(request):
-    """POST {image: base64, paste: bool} — put image on PC clipboard, optionally Ctrl+V it."""
+    """POST {image: base64, paste: bool} — save image to a temp PNG and type its PATH
+    into the focused window. Target is Claude Code in a VS Code terminal: a terminal
+    cannot receive a pasted image via Ctrl+V, but Claude Code attaches an image file
+    when its path appears in the prompt. So we type the path (no Enter); the caller
+    types the user's text + Enter next."""
     import base64
+    import io
+    import os
+    import tempfile
+
+    from PIL import Image
 
     from handlers.web import _check_auth, _err, _json
     if not _check_auth(request):
@@ -107,16 +116,20 @@ async def api_paste(request):
         if len(raw) > 15 * 1024 * 1024:
             return _err("Image too large (15MB limit)")
 
-        from utils.clipimg import set_clipboard_image
-        ok = await asyncio.to_thread(set_clipboard_image, raw)
-        if not ok:
-            return _err("Clipboard set failed", 500)
+        # save as PNG in a stable temp dir
+        out_dir = os.path.join(tempfile.gettempdir(), "tgbot_paste")
+        os.makedirs(out_dir, exist_ok=True)
+        path = os.path.join(out_dir, f"img_{int(time.time() * 1000)}.png")
+        await asyncio.to_thread(lambda: Image.open(io.BytesIO(raw)).save(path, "PNG"))
 
         if data.get("paste", True):
-            import pyautogui
-            await asyncio.to_thread(pyautogui.hotkey, "ctrl", "v")
-        logger.debug("web /api/paste: %d bytes, paste=%s", len(raw), data.get("paste", True))
-        return _json({"ok": True, "msg": f"Image pasted ({len(raw) // 1024}KB)"})
+            from handlers.input import _type_text
+            # quote if the path has spaces; trailing space separates it from the next token
+            typed = f'"{path}" ' if " " in path else f"{path} "
+            await asyncio.to_thread(_type_text, typed)
+        logger.debug("web /api/paste: %d bytes -> %s (typed path=%s)",
+                     len(raw), path, data.get("paste", True))
+        return _json({"ok": True, "path": path, "msg": f"Image path typed ({len(raw) // 1024}KB)"})
     except Exception as e:
         logger.error("web /api/paste error: %s", e)
         return _err(str(e), 500)

@@ -87,18 +87,22 @@ async def api_key(request):
         data = await request.json()
         key_str = data.get("key", "").lower().strip()
         repeat = min(int(data.get("repeat", 1)), 200)
+        interval = min(float(data.get("interval", 0)), 5.0)  # sec between presses
         if not key_str:
             return _err("Missing 'key'")
 
+        import time
         import pyautogui
         parts = key_str.split("+")
 
         def _do():
-            for _ in range(repeat):
+            for i in range(repeat):
                 if len(parts) > 1:
                     pyautogui.hotkey(*parts)
                 else:
                     pyautogui.press(parts[0])
+                if interval and i < repeat - 1:
+                    time.sleep(interval)
 
         await asyncio.to_thread(_do)
         return _json({"ok": True, "pressed": key_str, "repeat": repeat})

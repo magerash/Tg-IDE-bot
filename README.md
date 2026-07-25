@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.15.1
+# TG-IDE-Bot v0.16.0
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -41,6 +41,13 @@ Set `WEB_TOKEN` (+ optionally `WEBAPP_URL` for Telegram Mini App) in `.env`, the
 Panels: screen (click-to-click remote, zoomable viewer), keys, actions, windows focus, projects (VSCode), type presets, Claude, shell.
 
 ## Changelog
+
+### v0.16.0 2026-07-26
+- Web: Windows/Projects moved into the side rails (left = Windows + Keys, right = Projects + Actions); rails stay compact + sticky-locked while the center scrolls
+- Web mobile: `display:contents` reflow restores the old top→bottom order (Screen → Windows → Projects → Keys → Type → …)
+- Auto mode: `Auto` key (web + TG panel) sends Shift+Tab ×3 with 1s gaps to cycle Claude Code modes; `/api/key` gains `interval`
+- Image paste: saves a temp PNG and types its file path into the terminal (Claude Code attaches it) — terminals can't accept a Ctrl+V image
+- Web: Enter sends / Shift+Enter newline restored; screen Auto button green while running, Keys Auto button gray
 
 ### v0.15.1 2026-07-23
 - Panel + Web: `/model` quick-type button (after LF NB) — types `/model` + Enter
