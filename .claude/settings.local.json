@@ -25,7 +25,13 @@
       "PowerShell(python -m py_compile bot.py config.py utils\\\\project.py handlers\\\\project.py handlers\\\\git.py handlers\\\\files.py handlers\\\\windows.py handlers\\\\panel.py handlers\\\\web.py handlers\\\\web_extra.py handlers\\\\general.py; if \\($?\\) { \"COMPILE OK\" })",
       "PowerShell(powershell -NoProfile -ExecutionPolicy Bypass -File \"C:/Users/Magerash/.claude/plugins/cache/hae/hae/0.6.5/scripts/classify.ps1\" state)",
       "PowerShell(powershell -NoProfile -ExecutionPolicy Bypass -File \"C:/Users/Magerash/.claude/plugins/cache/hae/hae/0.6.5/scripts/classify.ps1\" next-batch -N 20)",
-      "PowerShell(Get-Content \"C:\\\\Users\\\\Magerash\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Projects-Tg-IDE-bot\\\\199ad367-4bfc-4242-ac97-f65322ec339e\\\\scratchpad\\\\hae_batch.json\" -Raw | powershell -NoProfile -ExecutionPolicy Bypass -File \"C:/Users/Magerash/.claude/plugins/cache/hae/hae/0.6.5/scripts/classify.ps1\" append)"
+      "PowerShell(Get-Content \"C:\\\\Users\\\\Magerash\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Projects-Tg-IDE-bot\\\\199ad367-4bfc-4242-ac97-f65322ec339e\\\\scratchpad\\\\hae_batch.json\" -Raw | powershell -NoProfile -ExecutionPolicy Bypass -File \"C:/Users/Magerash/.claude/plugins/cache/hae/hae/0.6.5/scripts/classify.ps1\" append)",
+      "WebFetch(domain:deepwiki.com)",
+      "Bash(python -m pytest tests/ -q)",
+      "PowerShell(Get-CimInstance *)",
+      "PowerShell(schtasks *)",
+      "Bash(timeout 20 ssh -N -R 18080:127.0.0.1:8080 -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -o BatchMode=yes -v root@45.150.33.106)",
+      "Bash(echo \"EXIT=$?\")"
     ]
   }
 }

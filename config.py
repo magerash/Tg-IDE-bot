@@ -7,7 +7,7 @@ load_dotenv()
 # Bot settings
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0"))
-VERSION = "0.16.0"
+VERSION = "0.16.5"
 
 # Web dashboard / Mini App
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
@@ -48,6 +48,12 @@ LOG_FILE = "bot.log"
 # Screen capture
 SCREENSHOT_QUALITY = 70  # JPEG compression %
 SCREENSHOT_COOLDOWN = 2  # seconds between screenshots
+# Web live view fallback size, used only when the client sends no preference
+# (the dashboard has its own Fit/1280/1920/Full selector). Full-res frames
+# (~260KB base64) strain the tunnel, so short auto-refresh intervals silently
+# degrade to the round-trip time; 1920 is the readable/affordable middle.
+WEB_SCREEN_MAX_W = int(os.getenv("WEB_SCREEN_MAX_W", "1920"))  # 0 = no downscale
+WEB_SCREEN_QUALITY = int(os.getenv("WEB_SCREEN_QUALITY", "70"))
 
 # Input simulation
 TYPING_INTERVAL = 0.02  # delay between keystrokes (seconds)

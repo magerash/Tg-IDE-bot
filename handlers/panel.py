@@ -41,7 +41,7 @@ _TYPE_PRESETS = {
     "type_finish_new": "let's finish. new branch",
     "type_clear": "/clear",
     "type_caveman": "/caveman",
-    "type_ultra": "/ultrathink",
+    "type_ultra": "Ultrathink ",  # keyword, not a slash command — prepend to your prompt
     "type_plan": "/plan",
     "type_rplan": "/hae:release-plan",
     "type_twin": "/hae:twin ",
@@ -49,7 +49,7 @@ _TYPE_PRESETS = {
 }
 
 # Presets that leave the cursor in the field (no Enter) so you can keep typing.
-_TYPE_NO_ENTER = {"type_twin"}
+_TYPE_NO_ENTER = {"type_twin", "type_ultra"}
 
 _GIT_ARGS = {"status": ["status"], "log": ["log", "--oneline", "-20"], "diff": ["diff", "--stat"]}
 _KEY_MAP = {"enter": "enter", "esc": "escape", "ctrlc": ("ctrl", "c"), "tab": "tab", "shifttab": ("shift", "tab")}

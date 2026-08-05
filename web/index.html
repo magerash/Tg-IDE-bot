@@ -198,16 +198,19 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 /* ===== Responsive ===== */
 @media(max-width:920px){
   /* Promote every panel into one column (rails + center collapse via display:contents)
-     so we can order them top→bottom: Screen → Windows → Projects → then DOM order
-     (Keys chips → Type Text → History → Scheduled → Actions chips → Claude → Shell).
+     so we can order them top→bottom: Windows → Projects (context pickers on top, unlike
+     desktop where they sit in the rails) → Screen → Type Text (kept adjacent so you can
+     scroll screen↔input in one flick) → then DOM order (Keys chips → History → Scheduled
+     → Actions chips → Claude → Shell).
      Keys/Actions rail panels hide — mob-tools chip rows cover them. */
   .main-row{flex-direction:column;align-items:stretch}
   .rail,.center{display:contents}
   .rail-tools{display:none}
   .mob-tools{display:flex}
-  #screen-panel{order:-3}
-  #win-panel{order:-2}
-  #proj-panel{order:-1}
+  #win-panel{order:-4}
+  #proj-panel{order:-3}
+  #screen-panel{order:-2}
+  #type-panel{order:-1}
 }
 @media(max-width:560px){
   body{padding:10px}
@@ -291,6 +294,12 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
           <option value="5000">5s</option>
           <option value="10000">10s</option>
         </select>
+        <select id="res-sel" style="width:auto" onchange="resChanged()" title="Transfer resolution. Fit = match the view and auto-shrink on a slow link; fixed sizes never adapt">
+          <option value="fit" selected>Fit</option>
+          <option value="1280">1280</option>
+          <option value="1920">1920</option>
+          <option value="0">Full</option>
+        </select>
         <button class="btn btn-sm btn-soft" onclick="toggleClickMode()" id="click-btn">Click: OFF</button>
       </div>
     </div>
@@ -318,7 +327,7 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
       <div class="btn-grid">
         <button class="btn btn-sm btn-soft" onclick="doTypePreset('/clear')">/clear</button>
         <button class="btn btn-sm btn-soft" onclick="doTypePreset('/caveman')">/caveman</button>
-        <button class="btn btn-sm btn-soft" onclick="doTypePreset('/ultrathink')">Ultrathink</button>
+        <button class="btn btn-sm btn-soft" onclick="doTypePreset('Ultrathink ', false)">Ultrathink</button>
         <button class="btn btn-sm btn-soft" onclick="doTypePreset('/plan')">/plan</button>
         <button class="btn btn-sm btn-soft" onclick="doTypePreset('/hae:release-plan')">/hae:release-plan</button>
         <button class="btn btn-sm btn-soft" onclick="doTypePreset('/hae:twin ', false)">/hae:twin</button>
@@ -424,7 +433,7 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 <script>
 let TOKEN = localStorage.getItem('tg_bot_token') || '';
 let BASE = location.origin;
-let autoTimer = null;
+let autoTimer = null, autoOn = false;
 let lastRect = null, clickMode = false, lastCapture = 'window';  // window capture is the entry default
 
 /* ===== Keys / Actions rendered from one source of truth =====
@@ -511,6 +520,25 @@ if (_twa) {
 }
 const TG = (_twa && _twa.initData) ? _twa : null;
 
+/* Must equal config.VERSION — tests enforce it. The Telegram webview caches the
+   Mini App page hard (no-cache headers are advisory there), so a stale UI can
+   run against a new server for days. Detect it and reload past the cache once. */
+const CLIENT_VERSION = '0.16.5';
+
+function _checkStaleClient(serverVersion) {
+  if (!serverVersion || serverVersion === CLIENT_VERSION) return false;
+  const msg = `Stale dashboard (UI ${CLIENT_VERSION}, bot ${serverVersion})`;
+  if (sessionStorage.getItem('tg_reloaded_for') === serverVersion) {
+    setStatus(msg + ' — reload failed, clear the app cache', true);
+    return false;                 // already tried; don't loop
+  }
+  sessionStorage.setItem('tg_reloaded_for', serverVersion);
+  setStatus(msg + ' — reloading…', true);
+  // Query string differs → the webview cannot serve the cached entry
+  location.replace(location.pathname + '?v=' + encodeURIComponent(serverVersion));
+  return true;
+}
+
 function doAuth() {
   const v = document.getElementById('token-input').value.trim();
   if (!v) return;                 // empty input must not wipe a working token
@@ -523,34 +551,57 @@ async function checkAuth() {
   try {
     const r = await api('GET', '/api/status');
     if (r.ok) {
+      if (_checkStaleClient(r.version)) return;   // reloading past the webview cache
       document.getElementById('auth-overlay').style.display = 'none';
       document.getElementById('main').style.display = 'block';
       updateStatus(r);
       loadWindows(); loadFolders(); loadCCMetrics(); loadSchedules();
       setInterval(refreshStatus, 30000);
       // Screen live from the start: capture + Auto refresh (3s default), Click stays OFF
-      if (!autoTimer) autoRefresh();
+      if (!autoOn) autoRefresh();
     } else {
-      toast('Invalid token', true);
+      toast(r.error || 'Invalid token', true);    // timeouts must not read as "bad token"
     }
   } catch(e) {
     toast('Connection failed: ' + e.message, true);
   }
 }
 
-async function api(method, path, body) {
+/* fetch() has NO timeout of its own. Through the reverse-SSH tunnel a request
+   whose upstream died mid-flight hangs on the proxy indefinitely — and with the
+   single-flight capture queue one such request wedges the live view forever
+   (the symptom: "web updates, Telegram never does"). Every call gets an abort
+   deadline; long jobs pass their own (0 = wait as long as it takes). */
+const API_TIMEOUT = 20000;
+
+async function api(method, path, body, timeoutMs) {
   const headers = {'Content-Type': 'application/json'};
   if (TG) headers['X-Telegram-Init-Data'] = TG.initData;
   else headers['Authorization'] = 'Bearer ' + TOKEN;
-  const opts = {method, headers};
+  const opts = {method, headers, cache: 'no-store'};
   if (body) opts.body = JSON.stringify(body);
-  const r = await fetch(BASE + path, opts);
-  const text = await r.text();
+  const ms = timeoutMs === undefined ? API_TIMEOUT : timeoutMs;
+  const ctl = new AbortController();
+  const timer = ms ? setTimeout(() => ctl.abort(), ms) : null;
+  opts.signal = ctl.signal;
   try {
-    return JSON.parse(text);
+    const r = await fetch(BASE + path, opts);
+    const text = await r.text();
+    if (r.status === 401 && TG) {
+      // Mini App initData expires after 24h — a reopened cached webview 401s
+      return {ok: false, error: 'Session expired — close and reopen the Mini App'};
+    }
+    try {
+      return JSON.parse(text);
+    } catch(e) {
+      // Non-JSON reply (404 page, proxy error) — surface readable error
+      return {ok: false, error: 'HTTP ' + r.status + ': ' + text.slice(0, 120)};
+    }
   } catch(e) {
-    // Non-JSON reply (404 page, proxy error) — surface readable error
-    return {ok: false, error: 'HTTP ' + r.status + ': ' + text.slice(0, 120)};
+    if (e.name === 'AbortError') return {ok: false, error: `Timed out after ${ms / 1000}s — tunnel stalled?`};
+    return {ok: false, error: e.message};
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -652,58 +703,205 @@ async function loadCCMetrics() {
 /* ===== Screen =====
    No-flicker update: old image stays visible while the new one loads in
    background; src swaps only when decoded. Progress goes to the status field. */
-async function doScreen() { _syncModeButtons('screen'); await capture('/api/screen', 'screen'); }
-async function doWindow() { _syncModeButtons('window'); await capture('/api/window', 'window'); }
+async function doScreen() { _syncModeButtons('screen'); await requestCapture('screen'); }
+async function doWindow() { _syncModeButtons('window'); await requestCapture('window'); }
 
-/* Race guard: concurrent captures (auto tick vs click-refresh vs mode switch) can
-   finish out of order — an older capture completing late must never overwrite a
-   newer one. Every call bumps _capSeq; stale results are dropped at every await. */
-let _capSeq = 0, _capBusy = false;
+/* ===== Single-flight capture queue =====
+   Everything that wants a fresh frame (Auto tick, post-click refresh, lightbox,
+   mode buttons) goes through requestCapture(). Exactly one request is ever in
+   flight; anything asked for while busy collapses into ONE pending run.
 
-async function capture(path, kind) {
+   Why: every request travels the same reverse-SSH tunnel, so overlapping frame
+   downloads head-of-line block each other AND the tiny /api/click POST behind
+   them. The old code fired blind refreshes at +500ms/+1600ms after each click
+   on top of a setInterval tick — the queue grew without bound, a click took
+   ~15s to show up, and out-of-order results were dropped by the seq guard so
+   sometimes it never showed at all. */
+let _capSeq = 0, _capBusy = false, _capPending = null, _lastHash = '', _capStart = 0;
+const CAP_STUCK_MS = 30000;   // hard ceiling above the api() abort deadline
+
+/* kind: 'screen' | 'window' | undefined (= keep current mode) */
+function requestCapture(kind) {
+  const k = kind || lastCapture || 'screen';
+  // Deadlock guard: a flight that outlives its own abort deadline (webview
+  // suspended mid-fetch, for instance) must never own the queue forever.
+  if (_capBusy && performance.now() - _capStart > CAP_STUCK_MS) {
+    _capBusy = false;
+    setStatus('Capture stuck — queue reset', true);
+  }
+  if (_capBusy) { _capPending = k; return Promise.resolve(); }
+  return capture(k);
+}
+
+/* Transfer resolution — user's choice in the Screen panel (persisted).
+   'fit' = only the pixels the view can show (cheapest); a number = that width;
+   0 = native, no downscale. Bigger frame = sharper but slower over the tunnel.
+   The zoomable lightbox always gets at least 1920 — that view exists to read
+   fine text, and 'Fit' would hand it the thumbnail-sized frame. */
+const _RES_QUALITY = {fit: 65, 1280: 68, 1920: 72, 0: 80};
+
+function _resChoice() {
+  const v = document.getElementById('res-sel').value;
+  return v === 'fit' ? 'fit' : parseInt(v, 10);
+}
+
+/* Widest frame 'Fit' will ever ask for: what the view can actually display. */
+function _fitBaseW() {
+  const lbOpen = _lbBox().style.display === 'block';
+  if (lbOpen) return 1920;
+  const el = document.getElementById('screen-area');
+  const css = Math.max(320, el.clientWidth || 800);
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  return Math.min(Math.ceil(css * dpr / 160) * 160, 1920);
+}
+
+function _frameOpts() {
+  const choice = _resChoice();
+  const lbOpen = _lbBox().style.display === 'block';
+  let w;
+  if (choice === 'fit') {
+    w = lbOpen ? 1920 : Math.min(_fitW || _fitBaseW(), _fitBaseW());
+  } else {
+    w = choice;                                  // 0 = native
+    if (lbOpen && w && w < 1920) w = 1920;
+  }
+  return {max_w: w, quality: _RES_QUALITY[choice] || 70};
+}
+
+function resChanged() {
+  localStorage.setItem('tg_screen_res', document.getElementById('res-sel').value);
+  _lastHash = '';                 // force a full frame at the new size
+  _fitW = 0; _rtt = [];           // re-learn the link at the new size
+  requestCapture();
+}
+{
+  const saved = localStorage.getItem('tg_screen_res');
+  if (saved !== null) document.getElementById('res-sel').value = saved;
+}
+
+/* WebP is ~37% smaller than JPEG at the same quality; every supported client
+   should ask for it. Feature-detected once — Android/Chrome and Safari 14+ say yes. */
+const WEBP_OK = (() => {
+  try {
+    return document.createElement('canvas').toDataURL('image/webp').indexOf('image/webp') > 0;
+  } catch(e) { return false; }
+})();
+
+let _objUrl = null;   // blob URL of the frame on screen; revoked on replace
+
+async function capture(kind) {
   const seq = ++_capSeq;
   _capBusy = true;
+  const t0 = performance.now();
+  _capStart = t0;
   const area = document.getElementById('screen-area');
   if (!area.querySelector('img')) {
     area.innerHTML = '<span class="placeholder"><span class="spinner"></span>Capturing...</span>';
   }
   setStatus('Capturing...', false);
+  // 45s, not 20s: over a policed VPN link a frame can legitimately take ~18s,
+  // and an abort there is worse than a slow frame — it throws away bytes
+  // already transferred and the view never updates at all.
+  const ctl = new AbortController();
+  const killer = setTimeout(() => ctl.abort(), 45000);
   try {
-    const r = await api('POST', path);
+    const headers = {'Content-Type': 'application/json'};
+    if (TG) headers['X-Telegram-Init-Data'] = TG.initData;
+    else headers['Authorization'] = 'Bearer ' + TOKEN;
+    const opts = _frameOpts();
+    // Binary body + WebP: 114KB of base64 JPEG becomes 52KB on the wire.
+    // hash → 204 with no body at all when the screen has not changed.
+    const r = await fetch(BASE + '/api/frame', {
+      method: 'POST', headers, cache: 'no-store', signal: ctl.signal,
+      body: JSON.stringify({mode: kind, fmt: WEBP_OK ? 'webp' : 'jpeg',
+                            hash: _lastHash, ...opts}),
+    });
     if (seq !== _capSeq) return;    // superseded by a newer capture
-    if (!r.ok) { setStatus(r.error, true); return; }
+    const rect = (r.headers.get('X-Rect') || '').split(',').map(Number);
+    if (r.status === 204) {         // unchanged screen — keep the frame we have
+      if (rect.length === 4) lastRect = rect;
+      lastCapture = kind;
+      _syncModeButtons();
+      _adapt(performance.now() - t0, 0);
+      setStatus(`No change · ${Math.round(performance.now() - t0)}ms`, false);
+      return;
+    }
+    if (!r.ok) {
+      let msg = 'HTTP ' + r.status;
+      if (r.status === 401 && TG) msg = 'Session expired — close and reopen the Mini App';
+      else { try { msg = (await r.json()).error || msg; } catch(e) {} }
+      setStatus(msg, true);
+      return;
+    }
+    const blob = await r.blob();
+    if (seq !== _capSeq) return;
+    _lastHash = r.headers.get('X-Hash') || '';
+    const url = URL.createObjectURL(blob);
     const im = new Image();
     im.alt = 'screen';
     im.onload = () => {
       im.onload = null;             // stale-closure guard: must never re-fire on src swaps
-      if (seq !== _capSeq) return;  // superseded while decoding
-      lastRect = r.rect || null;
+      if (seq !== _capSeq) { URL.revokeObjectURL(url); return; }
+      if (rect.length === 4) lastRect = rect;
       lastCapture = kind;
       area.replaceChildren(im);     // atomic swap of a fresh node — no flicker, no old handlers
       bindImgClick();
       _syncModeButtons();
       // Push the fresh frame to the open lightbox (keeps zoom/pan; no stale-frame lag)
       if (_lbBox().style.display === 'block') {
-        const li = _lbImg(); li.onload = null; li.src = im.src;
+        const li = _lbImg(); li.onload = null; li.src = url;
       }
-      setStatus(kind === 'window' ? 'Window updated' : 'Screen updated', false);
+      if (_objUrl && _objUrl !== url) URL.revokeObjectURL(_objUrl);
+      _objUrl = url;
+      // Round-trip + size + the throughput they imply. If ms exceeds the Auto
+      // interval, THIS is the real refresh rate — not the selector.
+      const ms = Math.round(performance.now() - t0);
+      const kb = Math.round(blob.size / 1024);
+      _adapt(ms, blob.size);
+      setStatus(`${kind === 'window' ? 'Window' : 'Screen'} updated · ${ms}ms · ${kb}KB`
+                + ` · ${Math.round(blob.size / 1024 / (ms / 1000))}KB/s`, false);
     };
-    im.onerror = () => { if (seq === _capSeq) setStatus('Image decode failed', true); };
-    im.src = `data:image/jpeg;base64,${r.image}`;
+    im.onerror = () => { URL.revokeObjectURL(url); if (seq === _capSeq) setStatus('Image decode failed', true); };
+    im.src = url;
   } catch(e) {
-    if (seq === _capSeq) setStatus(e.message, true);
+    if (seq === _capSeq) {
+      setStatus(e.name === 'AbortError' ? 'Frame timed out after 20s — link stalled?' : e.message, true);
+    }
   } finally {
-    if (seq === _capSeq) _capBusy = false;
+    clearTimeout(killer);
+    // Released on network completion (decode is local and fast) — then drain
+    // the coalesced request, if any, so the pipe never carries two frames.
+    _capBusy = false;
+    if (_capPending) { const k = _capPending; _capPending = null; requestCapture(k); }
   }
+}
+
+/* Adaptive sizing (Fit mode only): a phone on a thin link cannot move a 1280px
+   frame inside a 3s tick, and the queue then paces itself off the link instead
+   of the interval. Shrink until frames fit the tick; grow back when they're
+   cheap. Explicit 1280/1920/Full choices are left exactly as chosen. */
+let _fitW = 0, _rtt = [];
+function _adapt(ms, bytes) {
+  if (_resChoice() !== 'fit') return;
+  _rtt.push(ms);
+  if (_rtt.length > 3) _rtt.shift();
+  if (_rtt.length < 2 || !bytes) return;
+  const med = _rtt.slice().sort((a, b) => a - b)[Math.floor(_rtt.length / 2)];
+  const target = _autoInterval();
+  const cur = _fitW || _fitBaseW();
+  // Correct in proportion to the overshoot, not by a fixed step: an 18s frame
+  // against a 3s tick has to drop hard, and stepping 25% at a time would need
+  // minutes of 18s frames to get there.
+  const ratio = med / target;
+  let next = cur;
+  if (ratio > 1.1) next = cur * Math.max(0.4, Math.min(0.9, 1 / Math.sqrt(ratio)));
+  else if (ratio < 0.35) next = cur * 1.25;
+  next = Math.min(_fitBaseW(), Math.max(480, Math.round(next / 80) * 80));
+  if (next !== cur) { _fitW = next; _rtt = []; }
 }
 
 function _autoInterval() {
   return parseInt(document.getElementById('auto-int').value, 10) || 3000;
-}
-
-/* Refresh in whatever mode was captured last — window mode stays window mode */
-function refreshCurrent() {
-  return lastCapture === 'window' ? doWindow() : doScreen();
 }
 
 /* Highlight the active capture mode button.
@@ -714,31 +912,45 @@ function _syncModeButtons(mode) {
   document.getElementById('btn-window').classList.toggle('btn-primary', m === 'window');
 }
 
-function autoRefresh() {
-  const btn = document.getElementById('auto-btn');
-  if (autoTimer) {
-    clearInterval(autoTimer); autoTimer = null;
-    btn.textContent = 'Auto: OFF';
-  } else {
-    refreshCurrent();
-    autoTimer = setInterval(_autoTick, _autoInterval());
-    btn.textContent = 'Auto: ON';
-  }
-  btn.classList.toggle('btn-ok', !!autoTimer);    // green while running
-  btn.classList.toggle('btn-soft', !autoTimer);
+/* Self-scheduling chain, NOT setInterval: the gap is measured from the moment
+   the previous frame finished, so a slow link stretches the period instead of
+   queueing ticks that can never be served. */
+function _autoSchedule() {
+  clearTimeout(autoTimer);
+  if (!autoOn) return;
+  autoTimer = setTimeout(async () => {
+    if (!autoOn) return;
+    // Backgrounded tab/webview: keep the loop alive but stop pulling frames.
+    // A dashboard left open in a background tab was pulling >1GB/day through
+    // the tunnel and competing with the phone for it.
+    if (document.hidden) { _autoSchedule(); return; }
+    await requestCapture();
+    _autoSchedule();
+  }, _autoInterval());
 }
 
-/* Auto tick skips while a capture is in flight — no pile-up at short intervals */
-function _autoTick() {
-  if (!_capBusy) refreshCurrent();
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && autoOn) { _autoSchedule(); requestCapture(); }
+});
+
+function autoRefresh() {
+  const btn = document.getElementById('auto-btn');
+  autoOn = !autoOn;
+  if (autoOn) {
+    btn.textContent = 'Auto: ON';
+    Promise.resolve(requestCapture()).then(_autoSchedule);
+  } else {
+    clearTimeout(autoTimer); autoTimer = null;
+    btn.textContent = 'Auto: OFF';
+  }
+  btn.classList.toggle('btn-ok', autoOn);    // green while running
+  btn.classList.toggle('btn-soft', !autoOn);
+  _lbSyncAutoBtn();
 }
 
 function autoIntChanged() {
   localStorage.setItem('tg_auto_int', document.getElementById('auto-int').value);
-  if (autoTimer) {               // running — restart with new interval
-    clearInterval(autoTimer);
-    autoTimer = setInterval(_autoTick, _autoInterval());
-  }
+  _autoSchedule();               // no-op when Auto is off
 }
 {
   const saved = localStorage.getItem('tg_auto_int');
@@ -771,8 +983,8 @@ function bindImgClick() {
     const y = Math.round(lastRect[1] + fy * lastRect[3]);
     const fire = async double => {
       await doClick(x, y, double);       // wait until the PC actually executed the click
-      setTimeout(refreshCurrent, 500);   // quick feedback
-      setTimeout(refreshCurrent, 1600);  // second pass catches slow UI updates
+      requestCapture();                  // immediate — the queue keeps it single-flight
+      setTimeout(requestCapture, 900);   // second pass catches slow UI updates
     };
     // Tap-delay: second tap within 280ms upgrades to a remote double click
     if (_imgTapTimer) { clearTimeout(_imgTapTimer); _imgTapTimer = null; fire(true); return; }
@@ -800,34 +1012,31 @@ function openLightbox(src) {
   img.src = src;
   _lbBox().style.display = 'block';
   if (img.complete) img.onload();
-  // Inherit main-screen Auto state — viewer keeps refreshing without re-arming
-  if (autoTimer && !_lbAutoTimer) lbToggleAuto();
+  // Auto is a single shared loop — the viewer just mirrors its state
+  _lbSyncAutoBtn();
+  // The viewer wants ≥1920 to be worth zooming into; the frame we just showed
+  // was sized for the small panel. Pull a sharp one right away.
+  _lastHash = '';
+  requestCapture();
 }
 
 function closeLightbox() {
   _lbBox().style.display = 'none';
   _lb.ptrs.clear();
-  _lbStopAuto();
 }
 
-/* ===== Lightbox auto-refresh: Auto pill + seconds pill (shared interval) ===== */
-let _lbAutoTimer = null;
-
-function _lbStopAuto() {
-  if (_lbAutoTimer) { clearInterval(_lbAutoTimer); _lbAutoTimer = null; }
+/* ===== Lightbox auto-refresh =====
+   The viewer no longer runs its own timer — it drives the ONE main Auto loop.
+   Two loops meant two frame requests per interval whenever the lightbox was
+   open with Auto on, which is exactly what saturated the tunnel. */
+function _lbSyncAutoBtn() {
   const b = document.getElementById('lb-auto');
-  b.textContent = 'Auto: OFF';
-  b.classList.remove('on');
+  if (!b) return;
+  b.textContent = 'Auto: ' + (autoOn ? 'ON' : 'OFF');
+  b.classList.toggle('on', autoOn);
 }
 
-function lbToggleAuto() {
-  if (_lbAutoTimer) { _lbStopAuto(); return; }
-  _lbRefresh();
-  _lbAutoTimer = setInterval(() => { if (!_capBusy) _lbRefresh(); }, _autoInterval());
-  const b = document.getElementById('lb-auto');
-  b.textContent = 'Auto: ON';
-  b.classList.add('on');
-}
+function lbToggleAuto() { autoRefresh(); }
 
 const _LB_INTERVALS = [1000, 2000, 3000, 5000, 10000];
 
@@ -836,12 +1045,8 @@ function lbCycleInt() {
   const cur = parseInt(sel.value, 10);
   const next = _LB_INTERVALS[(_LB_INTERVALS.indexOf(cur) + 1) % _LB_INTERVALS.length];
   sel.value = String(next);
-  autoIntChanged();               // persists + restarts main auto timer if running
+  autoIntChanged();               // persists + reschedules the shared auto loop
   document.getElementById('lb-int').textContent = (next / 1000) + 's';
-  if (_lbAutoTimer) {             // restart lightbox timer with new interval
-    clearInterval(_lbAutoTimer);
-    _lbAutoTimer = setInterval(() => { if (!_capBusy) _lbRefresh(); }, next);
-  }
 }
 
 function _lbApply() {
@@ -964,14 +1169,8 @@ async function _lbClickAt(cx, cy, double) {
   const x = Math.round(lastRect[0] + nx / img.naturalWidth * lastRect[2]);
   const y = Math.round(lastRect[1] + ny / img.naturalHeight * lastRect[3]);
   await doClick(x, y, double);  // wait until the PC actually executed the click
-  setTimeout(_lbRefresh, 500);
-  setTimeout(_lbRefresh, 1600);
-}
-
-async function _lbRefresh() {
-  // capture()'s onload pushes the fresh frame into the lightbox once decoded —
-  // no manual copy here (that read #screen-area before the new node was swapped in).
-  await refreshCurrent();
+  requestCapture();
+  setTimeout(requestCapture, 900);
 }
 
 /* ===== Windows / Projects ===== */
@@ -995,7 +1194,9 @@ async function loadWindows() {
   try {
     const r = await api('GET', '/api/windows');
     if (r.ok) {
-      _fillSelect('win-select', r.windows, '— select window —');
+      _activeWin = r.active || '';
+      _winList = r.windows || [];      // recents are validated against this
+      _fillSelect('win-select', r.windows, '— select window —', _activeWin);
       const cur = r.active || '?';
       document.getElementById('win-current').textContent =
         cur.length > 40 ? cur.slice(0, 40) + '…' : cur;
@@ -1009,6 +1210,9 @@ async function _focusTitle(title) {
     const r = await api('POST', '/api/focus', {title});
     toast(r.msg || r.error, !r.ok);
     if (r.ok) { bumpRecent('win', title); loadWindows(); }
+    // Window is gone for good — retire the chip instead of leaving a dead one.
+    // "found but activation blocked" is NOT gone, so it stays.
+    else if (r.gone) { dropRecent('win', title); loadWindows(); }
   } catch(e) { toast(e.message, true); }
 }
 
@@ -1018,18 +1222,59 @@ async function doFocusSel() {
   await _focusTitle(title);
 }
 
-/* ===== Recently used windows/projects — one-tap chips (frequency-sorted) ===== */
+/* ===== Recently used windows/projects — one-tap chips (frequency-sorted) =====
+   Recents live in localStorage, so they outlive the windows they point at. A
+   chip for a closed window is worse than no chip: it looks tappable and does
+   nothing. Every render is therefore filtered against the live list. Storage is
+   NOT pruned on render — close VS Code and reopen it and the chip comes back
+   with its frequency intact. */
+let _activeWin = '', _curProj = '';   // highlighted (light green) in the recents lists
+let _winList = [], _projList = [];    // live lists; empty = not loaded yet, don't filter
+const RECENT_MAX_AGE = 30 * 24 * 3600 * 1000;   // forget entries unused for 30 days
+
 function _recents(kind) {
   try { return JSON.parse(localStorage.getItem('tg_recent_' + kind)) || {}; }
   catch(e) { return {}; }
 }
 
+function _saveRecents(kind, m) {
+  localStorage.setItem('tg_recent_' + kind, JSON.stringify(m));
+}
+
+/* Mirrors focus_window_exact() in utils/window.py: exact → containment either
+   way → first-25-chars prefix. Must stay in sync, or we hide chips that would
+   in fact focus fine (VS Code retitles itself per open file). */
+function _matchesLive(name, live) {
+  const t = (name || '').toLowerCase();
+  return live.some(w => {
+    const l = (w || '').toLowerCase();
+    return l === t || l.includes(t) || t.includes(l) || l.slice(0, 25) === t.slice(0, 25);
+  });
+}
+
+function _isAlive(kind, name) {
+  if (kind === 'win') return !_winList.length || _matchesLive(name, _winList);
+  return !_projList.length || _projList.includes(name);   // folders match exactly
+}
+
 function bumpRecent(kind, name) {
   const m = _recents(kind);
   m[name] = {n: (m[name]?.n || 0) + 1, t: Date.now()};
-  // keep the map small: top 8 by count
-  const top = Object.entries(m).sort((a, b) => b[1].n - a[1].n).slice(0, 8);
-  localStorage.setItem('tg_recent_' + kind, JSON.stringify(Object.fromEntries(top)));
+  const now = Date.now();
+  // Cap at 8 by count — but drop stale entries first, or a once-popular window
+  // that no longer exists holds a slot forever.
+  const top = Object.entries(m)
+    .filter(([, v]) => !v.t || now - v.t < RECENT_MAX_AGE)
+    .sort((a, b) => b[1].n - a[1].n).slice(0, 8);
+  _saveRecents(kind, Object.fromEntries(top));
+  renderRecents(kind);
+}
+
+function dropRecent(kind, name) {
+  const m = _recents(kind);
+  if (!(name in m)) return;
+  delete m[name];
+  _saveRecents(kind, m);
   renderRecents(kind);
 }
 
@@ -1037,10 +1282,12 @@ function renderRecents(kind) {
   const box = document.getElementById(kind + '-recent');
   if (!box) return;
   const top = Object.entries(_recents(kind))
+    .filter(([name]) => _isAlive(kind, name))   // closed windows never render
     .sort((a, b) => b[1].n - a[1].n).slice(0, 6);
+  const active = kind === 'win' ? _activeWin : _curProj;   // light-green the current one
   box.replaceChildren(...top.map(([name]) => {
     const b = document.createElement('button');
-    b.className = 'btn btn-sm btn-soft';
+    b.className = 'btn btn-sm ' + (name === active ? 'btn-ok-soft' : 'btn-soft');
     b.textContent = name.length > 26 ? name.slice(0, 26) + '…' : name;
     b.title = name;
     b.onclick = () => kind === 'win' ? _focusTitle(name) : _setProject(name);
@@ -1052,6 +1299,8 @@ async function loadFolders() {
   try {
     const r = await api('GET', '/api/folders');
     if (!r.ok) { toast(r.error, true); return; }
+    _curProj = r.current || '';
+    _projList = r.folders || [];       // deleted/renamed folders drop out of recents
     document.getElementById('proj-current').textContent = r.current || '?';
     _fillSelect('proj-select', r.folders, '— select project —', r.current);
     renderRecents('proj');
@@ -1091,7 +1340,7 @@ async function doCodeSel() {
 /* ===== Input actions ===== */
 async function doKey(key, repeat, interval) {
   try {
-    const r = await api('POST', '/api/key', {key, repeat: repeat||1, interval: interval||0});
+    const r = await api('POST', '/api/key', {key, repeat: repeat||1, interval: interval||0}, 0);
     if (r.ok) toast(`Pressed: ${key}` + (repeat > 1 ? ` x${repeat}` : ''));
     else toast(r.error, true);
   } catch(e) { toast(e.message, true); }
@@ -1285,14 +1534,14 @@ async function doType() {
       setStatus(`Sending image ${i + 1}/${imgs.length}...`, false);
       // Server saves a temp PNG and types its PATH into the terminal (Claude Code
       // attaches the file). Terminals can't accept a Ctrl+V image, hence path-typing.
-      const r = await api('POST', '/api/paste', {image: await _blobB64(imgs[i].blob), paste: true});
+      const r = await api('POST', '/api/paste', {image: await _blobB64(imgs[i].blob), paste: true}, 120000);
       if (!r.ok) { toast(r.error, true); return; }
       addHistory('image', `[image ${Math.round(imgs[i].blob.size / 1024)}KB]`);
       // let the typed path land before the text write reuses the clipboard
       await new Promise(res => setTimeout(res, IMG_INGEST_MS));
     }
     if (text) {
-      const r = await api('POST', '/api/type', {text, enter: true});
+      const r = await api('POST', '/api/type', {text, enter: true}, 120000);
       if (!r.ok) { toast(r.error, true); return; }
       addHistory('type', text);
     }
@@ -1380,7 +1629,7 @@ async function cancelSchedule(id) {
 
 async function doTypePreset(text, enter=true) {
   try {
-    const r = await api('POST', '/api/type', {text, enter});
+    const r = await api('POST', '/api/type', {text, enter}, 120000);
     if (r.ok) toast('Typed: ' + text);
     else toast(r.error, true);
   } catch(e) { toast(e.message, true); }
@@ -1531,7 +1780,7 @@ async function doClaude() {
   term.textContent = '> claude: ' + q + '\n\nAsking Claude (may take minutes)...';
   addHistory('claude', q);
   try {
-    const r = await api('POST', '/api/claude', {prompt: q});
+    const r = await api('POST', '/api/claude', {prompt: q}, 0);
     term.textContent = '> claude: ' + q + '\n\n' + (r.ok ? (r.output || '(no output)') : 'Error: ' + r.error);
     if (r.ok) { input.value = ''; autoGrow(input); }
   } catch(e) { term.textContent = 'Error: ' + e.message; }
@@ -1545,7 +1794,7 @@ async function doSh() {
   term.textContent = '$ ' + cmd + '\n\nRunning...';
   addHistory('shell', cmd);
   try {
-    const r = await api('POST', '/api/sh', {cmd});
+    const r = await api('POST', '/api/sh', {cmd}, 0);
     if (r.ok) term.textContent = '$ ' + cmd + '\n\n' + (r.output || '(no output)') + '\n\n[exit code: ' + r.code + ']';
     else term.textContent = '$ ' + cmd + '\n\nError: ' + r.error;
     input.value = '';
@@ -1560,7 +1809,7 @@ async function doGit(sub) {
   const args = sub === 'log' ? ['log','--oneline','-20'] : sub === 'diff' ? ['diff','--stat'] : [sub];
   term.textContent = '$ git ' + args.join(' ') + '\n\nRunning...';
   try {
-    const r = await api('POST', '/api/git', {args});
+    const r = await api('POST', '/api/git', {args}, 90000);
     if (r.ok) term.textContent = '[' + (r.project ? r.project + '] ' : '') + r.cwd + '\n$ git ' + args.join(' ') + '\n\n' + r.output;
     else term.textContent = 'Error: ' + r.error;
   } catch(e) { term.textContent = 'Error: ' + e.message; }
@@ -1570,7 +1819,7 @@ async function doBuild(apk) {
   const term = document.getElementById('terminal');
   term.textContent = 'Building' + (apk ? ' + APK' : '') + '...\nThis may take a few minutes.';
   try {
-    const r = await api('POST', '/api/build', {apk});
+    const r = await api('POST', '/api/build', {apk}, 0);
     if (r.ok) {
       let msg = 'Build ' + r.status + '\n' + (r.tail || '');
       if (r.apk) msg += '\nAPK: ' + r.apk + ' (' + Math.round(r.apk_size/1024) + 'KB)';
@@ -1589,7 +1838,7 @@ async function doBuild(apk) {
 async function doRestart() {
   if (!confirm('Restart bot process?')) return;
   try {
-    const r = await api('POST', '/api/restart');
+    const r = await api('POST', '/api/restart', null, 8000);
     if (!r.ok) { toast(r.error, true); return; }
     setStatus('Restarting bot...', false);
     // Poll /api/status until the new process answers
