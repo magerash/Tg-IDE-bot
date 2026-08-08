@@ -30,8 +30,11 @@
       "Bash(python -m pytest tests/ -q)",
       "PowerShell(Get-CimInstance *)",
       "PowerShell(schtasks *)",
-      "Bash(timeout 20 ssh -N -R 18080:127.0.0.1:8080 -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -o BatchMode=yes -v root@45.150.33.106)",
-      "Bash(echo \"EXIT=$?\")"
+      "Bash(timeout 20 ssh -N -R 18080:127.0.0.1:8080 -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -o BatchMode=yes -v root@vpn.magerash.com)",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(nslookup vpn.magerash.com)",
+      "Bash(nslookup bot.magerash.com)",
+      "Bash(ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new root@vpn.magerash.com \"hostname; hostname -I\")"
     ]
   }
 }

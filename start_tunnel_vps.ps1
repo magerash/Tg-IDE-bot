@@ -2,6 +2,14 @@
 # Caddy on VPS proxies https://bot.magerash.com:8443 -> localhost:18080
 # Auto-reconnects every 5s on drop. Started by start_bot.bat, by the scheduled
 # task "TgBotTunnel", and by the bot's watchdog (utils/tunnel.py).
+#
+# Target is the DOMAIN, not an IP. The VPS address changed once already
+# (45.150.33.106 was filtered by RF DPI, replaced by 213.165.40.182 on
+# 2026-08-07) and vpn.magerash.com is the stable endpoint kept pointing at the
+# current one — the next migration is a DNS edit, not a code edit.
+# A-record must be DNS-only / grey cloud; the orange proxy would break ssh.
+# Raw-IP fallback if DNS is the thing that is broken: root@213.165.40.182
+# See materials\documentation\vps-architecture.md
 
 # --- Single-instance guard --------------------------------------------------
 # All three launch paths can fire on the same boot. Two keepers means two ssh
@@ -22,6 +30,6 @@ while ($true) {
         -o ServerAliveCountMax=3 `
         -o ExitOnForwardFailure=yes `
         -o StrictHostKeyChecking=accept-new `
-        root@45.150.33.106
+        root@vpn.magerash.com
     Start-Sleep -Seconds 5
 }
