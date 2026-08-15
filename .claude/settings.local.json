@@ -34,7 +34,9 @@
       "Bash(echo \"EXIT=$?\")",
       "Bash(nslookup vpn.magerash.com)",
       "Bash(nslookup bot.magerash.com)",
-      "Bash(ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new root@vpn.magerash.com \"hostname; hostname -I\")"
+      "Bash(ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new root@vpn.magerash.com \"hostname; hostname -I\")",
+      "WebFetch(domain:claude.ai)",
+      "PowerShell($s=\"C:\\\\Users\\\\Magerash\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Projects-Tg-IDE-bot\\\\1799d408-ccfb-4d23-a7ef-53bafa3edbd4\\\\scratchpad\"; python \"$s\\\\extract.py\"; node \"$s\\\\lbcheck.js\")"
     ]
   }
 }

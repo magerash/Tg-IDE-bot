@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.16.6
+# TG-IDE-Bot v0.16.7
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -114,6 +114,15 @@ curl -k -o /dev/null -w "%{http_code}\n" https://bot.magerash.com:8443/ # Caddy 
 **Gotcha:** when matching processes by command line, exclude your own shell (`$_.ProcessId -ne $PID`) — a `Where-Object { $_.CommandLine -match 'start_tunnel_vps' }` filter matches the very command that contains that string, so the kill loop terminates your own session and inflates keeper counts by one.
 
 ## Changelog
+
+### v0.16.7 2026-08-16
+- **Zoomed screenshot no longer closes itself on Android.** Two independent causes, both fixed: Telegram treats a vertical drag inside a Mini App as "dismiss", which is exactly the pan gesture — startup now calls `disableVerticalSwipes()` (Bot API 7.7+, ignored by older clients)
+- The viewer's own backdrop-close was firing on taps that landed on the image: `setPointerCapture()` retargets every later pointer event to `#lightbox`, so `pointerup` could not tell image from backdrop. That decision moved to `pointerdown`, the only event with a truthful target
+- Pinch tails and multi-finger gestures can't be read as a close tap (`_lb.multi`, "other fingers still down" guard); a gesture stolen by the OS now arrives as `pointercancel` instead of leaving a stale finger that wedged pan/pinch
+- Telegram BackButton is shown while the viewer is open — hardware back closes the viewer, not the whole Mini App
+- **Current window now always appears in the quick-pick chips and lights up green.** VS Code puts the open file first in its title, so two titles of the same window share no prefix and neither contains the other — the chip looked dead. Windows are now identified by their tail (last two `" - "` segments, `tail_key()`), matched the same way on client and server
+- Retitled entries merge into one chip instead of one-per-open-file, recents ties break by recency, and the focused window is pinned first — even when it was focused outside the dashboard
+- Tests 25 → 28
 
 ### v0.16.6 2026-08-09
 - **Tunnel moved off the raw IP.** `start_tunnel_vps.ps1` now targets `root@vpn.magerash.com`. The VPS address changed once already (`45.150.33.106` silently dropped by RF DPI → `213.165.40.182`), and pinning it in the repo meant an infrastructure event became a code change. A future migration is one Cloudflare edit plus a tunnel restart

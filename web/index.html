@@ -513,17 +513,32 @@ const _twa = (window.Telegram && Telegram.WebApp) || null;
 if (_twa) {
   _twa.ready();
   _twa.expand();
+  // Android/iOS Telegram close the Mini App on a vertical drag inside the webview.
+  // Panning a zoomed screenshot is exactly that gesture, so the viewer used to
+  // "close itself" mid-pan with no back press. Bot API 7.7+; older clients ignore it.
+  try { _twa.disableVerticalSwipes(); } catch (e) {}
   // macOS Telegram: hex colors here break webview rendering (solid red screen) — skip
   if (_twa.platform !== 'macos') {
     try { _twa.setBackgroundColor('#faf9f7'); _twa.setHeaderColor('#ffffff'); } catch (e) {}
   }
+}
+
+/* Telegram BackButton: while the viewer is open, hardware/HW back must close the
+   viewer, not the whole Mini App. */
+function _tgBack(show, onClick) {
+  const b = _twa && _twa.BackButton;
+  if (!b) return;
+  try {
+    if (show) { b.onClick(onClick); b.show(); }
+    else { b.hide(); b.offClick(onClick); }
+  } catch (e) {}
 }
 const TG = (_twa && _twa.initData) ? _twa : null;
 
 /* Must equal config.VERSION — tests enforce it. The Telegram webview caches the
    Mini App page hard (no-cache headers are advisory there), so a stale UI can
    run against a new server for days. Detect it and reload past the cache once. */
-const CLIENT_VERSION = '0.16.6';
+const CLIENT_VERSION = '0.16.7';
 
 function _checkStaleClient(serverVersion) {
   if (!serverVersion || serverVersion === CLIENT_VERSION) return false;
@@ -993,7 +1008,11 @@ function bindImgClick() {
 }
 
 /* ===== Lightbox viewer: wheel/pinch zoom, drag pan, double-tap zoom ===== */
-const _lb = {sc: 1, min: 1, tx: 0, ty: 0, ptrs: new Map(), dist: 0, moved: false, lastTap: 0, click: false, closeTimer: null};
+/* `onBackdrop` / `multi` are gesture-scoped: pointer capture retargets every
+   pointerup to #lightbox, so pointerup's own target cannot say whether the touch
+   started on the image. Without them a plain tap (or the tail of a pinch) looked
+   like a backdrop tap and closed the viewer. */
+const _lb = {sc: 1, min: 1, tx: 0, ty: 0, ptrs: new Map(), dist: 0, moved: false, lastTap: 0, click: false, closeTimer: null, onBackdrop: false, multi: false};
 const _lbBox = () => document.getElementById('lightbox');
 const _lbImg = () => document.getElementById('lb-img');
 
@@ -1010,7 +1029,11 @@ function openLightbox(src) {
     _lbApply();
   };
   img.src = src;
+  _lb.ptrs.clear();
+  _lb.moved = false; _lb.multi = false; _lb.onBackdrop = false; _lb.lastTap = 0;
+  clearTimeout(_lb.closeTimer);
   _lbBox().style.display = 'block';
+  _tgBack(true, closeLightbox);     // hardware back closes the viewer, not the app
   if (img.complete) img.onload();
   // Auto is a single shared loop — the viewer just mirrors its state
   _lbSyncAutoBtn();
@@ -1023,6 +1046,9 @@ function openLightbox(src) {
 function closeLightbox() {
   _lbBox().style.display = 'none';
   _lb.ptrs.clear();
+  _lb.multi = false; _lb.onBackdrop = false;
+  clearTimeout(_lb.closeTimer);
+  _tgBack(false, closeLightbox);
 }
 
 /* ===== Lightbox auto-refresh =====
@@ -1073,7 +1099,13 @@ function _lbZoomAt(cx, cy, factor) {
     e.preventDefault();
     box.setPointerCapture(e.pointerId);
     _lb.ptrs.set(e.pointerId, {x: e.clientX, y: e.clientY});
-    _lb.moved = false;
+    if (_lb.ptrs.size === 1) {
+      _lb.moved = false;
+      _lb.multi = false;
+      _lb.onBackdrop = e.target.id === 'lightbox';   // only pointerdown knows this
+    } else {
+      _lb.multi = true;                              // pinch: never a close tap
+    }
     if (_lb.ptrs.size === 2) {
       const [a, b] = [..._lb.ptrs.values()];
       _lb.dist = Math.hypot(a.x - b.x, a.y - b.y);
@@ -1103,7 +1135,8 @@ function _lbZoomAt(cx, cy, factor) {
     if (e.target.tagName === 'BUTTON') return;
     _lb.ptrs.delete(e.pointerId);
     _lb.dist = 0;
-    if (_lb.moved) return;
+    if (_lb.moved || _lb.multi) return;
+    if (_lb.ptrs.size) return;                       // other fingers still down
     if (_lb.click) { _lbTapClick(e.clientX, e.clientY); return; }
     const now = Date.now();
     if (now - _lb.lastTap < 300) {
@@ -1123,11 +1156,20 @@ function _lbZoomAt(cx, cy, factor) {
     } else {
       _lb.lastTap = now;
       // Single tap outside image closes (unless a second tap arrives)
-      if (e.target.id === 'lightbox') {
+      if (_lb.onBackdrop) {
         clearTimeout(_lb.closeTimer);
         _lb.closeTimer = setTimeout(() => { if (Date.now() - _lb.lastTap >= 300) closeLightbox(); }, 300);
       }
     }
+  });
+
+  // A gesture the OS/webview steals (system swipe, call, app switch) never sends
+  // pointerup. Without this the finger stayed in the map and pan/pinch wedged.
+  box.addEventListener('pointercancel', e => {
+    _lb.ptrs.delete(e.pointerId);
+    _lb.dist = 0;
+    _lb.moved = true;                                // an aborted gesture is not a tap
+    clearTimeout(_lb.closeTimer);
   });
 
   document.addEventListener('keydown', e => {
@@ -1241,15 +1283,43 @@ function _saveRecents(kind, m) {
   localStorage.setItem('tg_recent_' + kind, JSON.stringify(m));
 }
 
+/* A window title is not stable identity. VS Code retitles per open file, and the
+   file name comes FIRST: `config.py - Tg-IDE-bot - Visual Studio Code`. Two such
+   titles share no prefix and neither contains the other, so prefix/containment
+   alone declared the chip dead — it disappeared from the list and never lit up
+   green once focused. What stays put is the tail: last two " - " segments
+   (project + app). */
+function _tailKey(name) {
+  const parts = (name || '').split(' - ').map(s => s.trim()).filter(Boolean);
+  return parts.length < 2 ? '' : parts.slice(-2).join(' - ').toLowerCase();
+}
+
 /* Mirrors focus_window_exact() in utils/window.py: exact → containment either
-   way → first-25-chars prefix. Must stay in sync, or we hide chips that would
-   in fact focus fine (VS Code retitles itself per open file). */
+   way → first-25-chars prefix → tail key. Must stay in sync, or we hide chips
+   that would in fact focus fine. */
+function _sameWin(a, b) {
+  const t = (a || '').toLowerCase(), l = (b || '').toLowerCase();
+  if (!t || !l) return false;
+  if (l === t || l.includes(t) || t.includes(l)) return true;
+  if (l.slice(0, 25) === t.slice(0, 25)) return true;
+  const ka = _tailKey(a);
+  return !!ka && ka === _tailKey(b);
+}
+
 function _matchesLive(name, live) {
-  const t = (name || '').toLowerCase();
-  return live.some(w => {
-    const l = (w || '').toLowerCase();
-    return l === t || l.includes(t) || t.includes(l) || l.slice(0, 25) === t.slice(0, 25);
-  });
+  return live.some(w => _sameWin(name, w));
+}
+
+/* Same window, strictly: exact title or same tail key. `_sameWin`'s containment
+   rule is right for "will focus find it?" but too loose for identity — "Telegram"
+   is contained in "Telegram Web - Google Chrome", and merging those two chips
+   would lose one. Used for merging, dedupe and the green highlight. */
+function _sameWinId(a, b) {
+  const x = (a || '').toLowerCase(), y = (b || '').toLowerCase();
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const k = _tailKey(a);
+  return !!k && k === _tailKey(b);
 }
 
 function _isAlive(kind, name) {
@@ -1259,13 +1329,25 @@ function _isAlive(kind, name) {
 
 function bumpRecent(kind, name) {
   const m = _recents(kind);
+  // One window, one entry. Without this a retitling VS Code wrote a new entry per
+  // open file and ate all 8 slots by itself, pushing every other window out.
+  if (kind === 'win') {
+    for (const k of Object.keys(m)) {
+      if (k !== name && _sameWinId(k, name)) {
+        m[name] = {n: (m[name]?.n || 0) + (m[k].n || 0), t: m[k].t};
+        delete m[k];
+      }
+    }
+  }
   m[name] = {n: (m[name]?.n || 0) + 1, t: Date.now()};
   const now = Date.now();
   // Cap at 8 by count — but drop stale entries first, or a once-popular window
-  // that no longer exists holds a slot forever.
+  // that no longer exists holds a slot forever. Ties go to the recently used one,
+  // otherwise a brand-new entry (n=1) loses to eight older n=1 entries and the
+  // window you just picked never appears.
   const top = Object.entries(m)
     .filter(([, v]) => !v.t || now - v.t < RECENT_MAX_AGE)
-    .sort((a, b) => b[1].n - a[1].n).slice(0, 8);
+    .sort(_recentOrder).slice(0, 8);
   _saveRecents(kind, Object.fromEntries(top));
   renderRecents(kind);
 }
@@ -1278,16 +1360,23 @@ function dropRecent(kind, name) {
   renderRecents(kind);
 }
 
+const _recentOrder = (a, b) => (b[1].n - a[1].n) || ((b[1].t || 0) - (a[1].t || 0));
+
 function renderRecents(kind) {
   const box = document.getElementById(kind + '-recent');
   if (!box) return;
-  const top = Object.entries(_recents(kind))
-    .filter(([name]) => _isAlive(kind, name))   // closed windows never render
-    .sort((a, b) => b[1].n - a[1].n).slice(0, 6);
   const active = kind === 'win' ? _activeWin : _curProj;   // light-green the current one
-  box.replaceChildren(...top.map(([name]) => {
+  const same = (x, y) => kind === 'win' ? _sameWinId(x, y) : x === y;
+  let top = Object.entries(_recents(kind))
+    .filter(([name]) => _isAlive(kind, name))   // closed windows never render
+    .sort(_recentOrder).map(([name]) => name);
+  // The current window/project is always first and always present — it may have
+  // been focused outside the dashboard (never bumped), or sit below the top-6
+  // cut, or be stored under an older title. Its live title is the one that works.
+  if (active) top = [active, ...top.filter(n => !same(n, active))];
+  box.replaceChildren(...top.slice(0, 6).map(name => {
     const b = document.createElement('button');
-    b.className = 'btn btn-sm ' + (name === active ? 'btn-ok-soft' : 'btn-soft');
+    b.className = 'btn btn-sm ' + (same(name, active) ? 'btn-ok-soft' : 'btn-soft');
     b.textContent = name.length > 26 ? name.slice(0, 26) + '…' : name;
     b.title = name;
     b.onclick = () => kind === 'win' ? _focusTitle(name) : _setProject(name);
