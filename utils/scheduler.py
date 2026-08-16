@@ -74,13 +74,11 @@ def _focus_vscode_terminal():
     palette. Position-/layout-independent (a fixed click can't work — the window
     may be moved/resized, and raw focus lands in the editor, not the terminal)."""
     import pyautogui
-    from handlers.input import _type_text
+    from handlers.input import type_and_enter
 
     pyautogui.hotkey("ctrl", "shift", "p")
     time.sleep(0.35)
-    _type_text("Terminal: Focus on Terminal View")
-    time.sleep(0.25)
-    pyautogui.press("enter")
+    type_and_enter("Terminal: Focus on Terminal View")  # waits before Enter
     time.sleep(0.35)
 
 
@@ -91,8 +89,7 @@ def _fire_sync(job):
     forward is async in Windows, so typing immediately would paste into the old
     foreground window. For VS Code targets, also move focus into the integrated
     terminal (where Claude Code runs) — plain window focus lands in the editor."""
-    from handlers.input import _type_text
-    import pyautogui
+    from handlers.input import type_and_enter
 
     window = job.get("window") or ""
     if window:
@@ -108,9 +105,7 @@ def _fire_sync(job):
                 _focus_vscode_terminal()
             except Exception as e:
                 logger.warning("terminal focus failed: %s", e)
-    _type_text(job["text"])
-    if job.get("enter", True):
-        pyautogui.press("enter")
+    type_and_enter(job["text"], job.get("enter", True))
 
 
 async def run_scheduler_loop(bot=None):

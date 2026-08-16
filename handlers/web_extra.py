@@ -33,6 +33,7 @@ async def api_focus(request):
         if not title:
             return _err("Missing 'title'")
         ok, msg = await asyncio.to_thread(focus_window_exact, title)
+        logger.debug("web /api/focus %r -> ok=%s (%s)", title, ok, msg)
         # "gone" distinguishes "no such window any more" (drop it from the
         # client's recents) from "found but activation blocked" (keep it).
         # Kept next to the producer so the message string is coupled in one place.

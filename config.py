@@ -7,7 +7,7 @@ load_dotenv()
 # Bot settings
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0"))
-VERSION = "0.16.7"
+VERSION = "0.17.0"
 
 # Web dashboard / Mini App
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
@@ -57,6 +57,13 @@ WEB_SCREEN_QUALITY = int(os.getenv("WEB_SCREEN_QUALITY", "70"))
 
 # Input simulation
 TYPING_INTERVAL = 0.02  # delay between keystrokes (seconds)
+# Gap between the clipboard paste and the Enter that submits it. A TUI which
+# detects bracketed paste (Claude Code) buffers the pasted block for a moment and
+# treats an Enter arriving inside that window as part of the paste — a literal
+# newline, not submit. The text then sits in the input box while the bot happily
+# answers "Typed: ...". 0.1s lost that race often enough to look like "typing is
+# broken"; raise this if messages still pile up unsent.
+TYPE_ENTER_DELAY = float(os.getenv("TYPE_ENTER_DELAY", "0.45"))
 
 # File delivery
 APK_SEARCH_DIRS = [

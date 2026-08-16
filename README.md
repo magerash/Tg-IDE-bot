@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.16.7
+# TG-IDE-Bot v0.17.0
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -38,7 +38,7 @@ python bot.py
 
 ## Web Dashboard
 Set `WEB_TOKEN` (+ optionally `WEBAPP_URL` for Telegram Mini App) in `.env`, then open `http://localhost:8080`.
-Panels: screen (click-to-click remote, zoomable viewer), keys, actions, windows focus, projects (VSCode), type presets, Claude, shell.
+Panels: screen (click-to-click remote, zoomable viewer, ▲/▼ scroll arrows), keys, actions, windows focus, projects (VSCode), type presets, Claude, shell.
 
 ## Restart & Operations
 
@@ -114,6 +114,14 @@ curl -k -o /dev/null -w "%{http_code}\n" https://bot.magerash.com:8443/ # Caddy 
 **Gotcha:** when matching processes by command line, exclude your own shell (`$_.ProcessId -ne $PID`) — a `Where-Object { $_.CommandLine -match 'start_tunnel_vps' }` filter matches the very command that contains that string, so the kill loop terminates your own session and inflates keeper counts by one.
 
 ## Changelog
+
+### v0.17.0 2026-08-17
+- **Fix: typing from the bot stopped submitting.** Text was pasted, then Enter was pressed 0.1s later — Claude Code buffers a bracketed paste and folds an Enter arriving inside that window into the paste as a newline, so the message sat unsent in the input box while the bot reported `Typed: ...`. Affected every surface at once (Telegram chat, Mini App, panel presets, voice, scheduled messages) because all four shared that delay
+- `type_and_enter()` is now the single place paste and Enter are sequenced, with `TYPE_ENTER_DELAY` (default 0.45s) between them. Raise it in `.env` if a message still hangs unsent
+- A modifier left down by an earlier hotkey (Auto = Shift+Tab ×3) is released before pasting — otherwise Ctrl+V silently becomes Ctrl+Shift+V
+- **Scroll arrows on the live view** — ▲/▼ on the right edge of the screenshot and in the zoom viewer, hold to keep scrolling (`POST /api/scroll`). Windows routes the wheel by cursor position, so the server parks the cursor over the target window, scrolls, and restores it; in Window mode the arrows follow the frame you are looking at
+- Failed window focus is now logged with the requested title and the live window list (it used to log successes only)
+- Tests 28 → 33
 
 ### v0.16.7 2026-08-16
 - **Zoomed screenshot no longer closes itself on Android.** Two independent causes, both fixed: Telegram treats a vertical drag inside a Mini App as "dismiss", which is exactly the pan gesture — startup now calls `disableVerticalSwipes()` (Bot API 7.7+, ignored by older clients)

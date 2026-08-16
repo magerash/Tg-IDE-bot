@@ -106,11 +106,8 @@ async def audio_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.debug("audio_callback %s: %s", action, text[:80])
     try:
         if action in ("type", "enter"):
-            import pyautogui
-            from handlers.input import _type_text
-            await asyncio.to_thread(_type_text, text)
-            if action == "enter":
-                await asyncio.to_thread(pyautogui.press, "enter")
+            from handlers.input import type_and_enter
+            await asyncio.to_thread(type_and_enter, text, action == "enter")
             await context.bot.send_message(chat_id, f"Typed: {text[:200]}")
         elif action == "claude":
             await context.bot.send_message(chat_id, "🤖 Running Claude...")

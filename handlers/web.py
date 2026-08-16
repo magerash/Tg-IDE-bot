@@ -206,11 +206,8 @@ async def api_type(request):
         if not text:
             return _err("Missing 'text'")
 
-        from handlers.input import _type_text
-        import pyautogui
-        await asyncio.to_thread(_type_text, text)
-        if enter:
-            await asyncio.to_thread(pyautogui.press, "enter")
+        from handlers.input import type_and_enter
+        await asyncio.to_thread(type_and_enter, text, bool(enter))
         return _json({"ok": True, "typed": text})
     except Exception as e:
         logger.error("web /api/type error: %s", e)
@@ -230,6 +227,33 @@ async def api_click(request):
         return _json({"ok": True, "clicked": [x, y], "double": double})
     except Exception as e:
         logger.error("web /api/click error: %s", e)
+        return _err(str(e), 500)
+
+
+async def api_scroll(request):
+    """Wheel-scroll the remote window — the ▲/▼ arrows on the live view.
+
+    `x`/`y` are optional: the client sends the centre of the frame it is showing,
+    so the arrows scroll the window you are looking at even when focus moved on.
+    Without them utils.mouse falls back to the active window's centre.
+    """
+    if not _check_auth(request):
+        return _err("Unauthorized", 401)
+    try:
+        data = await request.json()
+        notches = int(data.get("notches", 3))
+        if data.get("dir") == "down":
+            notches = -abs(notches)
+        elif data.get("dir") == "up":
+            notches = abs(notches)
+        x, y = data.get("x"), data.get("y")
+
+        from utils.mouse import scroll_at
+        res = await asyncio.to_thread(scroll_at, notches, x, y)
+        logger.debug("web /api/scroll: %s", res)
+        return _json({"ok": True, **res})
+    except Exception as e:
+        logger.error("web /api/scroll error: %s", e)
         return _err(str(e), 500)
 
 
@@ -407,6 +431,7 @@ def create_web_app():
     app.router.add_post("/api/key", api_key)
     app.router.add_post("/api/type", api_type)
     app.router.add_post("/api/click", api_click)
+    app.router.add_post("/api/scroll", api_scroll)
     app.router.add_post("/api/sh", api_sh)
     app.router.add_post("/api/git", api_git)
     app.router.add_get("/api/status", api_status)
