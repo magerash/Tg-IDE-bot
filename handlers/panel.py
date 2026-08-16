@@ -12,7 +12,7 @@ from telegram.ext import ContextTypes
 from config import ALLOWED_USER_ID, MAX_FILE_SIZE, VERSION
 from utils import project
 from handlers.files import _find_apks
-from handlers.input import _type_text
+from handlers.input import type_and_enter
 from handlers.screen import _grab_to_jpeg
 from utils.auth import auth_required
 from utils.chunks import send_long_text_to_chat
@@ -214,9 +214,7 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         elif cmd in _TYPE_PRESETS:
             text = _TYPE_PRESETS[cmd]
-            _type_text(text)
-            if cmd not in _TYPE_NO_ENTER:
-                pyautogui.press("enter")
+            type_and_enter(text, cmd not in _TYPE_NO_ENTER)
             await query.answer(f"Typed: {text}")
 
         elif cmd == "auto_mode":

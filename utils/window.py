@@ -79,6 +79,8 @@ def focus_window_exact(title: str) -> tuple[bool, str]:
                 None,
             )
         if target is None:
+            logger.debug("No match for %r among %d windows: %s",
+                         title, len(windows), [w.title for w in windows][:15])
             return False, f"Window gone: '{title}'"
 
         ok = _activate_window(target)

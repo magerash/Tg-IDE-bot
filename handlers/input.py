@@ -6,8 +6,9 @@ import time
 import pyautogui
 from telegram import Update
 from telegram.ext import ContextTypes
+from config import TYPE_ENTER_DELAY
 from utils.auth import auth_required, rate_limit
-from utils.window import focus_window
+from utils.window import focus_window, get_active_window_title
 
 logger = logging.getLogger("bot.input")
 _input_lock = threading.Lock()
@@ -44,12 +45,47 @@ def _set_clipboard(text: str):
     finally:
         _u32.CloseClipboard()
 
+def _stuck_modifiers() -> list[str]:
+    """Modifier keys Windows still believes are held down.
+
+    Every typing path ends in Ctrl+V, so one modifier left down by an earlier
+    hotkey (Auto = Shift+Tab x3, an Alt tap from force_foreground) silently turns
+    the paste into Ctrl+Shift+V / Ctrl+Alt+V and nothing arrives.
+    """
+    held = []
+    for name, vk in (("ctrl", 0x11), ("shift", 0x10), ("alt", 0x12),
+                     ("winleft", 0x5B), ("winright", 0x5C)):
+        if _u32.GetAsyncKeyState(vk) & 0x8000:
+            held.append(name)
+    return held
+
+
 def _type_text(text: str):
     """Type text via clipboard paste — instant, reliable, supports any language."""
     with _input_lock:
+        held = _stuck_modifiers()
+        if held:
+            logger.warning("Releasing stuck modifiers before paste: %s", held)
+            for key in held:
+                pyautogui.keyUp(key)
+        logger.debug("Typing %d chars into '%s'", len(text), get_active_window_title())
         _set_clipboard(text)
         pyautogui.hotkey("ctrl", "v")
         time.sleep(0.1)
+
+
+def type_and_enter(text: str, enter: bool = True):
+    """Paste text, then submit it. The ONLY place these two are sequenced.
+
+    The wait between them is the whole point: Claude Code (and any TUI doing
+    bracketed-paste detection) swallows an Enter that arrives while the paste is
+    still being assembled, turning submit into a newline. The result is text
+    stranded in the input box while every caller reports "Typed: ...".
+    """
+    _type_text(text)
+    if enter:
+        time.sleep(TYPE_ENTER_DELAY)
+        pyautogui.press("enter")
 
 @auth_required
 @rate_limit(1.0)
@@ -58,8 +94,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     logger.debug("Typing text: %s", text)
     try:
-        await asyncio.to_thread(_type_text, text)
-        await asyncio.to_thread(pyautogui.press, "enter")
+        await asyncio.to_thread(type_and_enter, text)
         await update.message.reply_text(f"Typed: {text}")
         await asyncio.sleep(2)
         from handlers.screen import _grab_to_jpeg
@@ -116,8 +151,7 @@ async def type_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = " ".join(context.args)
     logger.debug("/type called: %s", text)
     try:
-        await asyncio.to_thread(_type_text, text)
-        await asyncio.to_thread(pyautogui.press, "enter")
+        await asyncio.to_thread(type_and_enter, text)
         await update.message.reply_text(f"Typed: {text}")
     except Exception as e:
         logger.error("/type error: %s", e)

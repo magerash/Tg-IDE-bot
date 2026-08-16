@@ -134,6 +134,20 @@ h1{font-size:17px;font-weight:600;text-align:center;padding:6px 0 2px;letter-spa
 #screen-area img{max-width:100%;height:auto;display:block;border-radius:9px}
 #screen-area .placeholder{color:var(--dim);font-size:13px}
 
+/* Scroll arrows, RustDesk-style: floating column on the right edge of the view.
+   They live in .screen-wrap, NOT in #screen-area — capture() replaces that
+   element's children on every frame and would wipe them. */
+.screen-wrap{position:relative}
+.scroll-pad{position:absolute;right:10px;top:50%;transform:translateY(-50%);
+  display:flex;flex-direction:column;gap:8px;z-index:5;pointer-events:none}
+.scroll-pad button{pointer-events:auto;width:40px;height:40px;border:none;border-radius:50%;
+  background:rgba(20,19,17,.42);color:#fff;font-size:15px;line-height:1;cursor:pointer;
+  backdrop-filter:blur(3px);transition:background .12s,transform .12s;touch-action:none;
+  -webkit-user-select:none;user-select:none}
+.scroll-pad button:hover{background:rgba(20,19,17,.62)}
+.scroll-pad button:active,.scroll-pad button.on{background:var(--accent);transform:scale(.94)}
+#lb-scroll{position:fixed;right:14px;top:50%;transform:translateY(-50%);z-index:201}
+
 select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:9px;background:var(--card);color:var(--text);font-size:13px;font-family:inherit;cursor:pointer}
 .hint{font-size:11px;color:var(--dim);margin-top:8px;line-height:1.4}
 .btn-row{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
@@ -282,7 +296,13 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
     <!-- Screen (controls below image → closer to input for fast tapping) -->
     <div class="panel" id="screen-panel">
       <h3>Screen</h3>
-      <div id="screen-area"><span class="placeholder">Click Screenshot to capture</span></div>
+      <div class="screen-wrap">
+        <div id="screen-area"><span class="placeholder">Click Screenshot to capture</span></div>
+        <div class="scroll-pad" id="scroll-pad">
+          <button data-scroll="up" title="Scroll up (hold to keep scrolling)">▲</button>
+          <button data-scroll="down" title="Scroll down (hold to keep scrolling)">▼</button>
+        </div>
+      </div>
       <div class="screen-head">
         <button class="btn btn-primary" id="btn-screen" onclick="doScreen()">Screenshot</button>
         <button class="btn" id="btn-window" onclick="doWindow()">Window</button>
@@ -425,6 +445,10 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
     <button id="lb-click" onclick="lbToggleClick()">Click: OFF</button>
     <button id="lb-close" onclick="closeLightbox()">&times;</button>
   </div>
+  <div class="scroll-pad" id="lb-scroll">
+    <button data-scroll="up" title="Scroll up (hold to keep scrolling)">▲</button>
+    <button data-scroll="down" title="Scroll down (hold to keep scrolling)">▼</button>
+  </div>
   <img id="lb-img" alt="preview">
 </div>
 
@@ -538,7 +562,7 @@ const TG = (_twa && _twa.initData) ? _twa : null;
 /* Must equal config.VERSION — tests enforce it. The Telegram webview caches the
    Mini App page hard (no-cache headers are advisory there), so a stale UI can
    run against a new server for days. Detect it and reload past the cache once. */
-const CLIENT_VERSION = '0.16.7';
+const CLIENT_VERSION = '0.17.0';
 
 function _checkStaleClient(serverVersion) {
   if (!serverVersion || serverVersion === CLIENT_VERSION) return false;
@@ -971,6 +995,67 @@ function autoIntChanged() {
   const saved = localStorage.getItem('tg_auto_int');
   if (saved) document.getElementById('auto-int').value = saved;
 }
+
+/* ===== Scroll arrows (RustDesk-style) =====
+   Windows delivers the wheel to the window under the CURSOR, so the server parks
+   the cursor before scrolling. We hand it the centre of the frame currently on
+   screen (`lastRect`, already in pyautogui coordinates), which means the arrows
+   scroll the window you are looking at even if focus has moved elsewhere.
+   Hold to keep scrolling: the repeat is a chain measured from each request's
+   completion, never a setInterval — the tunnel carries one request at a time and
+   a fixed interval would pile them up exactly like the v0.16.1 capture bug. */
+const SCROLL_NOTCHES = 3, SCROLL_REPEAT_MS = 160;
+let _scrollHeld = null, _scrollBusy = false;
+
+function _scrollPoint() {
+  // Only in Window mode. In full-screen mode the frame centre is just a point on
+  // the desktop — whatever window happens to sit there would eat the wheel — so
+  // send nothing and let the server aim at the active window instead.
+  if (lastCapture !== 'window' || !lastRect || lastRect.length !== 4) return {};
+  const [l, t, w, h] = lastRect;
+  return {x: Math.round(l + w / 2), y: Math.round(t + h / 2)};
+}
+
+async function doScroll(dir) {
+  if (_scrollBusy) return false;
+  _scrollBusy = true;
+  try {
+    const r = await api('POST', '/api/scroll',
+                        {dir, notches: SCROLL_NOTCHES, ..._scrollPoint()}, 15000);
+    if (!r.ok) { toast(r.error, true); return false; }
+    return true;
+  } catch (e) { toast(e.message, true); return false; }
+  finally { _scrollBusy = false; }
+}
+
+async function _scrollHold(dir) {
+  const token = {};
+  _scrollHeld = token;
+  while (_scrollHeld === token) {
+    const ok = await doScroll(dir);
+    if (!ok || _scrollHeld !== token) break;
+    await new Promise(r => setTimeout(r, SCROLL_REPEAT_MS));
+  }
+  if (_scrollHeld === token) _scrollHeld = null;
+  requestCapture();                 // show where we landed (Auto may well be off)
+}
+
+function _scrollStop() { _scrollHeld = null; }
+
+function bindScrollPads() {
+  document.querySelectorAll('.scroll-pad button[data-scroll]').forEach(b => {
+    if (b._bound) return;
+    b._bound = true;
+    const stop = () => { b.classList.remove('on'); _scrollStop(); };
+    b.addEventListener('pointerdown', e => {
+      e.preventDefault(); e.stopPropagation();   // never reaches the lightbox pan handler
+      b.classList.add('on');
+      _scrollHold(b.dataset.scroll);
+    });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, stop));
+  });
+}
+bindScrollPads();
 
 /* Click-on-image: Click mode ON -> remote click at rect-mapped coords; OFF -> zoomable lightbox.
    rect from the server (pyautogui coordinate space) handles window captures with offsets. */

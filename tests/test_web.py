@@ -276,6 +276,104 @@ def test_lightbox_survives_pan_gestures():
     assert "addEventListener('pointercancel'" in html, "stolen gesture leaves a stale pointer"
 
 
+def test_scroll_requires_auth_and_clamps():
+    """/api/scroll drives a real mouse wheel — it must never answer unauthenticated,
+    and a stuck 'hold' must not be able to fling a page by 10000 notches."""
+    async def go():
+        async with await _client() as c:
+            r = await c.post("/api/scroll", json={"dir": "down"})
+            assert r.status == 401
+    _run(go())
+
+    from utils.mouse import MAX_NOTCHES, WHEEL_DELTA
+    assert WHEEL_DELTA == 120, "Windows counts raw wheel units; a notch is 120"
+    assert 0 < MAX_NOTCHES <= 50
+
+
+def test_scroll_moves_the_cursor_before_the_wheel(monkeypatch):
+    """Two Windows facts this would silently violate: mouse_event ignores the x/y
+    handed to a WHEEL event (so the cursor must really be moved first), and
+    pyautogui counts raw units, so notches have to be multiplied by WHEEL_DELTA —
+    pyautogui.scroll(3) is 3/120 of a notch and moves nothing."""
+    import pyautogui
+
+    from utils import mouse
+
+    calls = []
+    monkeypatch.setattr(pyautogui, "position", lambda: (7, 9))
+    monkeypatch.setattr(pyautogui, "moveTo", lambda x, y: calls.append(("move", x, y)))
+    monkeypatch.setattr(pyautogui, "scroll", lambda n: calls.append(("scroll", n)))
+    monkeypatch.setattr(mouse, "get_active_window_rect", lambda: (100, 200, 400, 600))
+
+    res = mouse.scroll_at(-3)
+    assert calls[0] == ("move", 300, 500), "cursor not parked over the target first"
+    assert calls[1] == ("scroll", -3 * mouse.WHEEL_DELTA), "notches not converted to wheel units"
+    assert calls[-1] == ("move", 7, 9), "cursor not restored to where the user left it"
+    assert res["notches"] == -3 and res["at"] == [300, 500]
+
+    calls.clear()
+    mouse.scroll_at(999)                                  # clamp
+    assert calls[1] == ("scroll", mouse.MAX_NOTCHES * mouse.WHEEL_DELTA)
+
+
+def test_scroll_arrows_wired_in_ui():
+    """Arrows sit ON the live view (right edge). They must live outside
+    #screen-area — capture() replaces that element's children every frame."""
+    html = _html()
+    assert 'class="screen-wrap"' in html, "scroll pad lost its stable container"
+    assert html.count('data-scroll="up"') == 2, "expected arrows on the view and in the lightbox"
+    assert "bindScrollPads()" in html
+    assert "SCROLL_REPEAT_MS" in html and "setInterval" not in html.split("_scrollHold")[1][:400], \
+        "hold-repeat must chain from completion, not fire on a fixed interval"
+
+
+def test_enter_waits_for_the_paste_to_land(monkeypatch):
+    """Claude Code buffers a bracketed paste; an Enter arriving inside that window
+    becomes a literal newline instead of submit, so the message is stranded in the
+    input box while every caller still answers "Typed: ...". Enter must therefore
+    come after a real wait, and every typing path must go through one sequencer."""
+    import pyautogui
+
+    from config import TYPE_ENTER_DELAY
+    from handlers import input as tg_input
+
+    assert TYPE_ENTER_DELAY >= 0.3, "too short and Enter races the paste again"
+
+    events = []
+    monkeypatch.setattr(tg_input, "_set_clipboard", lambda t: events.append(("clip", t)))
+    monkeypatch.setattr(tg_input, "_stuck_modifiers", lambda: [])
+    monkeypatch.setattr(pyautogui, "hotkey", lambda *k: events.append(("hotkey", "+".join(k))))
+    monkeypatch.setattr(pyautogui, "press", lambda k: events.append(("press", k)))
+    monkeypatch.setattr(tg_input.time, "sleep", lambda s: events.append(("sleep", s)))
+    monkeypatch.setattr(tg_input, "get_active_window_title", lambda: "win", raising=False)
+
+    tg_input.type_and_enter("hello")
+    assert ("hotkey", "ctrl+v") in events
+    paste = events.index(("hotkey", "ctrl+v"))
+    enter = events.index(("press", "enter"))
+    waited = sum(s for kind, s in events[paste:enter] if kind == "sleep")
+    assert waited >= TYPE_ENTER_DELAY, f"only {waited}s between paste and Enter"
+
+    events.clear()
+    tg_input.type_and_enter("hello", False)
+    assert ("press", "enter") not in events, "enter=False must not submit"
+
+
+def test_every_typing_path_uses_the_sequencer():
+    """A caller that pairs _type_text with its own pyautogui.press('enter') skips
+    the wait and reintroduces the race — the reason this bug hit TG chat, the Mini
+    App, panel presets and voice messages all at once."""
+    import pathlib
+
+    for name in ("handlers/web.py", "handlers/panel.py", "handlers/audio.py",
+                 "utils/scheduler.py"):
+        src = pathlib.Path(ROOT, name).read_text(encoding="utf-8")
+        assert "_type_text" not in src or name == "handlers/web_extra.py", \
+            f"{name} types without the sequencer"
+        assert 'press("enter")' not in src and "press, \"enter\"" not in src, \
+            f"{name} presses Enter itself instead of using type_and_enter()"
+
+
 def test_api_frame_requires_auth():
     async def go():
         async with await _client() as c:
