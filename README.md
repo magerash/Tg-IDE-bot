@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.16.5
+# TG-IDE-Bot v0.16.7
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -47,6 +47,14 @@ Panels: screen (click-to-click remote, zoomable viewer), keys, actions, windows 
 phone → https://bot.magerash.com:8443 → Caddy (VPS) → 127.0.0.1:18080 (VPS)
       → reverse SSH tunnel → 127.0.0.1:8080 (this PC) → aiohttp / bot.py
 ```
+
+`<vps>` below is **`vpn.magerash.com`** — the tunnel targets the hostname, never
+a raw IP. The address behind it changed once already (`45.150.33.106` → filtered
+by RF DPI → `213.165.40.182`), so a migration is a Cloudflare edit plus a tunnel
+restart, with no code change. Details:
+[`materials/documentation/vps-architecture.md`](materials/documentation/vps-architecture.md).
+ssh resolves per connection, so a DNS change only takes effect after the ssh
+process is restarted.
 
 **`start_bot.bat` is the single entry point** — it starts the tunnel keeper, then the bot.
 Run it after a reboot (or put it in `shell:startup`) and the whole path comes up.
@@ -107,6 +115,23 @@ curl -k -o /dev/null -w "%{http_code}\n" https://bot.magerash.com:8443/ # Caddy 
 
 ## Changelog
 
+### v0.16.7 2026-08-16
+- **Zoomed screenshot no longer closes itself on Android.** Two independent causes, both fixed: Telegram treats a vertical drag inside a Mini App as "dismiss", which is exactly the pan gesture — startup now calls `disableVerticalSwipes()` (Bot API 7.7+, ignored by older clients)
+- The viewer's own backdrop-close was firing on taps that landed on the image: `setPointerCapture()` retargets every later pointer event to `#lightbox`, so `pointerup` could not tell image from backdrop. That decision moved to `pointerdown`, the only event with a truthful target
+- Pinch tails and multi-finger gestures can't be read as a close tap (`_lb.multi`, "other fingers still down" guard); a gesture stolen by the OS now arrives as `pointercancel` instead of leaving a stale finger that wedged pan/pinch
+- Telegram BackButton is shown while the viewer is open — hardware back closes the viewer, not the whole Mini App
+- **Current window now always appears in the quick-pick chips and lights up green.** VS Code puts the open file first in its title, so two titles of the same window share no prefix and neither contains the other — the chip looked dead. Windows are now identified by their tail (last two `" - "` segments, `tail_key()`), matched the same way on client and server
+- Retitled entries merge into one chip instead of one-per-open-file, recents ties break by recency, and the focused window is pinned first — even when it was focused outside the dashboard
+- Tests 25 → 28
+
+### v0.16.6 2026-08-09
+- **Tunnel moved off the raw IP.** `start_tunnel_vps.ps1` now targets `root@vpn.magerash.com`. The VPS address changed once already (`45.150.33.106` silently dropped by RF DPI → `213.165.40.182`), and pinning it in the repo meant an infrastructure event became a code change. A future migration is one Cloudflare edit plus a tunnel restart
+- ssh resolves per connection, so a DNS change only lands on reconnect — kill `ssh.exe` and let the keeper redial. The A-record must stay DNS-only/grey: Cloudflare's proxy is HTTP-only and would kill ssh along with the VPN's UDP
+- Recovered the live tunnel: stale keeper still held the old IP in memory, and a leftover `sshd-session` on the VPS squatted on `:18080`, so every reconnect died on `ExitOnForwardFailure`. Verified end to end — 71KB frame in 0.50s through the tunnel (~140KB/s)
+- Docs: `vps-architecture.md` → **v1.3** — names table with verified resolutions, domain endpoint marked live and extended to the ssh tunnel, split-tunnel address updated, "if the address is filtered again" runbook. `plane.magerash.com` is now the only name still on the filtered IP
+- Split-tunnel note corrected throughout: Amnezia excludes by **address, not hostname**, so the exclusion list does not follow DNS and must be re-checked after every migration
+- No behavior change in the bot itself
+
 ### v0.16.5 2026-08-06
 - Recent window/project chips are validated against the live list — a chip for a closed window no longer sits there looking tappable. Matching mirrors the server's focus logic (exact → containment → 25-char prefix) so VS Code retitling itself per open file doesn't hide a working chip
 - Storage survives the filter: close a window and reopen it and its chip comes back with its frequency. Entries unused for 30 days are dropped
@@ -114,7 +139,7 @@ curl -k -o /dev/null -w "%{http_code}\n" https://bot.magerash.com:8443/ # Caddy 
 - Tests 23 → 25
 
 ### v0.16.4 2026-08-06
-- **Root cause of the slow Mini App: the phone's VPN.** The VPN server is the same VPS the bot's domain resolves to, so with the VPN on the phone tunnels bot traffic *to the VPS through the VPS*. The PC is unaffected because WireGuard auto-excludes its own endpoint IP; Android WireGuard protects only its own socket, so other traffic to that IP still enters the tunnel. **Fix: exclude `bot.magerash.com` / the VPS IP from the VPN on the phone** (Amnezia split tunneling) — no privacy cost, since the destination *is* the VPN server
+- **Root cause of the slow Mini App: the phone's VPN.** The VPN server is the same VPS the bot's domain resolves to, so with the VPN on the phone tunnels bot traffic *to the VPS through the VPS*. The PC is unaffected because WireGuard auto-excludes its own endpoint IP; Android WireGuard protects only its own socket, so other traffic to that IP still enters the tunnel. **Fix: exclude the VPS address (`213.165.40.182`) from the VPN on the phone** (Amnezia split tunneling, which matches by address, not hostname) — no privacy cost, since the destination *is* the VPN server
 - Ruled out first: server (40ms/frame), PC→VPS (46 Mbit/s), VPS shaping (none), hairpin/DNS/NAT (the VPN container fetches the dashboard fine), MTU (client 1280 changed nothing, `awg0` is a correct 1420). Frames degrade 2s → 18s within a session while clicks stay instant — carrier policing of the UDP flow, not a size cliff
 - Frame abort 20s → 45s: aborting an 18s frame throws away transferred bytes and turns "slow" into "never updates"
 - Default resolution 1920 → **Fit** (adaptive); fixed sizes never adapt to a bad link. Lightbox still pulls ≥1920

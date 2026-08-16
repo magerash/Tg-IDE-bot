@@ -49,6 +49,18 @@ def list_windows(limit: int = 30) -> list[str]:
     return titles
 
 
+def tail_key(title: str) -> str:
+    """Stable part of a retitling window: last two ' - ' segments, lowercased.
+
+    VS Code puts the open file FIRST ('config.py - Tg-IDE-bot - Visual Studio
+    Code'), so two titles of the same window share no prefix and neither contains
+    the other. Their tail ('Tg-IDE-bot - Visual Studio Code') does not move.
+    Returns '' for single-segment titles, which must never match.
+    """
+    parts = [p.strip() for p in (title or "").split(" - ") if p.strip()]
+    return " - ".join(parts[-2:]).lower() if len(parts) >= 2 else ""
+
+
 def focus_window_exact(title: str) -> tuple[bool, str]:
     """Focus window by exact title; fuzzy fallback for titles that changed since listing."""
     try:
@@ -56,12 +68,14 @@ def focus_window_exact(title: str) -> tuple[bool, str]:
         target = next((w for w in windows if w.title == title), None)
         if target is None:
             # Title changed since /win list (VSCode retitles per open file etc.) —
-            # match by longest shared prefix / containment
+            # match by containment / shared prefix / tail key
             t = title.lower()
+            key = tail_key(title)
             target = next(
                 (w for w in windows
                  if t in w.title.lower() or w.title.lower() in t
-                 or w.title.lower()[:25] == t[:25]),
+                 or w.title.lower()[:25] == t[:25]
+                 or (key and tail_key(w.title) == key)),
                 None,
             )
         if target is None:

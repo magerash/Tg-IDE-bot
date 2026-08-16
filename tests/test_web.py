@@ -222,6 +222,58 @@ def test_recent_validation_mirrors_server_matching():
         assert "25" in src, f"{side} lost the 25-char prefix rule"
     assert "includes(t)" in html and "t.includes(l)" in html, "client lost containment matching"
     assert "in w.title.lower() or w.title.lower() in t" in py, "server lost containment matching"
+    assert "_tailKey" in html, "client lost the tail-key rule"
+    assert "tail_key" in py, "server lost the tail-key rule"
+
+
+def test_tail_key_identifies_a_retitling_window():
+    """VS Code puts the open file first, so two titles of the SAME window share no
+    prefix and neither contains the other. Prefix/containment alone declared the
+    chip dead: it vanished from the recents list and never lit up green. The tail
+    (project + app) is what stays put."""
+    from utils.window import tail_key
+
+    a = "config.py - Tg-IDE-bot - Visual Studio Code"
+    b = "index.html - Tg-IDE-bot - Visual Studio Code"
+    assert tail_key(a) == tail_key(b) == "tg-ide-bot - visual studio code"
+    # ...but it must not merge different projects, or chips focus the wrong window
+    assert tail_key(a) != tail_key("main.py - OtherProj - Visual Studio Code")
+    assert tail_key("Explorer") == "", "single-segment titles must never match by tail"
+
+
+def test_current_window_chip_is_pinned_and_highlighted():
+    """Reported: the focused window is missing from the quick-pick chips and isn't
+    highlighted when selected. Three causes, all guarded here."""
+    html = _html()
+    # 1. current window is prepended to the list, so it survives the top-6 cut and
+    #    shows even when it was focused outside the dashboard
+    assert "[active, ...top.filter" in html, "current window no longer pinned first"
+    # 2. highlight compares with the same fuzzy matcher, not ===
+    assert "same(name, active) ? 'btn-ok-soft'" in html, "highlight back to exact-title compare"
+    # 3. ties break by recency, or a fresh entry (n=1) loses to eight older n=1s
+    assert "_recentOrder" in html and "b[1].t" in html, "recents ordering lost its recency tiebreak"
+    assert "_sameWinId(k, name)" in html, "bumpRecent no longer merges retitled entries"
+    # identity is stricter than focus matching — containment must not merge chips
+    assert "_sameWinId" in html and "_tailKey(a)" in html, "strict identity matcher gone"
+
+
+def test_lightbox_survives_pan_gestures():
+    """The viewer closed itself while the user panned a zoomed screenshot.
+
+    Two causes, both guarded here:
+    1. Telegram closes the Mini App on a vertical drag — panning IS that gesture,
+       so disableVerticalSwipes() must be called at startup.
+    2. setPointerCapture retargets every pointerup to #lightbox, so pointerup's
+       own target can't tell a backdrop tap from a tap on the image. The
+       backdrop-close decision must come from pointerdown (_lb.onBackdrop)."""
+    html = _html()
+    assert "disableVerticalSwipes" in html, "TG vertical-swipe close not disabled"
+    assert "_lb.onBackdrop" in html, "backdrop-close no longer decided at pointerdown"
+    up = html.split("addEventListener('pointerup'")[1].split("addEventListener(")[0]
+    assert "e.target.id === 'lightbox'" not in up, \
+        "pointerup reads a pointer-capture-retargeted target again"
+    assert "_lb.moved || _lb.multi" in html, "pinch tail can still close the viewer"
+    assert "addEventListener('pointercancel'" in html, "stolen gesture leaves a stale pointer"
 
 
 def test_api_frame_requires_auth():
