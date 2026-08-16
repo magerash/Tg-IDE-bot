@@ -167,6 +167,152 @@ def test_index_served():
     _run(go())
 
 
+def test_api_frame_binary_webp_and_304_style_204():
+    """The live-view transport: raw bytes (no base64), WebP on request, and a
+    bodyless 204 when the frame is unchanged."""
+    async def go():
+        async with await _client() as c:
+            r = await c.post("/api/frame", headers=AUTH,
+                             json={"mode": "screen", "fmt": "webp", "max_w": 640})
+            assert r.status == 200
+            assert r.headers["Content-Type"] == "image/webp"
+            body = await r.read()
+            assert body[:4] == b"RIFF" and body[8:12] == b"WEBP"   # real WebP, not JSON
+            digest = r.headers["X-Hash"]
+            assert len(r.headers["X-Rect"].split(",")) == 4
+
+            # Same hash back → 204, no body, headers still carry rect/hash
+            r2 = await c.post("/api/frame", headers=AUTH,
+                              json={"mode": "screen", "fmt": "webp", "max_w": 640,
+                                    "hash": digest})
+            if r2.status == 204:            # screen may legitimately have changed
+                assert await r2.read() == b""
+                assert r2.headers["X-Hash"] == digest
+
+            # JPEG path still available for clients without WebP
+            r3 = await c.post("/api/frame", headers=AUTH,
+                              json={"mode": "screen", "fmt": "jpeg", "max_w": 640})
+            assert r3.headers["Content-Type"] == "image/jpeg"
+            assert (await r3.read())[:2] == b"\xff\xd8"
+    _run(go())
+
+
+def test_focus_reports_gone_for_missing_window():
+    """The client drops a recents chip only when the window is really gone —
+    'found but activation blocked' must NOT set the flag."""
+    async def go():
+        async with await _client() as c:
+            r = await c.post("/api/focus", headers=AUTH,
+                             json={"title": "no such window exists 12345"})
+            data = await r.json()
+            assert data["ok"] is False
+            assert data["gone"] is True, data
+    _run(go())
+
+
+def test_recent_validation_mirrors_server_matching():
+    """_matchesLive() in the dashboard must mirror focus_window_exact(): exact →
+    containment either way → first-25-chars prefix. If one side gains a rule and
+    the other doesn't, chips get hidden that would have focused fine."""
+    html = _html()
+    with open(os.path.join(ROOT, "utils", "window.py"), encoding="utf-8") as f:
+        py = f.read()
+    assert "_matchesLive" in html, "client-side live-window matcher missing"
+    for side, src in (("client", html), ("server", py)):
+        assert "25" in src, f"{side} lost the 25-char prefix rule"
+    assert "includes(t)" in html and "t.includes(l)" in html, "client lost containment matching"
+    assert "in w.title.lower() or w.title.lower() in t" in py, "server lost containment matching"
+
+
+def test_api_frame_requires_auth():
+    async def go():
+        async with await _client() as c:
+            r = await c.post("/api/frame", json={"mode": "screen"})
+            assert r.status == 401
+    _run(go())
+
+
+def test_webp_smaller_than_jpeg():
+    """The reason /api/frame exists — if this stops holding, drop the WebP path."""
+    from handlers.screen import _grab_frame
+    jpeg = _grab_frame(None, 1280, 70, "JPEG")
+    webp = _grab_frame(None, 1280, 70, "WEBP")
+    assert len(webp) < len(jpeg) * 0.85, f"webp {len(webp)} vs jpeg {len(jpeg)}"
+
+
+def test_frame_opts_zero_max_w_means_native():
+    """max_w=0 is the 'Full' setting, not a missing value — `or` defaulting here
+    silently caps native captures back to WEB_SCREEN_MAX_W."""
+    from config import WEB_SCREEN_MAX_W
+    from handlers.web import _frame_opts
+
+    class FakeReq:
+        def __init__(self, data):
+            self._data = data
+
+        async def json(self):
+            return self._data
+
+    assert _run(_frame_opts(FakeReq({"max_w": 0})))[0] == 0
+    assert _run(_frame_opts(FakeReq({})))[0] == WEB_SCREEN_MAX_W
+    assert _run(_frame_opts(FakeReq({"max_w": 99999})))[0] == 3840
+    assert _run(_frame_opts(FakeReq({"quality": 999})))[1] == 95
+
+
+def test_miniapp_url_is_version_stamped():
+    """Telegram caches the Mini App per URL — a version stamp forces a fresh load."""
+    from handlers.web import miniapp_url
+    assert miniapp_url("https://x.example/", "1.2.3") == "https://x.example/?v=1.2.3"
+    assert miniapp_url("https://x.example/?a=1", "1.2.3") == "https://x.example/?a=1&v=1.2.3"
+
+
+def test_client_version_matches_config():
+    """Stale-UI detection compares these two — they must be bumped together."""
+    from config import VERSION
+    m = re.search(r"CLIENT_VERSION\s*=\s*'([\d.]+)'", _html())
+    assert m, "CLIENT_VERSION missing from index.html"
+    assert m.group(1) == VERSION, f"UI {m.group(1)} != config {VERSION}"
+
+
+def test_api_calls_bound_long_jobs_explicitly():
+    """Every api() call must either take the default deadline or pass its own —
+    an unbounded fetch through the tunnel wedges the single-flight queue."""
+    html = _html()
+    for path in ["/api/sh", "/api/claude", "/api/build", "/api/key"]:
+        for call in re.findall(r"api\('POST', '" + re.escape(path) + r"'[^;]*?\);", html):
+            assert re.search(r",\s*(0|\d{4,})\s*\)", call), f"{path} call has no explicit timeout: {call}"
+
+
+def test_frame_reply_same_hash_skips_image():
+    """Unchanged frame must reply {'same': True} with no image — the whole point
+    of the hash round trip is that an idle screen costs ~80 bytes, not ~80KB."""
+    import io
+    import json as _json
+    from handlers.web import _frame_reply
+
+    buf = io.BytesIO(b"fake-jpeg-bytes")
+    first = _json.loads(_frame_reply(buf, [0, 0, 100, 100], "").body)
+    assert first["ok"] and first["image"] and first["hash"]
+
+    same = _json.loads(_frame_reply(buf, [0, 0, 100, 100], first["hash"]).body)
+    assert same["same"] is True and "image" not in same
+    assert same["rect"] == [0, 0, 100, 100]      # rect still refreshed
+
+    stale = _json.loads(_frame_reply(buf, [0, 0, 100, 100], "deadbeef").body)
+    assert "same" not in stale and stale["image"]
+
+
+def test_grab_to_jpeg_downscales():
+    """max_w must shrink the frame — short auto-refresh intervals depend on it."""
+    from PIL import Image
+    from handlers.screen import _grab_to_jpeg
+
+    big = _grab_to_jpeg(None, 0, 70)
+    small = _grab_to_jpeg(None, 640, 55)
+    assert Image.open(small).width <= 640
+    assert len(small.getvalue()) < len(big.getvalue())
+
+
 # --- HTML/JS consistency (catches broken buttons without a browser) ---
 
 def _html():

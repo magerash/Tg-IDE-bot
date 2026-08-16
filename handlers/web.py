@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import hashlib
 import io
 import json
 import logging
@@ -13,11 +14,11 @@ from aiohttp import web
 
 from config import (
     ALLOWED_USER_ID, BOT_TOKEN, MAX_FILE_SIZE,
-    VERSION, WEB_TOKEN, WEBAPP_URL,
+    VERSION, WEB_SCREEN_MAX_W, WEB_SCREEN_QUALITY, WEB_TOKEN, WEBAPP_URL,
 )
 from handlers.files import _find_apks
 from utils import project
-from handlers.screen import _grab_to_jpeg
+from handlers.screen import _grab_frame, _grab_to_jpeg
 from utils.webauth import check_token, validate_init_data
 from utils.window import get_active_window_rect
 
@@ -46,15 +47,98 @@ def _err(msg, status=400):
 
 # --- API Endpoints ---
 
+async def _frame_opts(request):
+    """Live-view frame size/quality/last-hash — request override, else config defaults."""
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    # max_w 0 means "native, no downscale" — a real choice, not a missing value,
+    # so `or` would silently turn the Full setting back into the default cap.
+    raw_w = data.get("max_w")
+    max_w = WEB_SCREEN_MAX_W if raw_w is None else int(raw_w)
+    quality = int(data.get("quality") or WEB_SCREEN_QUALITY)
+    return min(max(max_w, 0), 3840), max(20, min(95, quality)), str(data.get("hash") or "")
+
+
+def _frame_reply(buf, rect, prev_hash):
+    """Frame response. If the JPEG is byte-identical to what the client already
+    shows, reply {'same': True} (~80 bytes) instead of re-sending ~80KB — an
+    idle screen then costs nothing on the tunnel, so clicks get the bandwidth."""
+    raw = buf.getvalue()
+    digest = hashlib.md5(raw).hexdigest()
+    if prev_hash and prev_hash == digest:
+        return _json({"ok": True, "same": True, "hash": digest, "rect": rect})
+    return _json({"ok": True, "image": base64.b64encode(raw).decode(),
+                  "hash": digest, "rect": rect})
+
+
+async def api_frame(request):
+    """Live-view frame as raw bytes — the transport the dashboard actually uses.
+
+    Two wins over the JSON endpoints below, which stay for older clients:
+      * binary, not base64 — base64 inflates every frame by 33%
+      * WebP when the client supports it — ~37% smaller than JPEG at equal quality
+    A 1280px frame that costs 114KB as base64 JPEG costs 52KB here.
+
+    Unchanged screen → 204 with no body at all. Metadata rides in headers so the
+    body stays pure image bytes: X-Rect (l,t,w,h), X-Hash, X-Mode.
+    """
+    if not _check_auth(request):
+        return _err("Unauthorized", 401)
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    mode = "window" if data.get("mode") == "window" else "screen"
+    fmt = "WEBP" if str(data.get("fmt", "")).lower() == "webp" else "JPEG"
+    raw_w = data.get("max_w")
+    max_w = min(max(WEB_SCREEN_MAX_W if raw_w is None else int(raw_w), 0), 3840)
+    quality = max(20, min(95, int(data.get("quality") or WEB_SCREEN_QUALITY)))
+    prev_hash = str(data.get("hash") or "")
+
+    try:
+        if mode == "window":
+            rect = await asyncio.to_thread(get_active_window_rect)
+            if not rect:
+                return _err("No active window")
+            left, top, w, h = rect
+            if w <= 0 or h <= 0:
+                return _err("Invalid window dimensions")
+            region = {"left": left, "top": top, "width": w, "height": h}
+        else:
+            import pyautogui
+            sw, sh = pyautogui.size()
+            rect, region = (0, 0, sw, sh), None
+
+        payload = await asyncio.to_thread(_grab_frame, region, max_w, quality, fmt)
+        digest = hashlib.md5(payload).hexdigest()
+        headers = {
+            "X-Rect": ",".join(str(v) for v in rect),
+            "X-Hash": digest,
+            "X-Mode": mode,
+            "Cache-Control": "no-store",
+        }
+        if prev_hash and prev_hash == digest:
+            return web.Response(status=204, headers=headers)
+        return web.Response(
+            body=payload, status=200, headers=headers,
+            content_type="image/webp" if fmt == "WEBP" else "image/jpeg",
+        )
+    except Exception as e:
+        logger.error("web /api/frame error: %s", e)
+        return _err(str(e), 500)
+
+
 async def api_screen(request):
     if not _check_auth(request):
         return _err("Unauthorized", 401)
     try:
-        buf = await asyncio.to_thread(_grab_to_jpeg)
-        img_b64 = base64.b64encode(buf.getvalue()).decode()
+        max_w, quality, prev_hash = await _frame_opts(request)
+        buf = await asyncio.to_thread(_grab_to_jpeg, None, max_w, quality)
         import pyautogui
         sw, sh = pyautogui.size()
-        return _json({"ok": True, "image": img_b64, "rect": [0, 0, sw, sh]})
+        return _frame_reply(buf, [0, 0, sw, sh], prev_hash)
     except Exception as e:
         logger.error("web /api/screen error: %s", e)
         return _err(str(e), 500)
@@ -70,11 +154,12 @@ async def api_window(request):
         left, top, w, h = rect
         if w <= 0 or h <= 0:
             return _err("Invalid window dimensions")
+        max_w, quality, prev_hash = await _frame_opts(request)
         buf = await asyncio.to_thread(
-            _grab_to_jpeg, {"left": left, "top": top, "width": w, "height": h}
+            _grab_to_jpeg, {"left": left, "top": top, "width": w, "height": h},
+            max_w, quality,
         )
-        img_b64 = base64.b64encode(buf.getvalue()).decode()
-        return _json({"ok": True, "image": img_b64, "rect": list(rect)})
+        return _frame_reply(buf, list(rect), prev_hash)
     except Exception as e:
         logger.error("web /api/window error: %s", e)
         return _err(str(e), 500)
@@ -87,18 +172,22 @@ async def api_key(request):
         data = await request.json()
         key_str = data.get("key", "").lower().strip()
         repeat = min(int(data.get("repeat", 1)), 200)
+        interval = min(float(data.get("interval", 0)), 5.0)  # sec between presses
         if not key_str:
             return _err("Missing 'key'")
 
+        import time
         import pyautogui
         parts = key_str.split("+")
 
         def _do():
-            for _ in range(repeat):
+            for i in range(repeat):
                 if len(parts) > 1:
                     pyautogui.hotkey(*parts)
                 else:
                     pyautogui.press(parts[0])
+                if interval and i < repeat - 1:
+                    time.sleep(interval)
 
         await asyncio.to_thread(_do)
         return _json({"ok": True, "pressed": key_str, "repeat": repeat})
@@ -287,12 +376,21 @@ async def api_restart(request):
 
 
 async def index_page(request):
-    """Serve the web dashboard (no-cache: webviews must always get fresh HTML)."""
+    """Serve the web dashboard (no-cache: webviews must always get fresh HTML).
+
+    Telegram's webview treats these headers as advisory, so the page also
+    self-checks CLIENT_VERSION against /api/status and reloads with ?v= when
+    it finds itself stale — see _checkStaleClient() in index.html.
+    """
     html_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web", "index.html")
     if os.path.isfile(html_path):
         return web.FileResponse(
             html_path,
-            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
         )
     return web.Response(text="Dashboard not found", status=404)
 
@@ -303,6 +401,7 @@ def create_web_app():
     app = web.Application(client_max_size=30 * 1024 * 1024)
 
     # API routes
+    app.router.add_post("/api/frame", api_frame)
     app.router.add_post("/api/screen", api_screen)
     app.router.add_post("/api/window", api_window)
     app.router.add_post("/api/key", api_key)
@@ -328,15 +427,28 @@ def create_web_app():
     return app
 
 
+def miniapp_url(base: str = "", version: str = "") -> str:
+    """Mini App URL with a version stamp.
+
+    Telegram's webview caches the page per URL and ignores no-cache headers, so
+    without this a phone can keep running last month's dashboard against a new
+    bot. A new version = a new URL = a guaranteed fresh load.
+    """
+    base = base or WEBAPP_URL
+    sep = "&" if "?" in base else "?"
+    return f"{base}{sep}v={version or VERSION}"
+
+
 async def setup_menu_button(bot):
     """Set the chat menu button to open the Mini App (if WEBAPP_URL configured)."""
     if not WEBAPP_URL:
         return
     from telegram import MenuButtonWebApp, WebAppInfo
+    url = miniapp_url()
     try:
         await bot.set_chat_menu_button(
-            menu_button=MenuButtonWebApp(text="Panel", web_app=WebAppInfo(url=WEBAPP_URL))
+            menu_button=MenuButtonWebApp(text="Panel", web_app=WebAppInfo(url=url))
         )
-        logger.info("Mini App menu button set: %s", WEBAPP_URL)
+        logger.info("Mini App menu button set: %s", url)
     except Exception as e:
         logger.error("Menu button setup failed: %s", e)

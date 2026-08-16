@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.15.1
+# TG-IDE-Bot v0.16.5
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -40,7 +40,121 @@ python bot.py
 Set `WEB_TOKEN` (+ optionally `WEBAPP_URL` for Telegram Mini App) in `.env`, then open `http://localhost:8080`.
 Panels: screen (click-to-click remote, zoomable viewer), keys, actions, windows focus, projects (VSCode), type presets, Claude, shell.
 
+## Restart & Operations
+
+### Remote path
+```
+phone → https://bot.magerash.com:8443 → Caddy (VPS) → 127.0.0.1:18080 (VPS)
+      → reverse SSH tunnel → 127.0.0.1:8080 (this PC) → aiohttp / bot.py
+```
+
+**`start_bot.bat` is the single entry point** — it starts the tunnel keeper, then the bot.
+Run it after a reboot (or put it in `shell:startup`) and the whole path comes up.
+Safe to run twice: the keeper refuses to start a second instance and
+`utils/singleton.py` kills stale bots.
+
+| Piece | How it runs |
+|-------|-------------|
+| Bot | `start_bot.bat` step 2 — `python bot.py` in a 5s auto-restart loop |
+| Tunnel | `start_bot.bat` step 1 → `wscript.exe start_tunnel_hidden.vbs` → hidden `start_tunnel_vps.ps1` → `ssh -N -R 18080:127.0.0.1:8080 root@<vps>`, reconnects every 5s. Scheduled task **`TgBotTunnel`** may also start it — the keeper's single-instance guard makes that harmless |
+| Watchdog | `utils/tunnel.py` — bot checks every 60s; if no `ssh.exe`, runs `schtasks /run /tn TgBotTunnel`, or the `.vbs` directly when the task isn't registered |
+
+"Restart Bot" from the dashboard/Telegram re-execs python inside the same process
+(`os.execv`), so it never falls out of the batch loop and never touches the tunnel.
+
+### Restart the bot
+```powershell
+# graceful: dashboard → Actions → "Restart Bot"  (POST /api/restart, os.execv)
+
+# from a shell — the batch loop respawns it in 5s
+Get-CimInstance Win32_Process -Filter "Name like 'python%'" |
+  Where-Object { $_.CommandLine -match 'bot\.py' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+
+# cold start (no loop running) — also brings the tunnel up
+Start-Process cmd.exe -ArgumentList "/c","C:\Projects\Tg-IDE-bot\start_bot.bat" -WorkingDirectory "C:\Projects\Tg-IDE-bot"
+```
+
+### Restart the tunnel
+```powershell
+# 1. kill keeper(s) + ssh   — $PID guard matters, see gotcha below
+$pat = 'start_' + 'tunnel_' + 'vps'
+Get-CimInstance Win32_Process -Filter "Name like 'powershell%'" |
+  Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -match "-File.*$pat" } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+Get-Process ssh -ErrorAction SilentlyContinue | Stop-Process -Force
+
+# 2. start exactly one keeper
+schtasks /run /tn TgBotTunnel
+```
+
+### Verify (bottom-up — first failing step is the culprit)
+```bash
+curl -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8080/            # bot alive          → 200
+ssh root@<vps> "ss -lptn 'sport = :18080'"                              # tunnel bound       → LISTEN
+ssh root@<vps> "curl -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18080/"  # tunnel usable → 200
+curl -k -o /dev/null -w "%{http_code}\n" https://bot.magerash.com:8443/ # Caddy + public     → 200
+```
+
+### 502 troubleshooting
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Local `:8080` refuses | Bot down | Restart bot (above) |
+| `remote port forwarding failed for listen port 18080` in `ssh -v` | Local ssh was killed hard; VPS `sshd-session` still holds the port | `ssh root@<vps> "ss -lptn 'sport = :18080'"` → `kill <pid>`, then restart tunnel |
+| Tunnel LISTENs, VPS-local curl to `:18080` works, public still 502 | Caddy upstream port wrong | `/etc/caddy/Caddyfile` must read `reverse_proxy 127.0.0.1:18080` (**not** `:8080` — that's this PC's port, not the VPS's). Then `systemctl reload caddy` |
+| Several `ssh.exe` / keepers alive, tunnel flaps | Watchdog ran `schtasks /run` while a keeper existed — each run spawns another keeper, and they fight over remote port 18080 | Kill all, start one (above) |
+
+**Gotcha:** when matching processes by command line, exclude your own shell (`$_.ProcessId -ne $PID`) — a `Where-Object { $_.CommandLine -match 'start_tunnel_vps' }` filter matches the very command that contains that string, so the kill loop terminates your own session and inflates keeper counts by one.
+
 ## Changelog
+
+### v0.16.5 2026-08-06
+- Recent window/project chips are validated against the live list — a chip for a closed window no longer sits there looking tappable. Matching mirrors the server's focus logic (exact → containment → 25-char prefix) so VS Code retitling itself per open file doesn't hide a working chip
+- Storage survives the filter: close a window and reopen it and its chip comes back with its frequency. Entries unused for 30 days are dropped
+- `/api/focus` returns a `gone` flag; a chip is retired only when the window truly no longer exists, not when activation is merely blocked
+- Tests 23 → 25
+
+### v0.16.4 2026-08-06
+- **Root cause of the slow Mini App: the phone's VPN.** The VPN server is the same VPS the bot's domain resolves to, so with the VPN on the phone tunnels bot traffic *to the VPS through the VPS*. The PC is unaffected because WireGuard auto-excludes its own endpoint IP; Android WireGuard protects only its own socket, so other traffic to that IP still enters the tunnel. **Fix: exclude `bot.magerash.com` / the VPS IP from the VPN on the phone** (Amnezia split tunneling) — no privacy cost, since the destination *is* the VPN server
+- Ruled out first: server (40ms/frame), PC→VPS (46 Mbit/s), VPS shaping (none), hairpin/DNS/NAT (the VPN container fetches the dashboard fine), MTU (client 1280 changed nothing, `awg0` is a correct 1420). Frames degrade 2s → 18s within a session while clicks stay instant — carrier policing of the UDP flow, not a size cliff
+- Frame abort 20s → 45s: aborting an 18s frame throws away transferred bytes and turns "slow" into "never updates"
+- Default resolution 1920 → **Fit** (adaptive); fixed sizes never adapt to a bad link. Lightbox still pulls ≥1920
+- Adaptive sizing corrects in proportion to the overshoot and converges in one step instead of minutes
+
+### v0.16.3 2026-08-05
+- Investigated the "Mini App never updates" report against the access log: server renders a frame in 40ms, PC→VPS measures 46 Mbit/s, VPS has no shaping — but the phone's own throughput fell from ~194KB/s (July 23: 17,358 frames at a 1s cadence) to ~20–40KB/s in August, same device and tunnel. Not a code regression; the fix is to need far fewer bytes
+- **`POST /api/frame`** — binary WebP transport: no base64 (−25%), WebP instead of JPEG (−37%), `204` with no body when the screen is unchanged, metadata in `X-Rect`/`X-Hash`/`X-Mode` headers. Through the tunnel: 1280px **109KB → 50KB**; **1920px now costs 82KB, less than the old 1280px** — sharper *and* faster. Old JSON endpoints kept for cached clients
+- Adaptive sizing in `Fit` mode: frames that don't fit the Auto tick shrink automatically (floor 480px) and grow back when the link allows. Explicit 1280/1920/Full are never overridden
+- Auto-refresh pauses while the tab/webview is hidden — a background dashboard was pulling 1.2GB/day through the tunnel and starving the phone
+- Status line now shows throughput: `Window updated · 430ms · 50KB · 116KB/s`
+- Tests 20 → 23
+
+### v0.16.2 2026-08-05
+- Fix: `fetch()` has no timeout — a request stranded by a dropped tunnel hung forever and (with v0.16.1's single-flight queue) wedged the live view permanently. This is why the Mini App stopped updating while the browser looked fine. All API calls now carry an abort deadline (20s default, unbounded only for `/api/sh` `/api/claude` `/api/build` and repeat-key runs), plus a 30s stuck-queue reset
+- Screen panel: **transfer resolution selector** — `Fit` / `1280` / `1920` (default) / `Full`, persisted; JPEG quality scales with it. v0.16.1's 1280@q55 was a visible downgrade
+- Lightbox pulls ≥1920 immediately on open (zoom view is for reading fine text)
+- Fix: `max_w=0` (the Full setting) was treated as "not supplied" and capped back to the default
+- Defaults raised for clients that send no preference: `WEB_SCREEN_MAX_W` 1280→1920, `WEB_SCREEN_QUALITY` 55→70
+- Fix: stale Mini App — Telegram's webview caches the page per URL and ignores no-cache headers. The menu-button URL is version-stamped and the page reloads itself once as `?v=<server version>` when its `CLIENT_VERSION` doesn't match the bot
+- Expired Mini App session (initData is valid 24h) now says so instead of "Invalid token"
+- Tests 16 → 20
+
+### v0.16.1 2026-08-05
+- Live view: single-flight capture queue — one frame request in flight, extras coalesce into one pending run; Auto is a `setTimeout` chain measured from completion, not `setInterval`. Fixes clicks taking ~15s to appear (or never) as blind post-click refreshes + auto ticks piled up in the reverse-SSH pipe
+- Live view: lightbox no longer runs a second refresh loop — its Auto pill drives the shared loop (was doubling frame requests while open)
+- Frames: downscale + softer JPEG (`WEB_SCREEN_MAX_W` 1280, `WEB_SCREEN_QUALITY` 55); client requests only the pixels the view shows (container × DPR, 1920 in lightbox). 250KB → ~40KB per frame, 0.44s through the tunnel
+- Frames: `hash` round trip — server replies `{same:true}` (~80 bytes) when pixels are unchanged; status line reports real cost (`Screen updated · 430ms · 40KB`)
+- Ops: `start_bot.bat` is now the single entry point — starts the hidden tunnel keeper, then the bot restart loop. Safe to run twice; dashboard/Telegram "Restart Bot" (`os.execv`) unaffected
+- Ops: `start_tunnel_vps.ps1` single-instance guard — two keepers meant two ssh clients fighting over remote port 18080, the loser retrying every 5s (tunnel flap). Watchdog falls back to the `.vbs` when the `TgBotTunnel` task isn't registered instead of self-disabling
+- Web mobile: reorder to Windows → Projects → Screen → Type Text (context pickers first, screen adjacent to input); current window/project tinted green in the recents lists
+- Panel + Web: `Ultrathink` preset types `Ultrathink ` without Enter (keyword, not a slash command)
+- Docs: README "Restart & Operations" runbook; tests 14 → 16
+
+### v0.16.0 2026-07-26
+- Web: Windows/Projects moved into the side rails (left = Windows + Keys, right = Projects + Actions); rails stay compact + sticky-locked while the center scrolls
+- Web mobile: `display:contents` reflow restores the old top→bottom order (Screen → Windows → Projects → Keys → Type → …)
+- Auto mode: `Auto` key (web + TG panel) sends Shift+Tab ×3 with 1s gaps to cycle Claude Code modes; `/api/key` gains `interval`
+- Image paste: saves a temp PNG and types its file path into the terminal (Claude Code attaches it) — terminals can't accept a Ctrl+V image
+- Web: Enter sends / Shift+Enter newline restored; screen Auto button green while running, Keys Auto button gray
 
 ### v0.15.1 2026-07-23
 - Panel + Web: `/model` quick-type button (after LF NB) — types `/model` + Enter
