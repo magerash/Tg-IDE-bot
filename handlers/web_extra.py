@@ -159,13 +159,21 @@ async def api_stt(request):
             return _err(str(e))
 
         text = raw
-        if raw and request.query.get("humanize") == "1":
+        wanted = raw and request.query.get("humanize") == "1"
+        err = None
+        if wanted:
             from utils.humanize import humanize
             try:
                 text = await humanize(raw)
             except Exception as e:
-                logger.warning("humanize failed, returning raw: %s", e)
-        return _json({"ok": True, "text": text, "raw": raw})
+                # Reported, not swallowed: a silent fallback is indistinguishable
+                # from "the AI button does nothing" (Groq retiring a model looked
+                # exactly like that for a day).
+                err = str(e)[:300]
+                logger.error("humanize failed, returning raw: %s", e)
+        return _json({"ok": True, "text": text, "raw": raw,
+                      "humanized": bool(wanted and err is None),
+                      "humanize_error": err})
     except Exception as e:
         logger.error("web /api/stt error: %s", e)
         return _err(str(e), 500)

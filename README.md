@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.17.0
+# TG-IDE-Bot v0.17.1
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -114,6 +114,13 @@ curl -k -o /dev/null -w "%{http_code}\n" https://bot.magerash.com:8443/ # Caddy 
 **Gotcha:** when matching processes by command line, exclude your own shell (`$_.ProcessId -ne $PID`) — a `Where-Object { $_.CommandLine -match 'start_tunnel_vps' }` filter matches the very command that contains that string, so the kill loop terminates your own session and inflates keeper counts by one.
 
 ## Changelog
+
+### v0.17.1 2026-08-17
+- **Fix: typing still landed nowhere in a Claude Code terminal.** Claude Code binds Ctrl+V to "paste image from clipboard", so a text paste is a silent no-op — key delivered, clipboard correct, prompt empty. The paste key is now chosen from the target window: terminals (VS Code, PowerShell, git bash, Windows Terminal) get **Ctrl+Shift+V**, ordinary apps keep Ctrl+V. Tunable via `TYPE_PASTE_HOTKEY` / `TYPE_TERMINAL_PASTE_HOTKEY` / `TYPE_TERMINAL_HINTS`
+- **Fix: voice cleanup stopped improving transcripts.** Groq retired `llama-3.3-70b-versatile` (404 on an existing key, whole Llama family gone); Whisper was unaffected, so recognition kept working and only the cleanup died. Model is now `qwen/qwen3.6-27b` with `openai/gpt-oss-20b` as fallback — same free Groq key, only the model string changed
+- Reasoning output is suppressed and stripped — an unguarded qwen3.6 returned 7196 chars of `<think>…` for a 483-char transcript, which would have been typed into Claude Code verbatim
+- A failed cleanup is now visible instead of silently returning raw text: `/api/stt` reports `humanized` + `humanize_error`, the dashboard toasts it, and Telegram appends `⚠ AI cleanup failed`
+- Tests 33 → 36
 
 ### v0.17.0 2026-08-17
 - **Fix: typing from the bot stopped submitting.** Text was pasted, then Enter was pressed 0.1s later — Claude Code buffers a bracketed paste and folds an Enter arriving inside that window into the paste as a newline, so the message sat unsent in the input box while the bot reported `Typed: ...`. Affected every surface at once (Telegram chat, Mini App, panel presets, voice, scheduled messages) because all four shared that delay

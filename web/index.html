@@ -562,7 +562,7 @@ const TG = (_twa && _twa.initData) ? _twa : null;
 /* Must equal config.VERSION — tests enforce it. The Telegram webview caches the
    Mini App page hard (no-cache headers are advisory there), so a stale UI can
    run against a new server for days. Detect it and reload past the cache once. */
-const CLIENT_VERSION = '0.17.0';
+const CLIENT_VERSION = '0.17.1';
 
 function _checkStaleClient(serverVersion) {
   if (!serverVersion || serverVersion === CLIENT_VERSION) return false;
@@ -1872,7 +1872,11 @@ async function toggleMic() {
         autoGrow(input);
         input.focus();
         addHistory('type', r.text);
-        toast(r.raw && r.raw !== r.text
+        // A failed cleanup must say so — silently handing back the raw transcript
+        // is indistinguishable from "the AI button does nothing" (Groq retiring
+        // llama-3.3-70b did exactly that for a day).
+        if (r.humanize_error) toast('AI cleanup failed, raw text: ' + r.humanize_error, true);
+        else toast(r.humanized
           ? `Transcribed + cleaned (raw ${r.raw.length} → ${r.text.length} chars)`
           : 'Transcribed (' + r.text.length + ' chars)');
       } else toast(r.error || 'STT: empty result', true);

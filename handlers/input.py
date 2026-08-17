@@ -6,7 +6,10 @@ import time
 import pyautogui
 from telegram import Update
 from telegram.ext import ContextTypes
-from config import TYPE_ENTER_DELAY
+from config import (
+    TYPE_ENTER_DELAY, TYPE_PASTE_HOTKEY, TYPE_TERMINAL_HINTS,
+    TYPE_TERMINAL_PASTE_HOTKEY,
+)
 from utils.auth import auth_required, rate_limit
 from utils.window import focus_window, get_active_window_title
 
@@ -60,6 +63,21 @@ def _stuck_modifiers() -> list[str]:
     return held
 
 
+def paste_hotkey_for(title: str) -> tuple[str, ...]:
+    """Which paste keystroke this window actually honours.
+
+    Claude Code binds Ctrl+V to "paste image from clipboard", so inside a terminal
+    running it a text Ctrl+V does nothing at all — the key arrives (the command
+    palette opens on Ctrl+Shift+P), the clipboard holds the text, and the prompt
+    stays empty. Ctrl+Shift+V is the terminal's own paste and works there. Plain
+    apps (Notepad, browsers) get Ctrl+V, since Ctrl+Shift+V means nothing to them.
+    """
+    low = (title or "").lower()
+    terminal = any(hint in low for hint in TYPE_TERMINAL_HINTS)
+    combo = TYPE_TERMINAL_PASTE_HOTKEY if terminal else TYPE_PASTE_HOTKEY
+    return tuple(part.strip() for part in combo.split("+") if part.strip())
+
+
 def _type_text(text: str):
     """Type text via clipboard paste — instant, reliable, supports any language."""
     with _input_lock:
@@ -68,9 +86,12 @@ def _type_text(text: str):
             logger.warning("Releasing stuck modifiers before paste: %s", held)
             for key in held:
                 pyautogui.keyUp(key)
-        logger.debug("Typing %d chars into '%s'", len(text), get_active_window_title())
+        title = get_active_window_title()
+        keys = paste_hotkey_for(title)
+        logger.debug("Typing %d chars into '%s' via %s",
+                     len(text), title, "+".join(keys))
         _set_clipboard(text)
-        pyautogui.hotkey("ctrl", "v")
+        pyautogui.hotkey(*keys)
         time.sleep(0.1)
 
 

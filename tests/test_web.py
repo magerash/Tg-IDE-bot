@@ -359,6 +359,55 @@ def test_enter_waits_for_the_paste_to_land(monkeypatch):
     assert ("press", "enter") not in events, "enter=False must not submit"
 
 
+def test_humanize_survives_a_retired_model():
+    """Groq retired `llama-3.3-70b-versatile` mid-day and the whole Llama family
+    vanished from the key: every voice message quietly returned the raw transcript
+    and the AI toggle looked dead. A fallback chain plus a loud failure is the fix."""
+    import pathlib
+
+    from config import HUMANIZE_FALLBACKS, HUMANIZE_MODEL
+    from utils.humanize import _strip_reasoning
+
+    assert "llama-3.3-70b" not in HUMANIZE_MODEL, "primary model is the retired one"
+    assert HUMANIZE_FALLBACKS, "no fallback: one retirement kills the feature again"
+    assert HUMANIZE_MODEL not in HUMANIZE_FALLBACKS
+
+    # Reasoning models dump their thinking into `content` — it would be pasted
+    # into Claude Code verbatim (qwen3.6 returned 7196 chars for a 483-char input)
+    assert _strip_reasoning("<think>plan</think>Чистый текст") == "Чистый текст"
+    assert _strip_reasoning("Чистый текст\n<think>truncated") == "Чистый текст"
+
+    src = pathlib.Path(ROOT, "utils", "humanize.py").read_text(encoding="utf-8")
+    assert "raise RuntimeError(\"Humanize failed" in src, "failure must not be silent"
+
+
+def test_stt_reports_a_failed_cleanup():
+    """The endpoint must distinguish "cleaned" from "gave you the raw text",
+    and the UI must show it — otherwise a broken model is invisible."""
+    import pathlib
+
+    api = pathlib.Path(ROOT, "handlers", "web_extra.py").read_text(encoding="utf-8")
+    assert '"humanized"' in api and '"humanize_error"' in api
+
+    html = _html()
+    assert "humanize_error" in html and "AI cleanup failed" in html
+
+
+def test_paste_hotkey_follows_the_target_window():
+    """Claude Code owns Ctrl+V (its image-paste binding), so a text Ctrl+V into a
+    terminal running it is a silent no-op: key delivered, clipboard correct, prompt
+    empty. Terminal targets must get Ctrl+Shift+V; plain apps must NOT, since they
+    have no such binding and would receive nothing at all."""
+    from handlers.input import paste_hotkey_for
+
+    for title in ("Findar - Visual Studio Code", "Tg-IDE-bot - Visual Studio Code",
+                  "Windows PowerShell", "MINGW64:/c/Projects — git bash"):
+        assert paste_hotkey_for(title) == ("ctrl", "shift", "v"), title
+
+    for title in ("Untitled - Notepad", "Telegram", "", "Findar — Vivaldi"):
+        assert paste_hotkey_for(title) == ("ctrl", "v"), title
+
+
 def test_every_typing_path_uses_the_sequencer():
     """A caller that pairs _type_text with its own pyautogui.press('enter') skips
     the wait and reintroduces the race — the reason this bug hit TG chat, the Mini
