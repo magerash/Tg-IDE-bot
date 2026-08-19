@@ -37,12 +37,13 @@ def _strip_reasoning(text: str) -> str:
     return out.strip()
 
 
-async def _call(session, model: str, text: str, reasoning: str | None) -> str:
+async def _call(session, model: str, system: str, text: str,
+                reasoning: str | None) -> str:
     payload = {
         "model": model,
         "temperature": 0.2,
         "messages": [
-            {"role": "system", "content": _SYSTEM},
+            {"role": "system", "content": system},
             {"role": "user", "content": text},
         ],
     }
@@ -59,9 +60,10 @@ async def _call(session, model: str, text: str, reasoning: str | None) -> str:
         return (body["choices"][0]["message"].get("content") or "").strip()
 
 
-async def humanize(text: str) -> str:
-    """Return cleaned transcript. Raises when every model fails — caller falls back
-    to raw, but must say so: a silent fallback looks exactly like "AI does nothing".
+async def chat(system: str, text: str) -> str:
+    """Run text through the Groq model fallback chain with the given system prompt.
+    Raises when every model fails — callers fall back to the original text, but
+    must say so: a silent fallback looks exactly like "AI does nothing".
     """
     if not GROQ_API_KEY:
         raise RuntimeError("GROQ_API_KEY not set")
@@ -73,20 +75,20 @@ async def humanize(text: str) -> str:
     timeout = aiohttp.ClientTimeout(total=30)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         for model in models:
-            logger.debug("Humanize request: %d chars, model=%s", len(text), model)
+            logger.debug("LLM request: %d chars, model=%s", len(text), model)
             try:
-                out = await _call(session, model, text, HUMANIZE_REASONING)
+                out = await _call(session, model, system, text, HUMANIZE_REASONING)
             except RuntimeError as e:
                 # A model that rejects reasoning_effort is worth one retry without it
                 if "reasoning" in str(e).lower():
                     try:
-                        out = await _call(session, model, text, None)
+                        out = await _call(session, model, system, text, None)
                     except Exception as e2:
                         errors.append(f"{model} -> {e2}")
                         continue
                 else:
                     errors.append(f"{model} -> {e}")
-                    logger.warning("Humanize model %s failed: %s", model, e)
+                    logger.warning("LLM model %s failed: %s", model, e)
                     continue
             except Exception as e:
                 errors.append(f"{model} -> {e}")
@@ -97,10 +99,15 @@ async def humanize(text: str) -> str:
                 errors.append(f"{model} -> empty after stripping reasoning")
                 continue
             if model != HUMANIZE_MODEL:
-                logger.warning("Humanize fell back to %s (primary %s unavailable)",
+                logger.warning("LLM fell back to %s (primary %s unavailable)",
                                model, HUMANIZE_MODEL)
-            logger.debug("Humanize result: %d -> %d chars via %s",
+            logger.debug("LLM result: %d -> %d chars via %s",
                          len(text), len(out), model)
             return out
 
     raise RuntimeError("Humanize failed: " + "; ".join(errors))
+
+
+async def humanize(text: str) -> str:
+    """Return cleaned transcript. Raises when every model fails."""
+    return await chat(_SYSTEM, text)

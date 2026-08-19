@@ -110,6 +110,72 @@ def test_humanize_module():
     assert asyncio.run(humanize("  ")) == "  "
 
 
+def test_improve_endpoint_auth_and_validation():
+    """/api/improve rejects unauthenticated calls and empty text."""
+    async def go():
+        async with await _client() as c:
+            r = await c.post("/api/improve", json={"text": "x"})
+            assert r.status == 401
+            r = await c.post("/api/improve", headers=AUTH, json={"text": "  "})
+            assert (await r.json())["ok"] is False
+    _run(go())
+
+
+def test_improve_styles_match_ui_and_twin_is_optional(tmp_path, monkeypatch):
+    """Style keys must match the #imp-style dropdown (drift guard), the twin
+    block must only appear when the profile exists, and a missing profile must
+    be reported — not crash — so the toggle never looks silently dead."""
+    from utils import improve as imp
+
+    # server styles == UI options
+    sel = re.search(r'<select id="imp-style".*?</select>', _html(), re.S).group(0)
+    opts = set(re.findall(r'option value="(\w+)"', sel))
+    assert opts == set(imp.STYLES), f"UI styles {opts} != server {set(imp.STYLES)}"
+
+    # missing profile dir -> None, no raise
+    monkeypatch.setattr(imp, "HAE_PROFILE_DIR", str(tmp_path / "nope"))
+    imp._twin_cache.update(key=None, text=None)
+    assert imp._twin_context() is None
+
+    # present profile -> injected into system prompt only when twin=True
+    prof = tmp_path / "profile"
+    prof.mkdir()
+    (prof / "persona.md").write_text("OPERATOR-PERSONA-MARK", encoding="utf-8")
+    (prof / "principles.md").write_text("PRINCIPLES-MARK", encoding="utf-8")
+    monkeypatch.setattr(imp, "HAE_PROFILE_DIR", str(prof))
+    imp._twin_cache.update(key=None, text=None)
+
+    seen = {}
+
+    async def fake_chat(system, text):
+        seen["system"] = system
+        return "improved"
+
+    monkeypatch.setattr(imp, "chat", fake_chat)
+    out, used = asyncio.run(imp.improve("raw", "structured", twin=True))
+    assert out == "improved" and used is True
+    assert "OPERATOR-PERSONA-MARK" in seen["system"] and "PRINCIPLES-MARK" in seen["system"]
+
+    out, used = asyncio.run(imp.improve("raw", "structured", twin=False))
+    assert used is False and "OPERATOR-PERSONA-MARK" not in seen["system"]
+
+
+def test_improve_never_auto_sends_and_saves_draft_first():
+    """doImprove must push the original to History BEFORE the request and must
+    not send the result — the user reads it and sends themselves."""
+    html = _html()
+    m = re.search(r"async function doImprove\(\).*?\n\}", html, re.S)
+    assert m, "doImprove missing"
+    body = m.group(0)
+    hist = body.find("addHistory('draft'")
+    call = body.find("api('POST', '/api/improve'")
+    assert 0 <= hist < call, "original text must hit History before the LLM call"
+    assert "doType(" not in body, "improve must never auto-send"
+    assert re.search(r"/api/improve'[^;]*?,\s*\d{4,}\s*\)", body), "no explicit timeout"
+    # history knows the new kind
+    assert "draft: 'type-input'" in html and ".hist-kind.draft" in html
+
+
 def test_scheduler_add_list_remove(tmp_path):
     """add_job/list_jobs/remove_job round-trip on an isolated store file."""
     from utils import scheduler
@@ -545,6 +611,96 @@ def test_api_paths_in_js_are_registered():
     routes = {r.resource.canonical for r in app.router.routes() if r.resource}
     missing = js_paths - routes
     assert not missing, f"frontend calls unregistered API paths: {missing}"
+
+
+def test_mobile_order_and_accordion():
+    """Mobile column must start Screen -> Windows -> Projects (windows used constantly,
+    screen is what you look at), and Windows/Projects fold as accordions."""
+    html = _html()
+    # order in the <=920px media block: screen above windows above projects
+    orders = dict(re.findall(r"#([\w-]+)\{order:(-\d+)\}", html))
+    assert int(orders["screen-panel"]) < int(orders["win-panel"]) < int(orders["proj-panel"]), \
+        f"mobile panel order broken: {orders}"
+    # both context panels are accordions with a toggle on the title
+    for pid in ("win-panel", "proj-panel"):
+        assert re.search(rf'class="panel tight acc" id="{pid}"', html), f"{pid} lost .acc"
+        assert f"togglePanel('{pid}')" in html, f"{pid} title toggle missing"
+    # collapsed state hides the body and persists
+    assert ".panel.acc.collapsed>:not(h3){display:none}" in html
+    assert "localStorage.setItem('acc_' + id" in html
+
+
+def test_quick_keys_bar_at_bottom():
+    """Fixed bottom bar with the Claude-question keys (←/→/Enter/Sh+Tab/1/2),
+    a recently-tapped trail with an empty state, and body clearance so the
+    bar never covers the last panel."""
+    html = _html()
+    bar = re.search(r'<div id="quick-keys">.*?</div>\s*</div>', html, re.S)
+    assert bar, "quick-keys bar missing"
+    bar = bar.group(0)
+    # same key set must exist inside the lightbox viewer too (#lb-keys)
+    lb = re.search(r'<div id="lb-keys">.*?</div>', html, re.S)
+    assert lb, "lightbox quick-keys row missing"
+    for where, chunk in (("bottom bar", bar), ("lightbox", lb.group(0))):
+        for onclick in ("doKey('left')", "doKey('right')", "doKey('enter')",
+                        "doKey('shift+tab')", "qkDigit('1')", "qkDigit('2')"):
+            assert onclick in chunk, f"{where} lacks {onclick}"
+    # lightbox row must render above the z-200 overlay
+    assert re.search(r"#lb-keys\{[^}]*z-index:201", html)
+    # pinned to the viewport bottom, under lightbox/auth overlays
+    assert re.search(r"#quick-keys\{position:fixed;left:0;right:0;bottom:0;z-index:90", html)
+    # empty state + trail fed centrally from doKey (rail presses show up too)
+    assert "no keys tapped yet" in bar
+    m = re.search(r"async function doKey\(.*?\n\}", html, re.S)
+    assert "_qkPush(" in m.group(0), "doKey must feed the trail"
+    # body keeps clearance for the bar at every breakpoint
+    assert "body{padding-bottom:62px}" in html
+    assert "body{padding:10px 10px 62px}" in html
+
+
+def test_singleton_guard_spawns_no_processes():
+    """The guard must kill via in-process API calls (psutil), never taskkill or
+    a powershell subprocess: when process creation hangs system-wide, subprocess
+    kills time out on every restart and a zombie holds the web port through an
+    endless crash loop (observed 2026-08-19, 40 min of Errno 10048)."""
+    import pathlib
+    src = pathlib.Path(ROOT, "utils", "singleton.py").read_text(encoding="utf-8")
+    assert "import psutil" in src, "guard must use psutil API kills"
+    assert "import subprocess" not in src and "subprocess.run" not in src, \
+        "guard must not spawn child processes"
+    assert ".wait(" in src, "must confirm death — port frees only when process is gone"
+    import utils.singleton  # noqa: F401 — import must not raise
+
+
+def test_favicon_assets_and_links():
+    """All favicon assets exist, the ICO really carries 16+32, every <head> link
+    resolves to a real file, and /favicon.ico is served without auth."""
+    import pathlib
+    from PIL import Image
+
+    web_dir = pathlib.Path(ROOT, "web")
+    ico = Image.open(web_dir / "favicon.ico")
+    assert set(getattr(ico, "info", {}).get("sizes", {(16, 16), (32, 32)})) >= \
+        {(16, 16), (32, 32)}
+    assert Image.open(web_dir / "favicon-32x32.png").size == (32, 32)
+    assert Image.open(web_dir / "favicon-16x16.png").size == (16, 16)
+    assert Image.open(web_dir / "apple-touch-icon.png").size == (180, 180)
+    assert "#229ED9" in (web_dir / "favicon.svg").read_text(encoding="utf-8")
+
+    html = _html()
+    hrefs = re.findall(r'<link rel="(?:icon|apple-touch-icon)"[^>]*href="([^"]+)"', html)
+    assert len(hrefs) == 4, f"expected 4 favicon links, got {hrefs}"
+    for href in hrefs:
+        name = href.rsplit("/", 1)[-1]
+        assert (web_dir / name).is_file(), f"{href} points at a missing file"
+
+    async def go():
+        async with await _client() as c:
+            r = await c.get("/favicon.ico")   # no auth headers on purpose
+            assert r.status == 200
+            body = await r.read()
+            assert body[:4] == b"\x00\x00\x01\x00", "not an ICO payload"
+    _run(go())
 
 
 # --- Python side sanity ---

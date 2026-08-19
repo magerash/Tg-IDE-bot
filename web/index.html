@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TG-IDE-Bot</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script>try{var _t=localStorage.getItem('tg_theme');if(_t)document.documentElement.dataset.theme=_t;}catch(e){}</script>
 <style>
@@ -74,6 +78,12 @@ h1{font-size:17px;font-weight:600;text-align:center;padding:6px 0 2px;letter-spa
 .panel.tight{padding:12px}
 .panel h3{font-size:11px;font-weight:600;color:var(--dim);margin-bottom:10px;text-transform:uppercase;letter-spacing:1.2px}
 .panel h3 b{color:var(--text)}
+/* Accordion panels (Windows / Projects): tap the title to fold the body away */
+.panel.acc>h3{cursor:pointer;user-select:none;-webkit-user-select:none}
+.panel.acc>h3::after{content:'▾';float:right;color:var(--dim);font-size:11px}
+.panel.acc.collapsed>h3::after{content:'▸'}
+.panel.acc.collapsed>h3{margin-bottom:0}
+.panel.acc.collapsed>:not(h3){display:none}
 
 /* Buttons */
 .btn{padding:8px 14px;border:1px solid var(--border);border-radius:9px;cursor:pointer;font-size:13px;font-weight:500;font-family:inherit;background:var(--card);color:var(--text);transition:background .15s,transform .1s,border-color .15s}
@@ -120,6 +130,7 @@ h1{font-size:17px;font-weight:600;text-align:center;padding:6px 0 2px;letter-spa
 .hist-kind.shell{color:var(--err)}
 .hist-kind.claude{color:#7c3aed}
 .hist-kind.image{color:#0369a1}
+.hist-kind.draft{color:var(--dim)}
 .hist-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 
 /* Action status field: last action result, stays visible (unlike toast) */
@@ -173,8 +184,10 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 /* Mobile tool chips (hidden on desktop) */
 .mob-tools{display:none;flex-direction:column;gap:8px}
 /* Type controls: big record button center, small Type/AI on the sides */
-.type-controls{display:flex;gap:8px;align-items:center;margin-bottom:8px}
-.type-controls .btn:not(#mic-btn){width:88px;flex-shrink:0}
+.type-controls{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+.type-controls select{width:auto;flex:1 1 auto;min-width:0}
+.type-controls .btn:not(#mic-btn):not(#imp-btn){width:88px;flex-shrink:0}
+#imp-btn{flex-shrink:0}
 #mic-btn{flex:1;min-height:46px;font-size:15px;display:flex;align-items:center;justify-content:center}
 .chip-row{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch}
 #win-recent,#proj-recent{margin-top:8px}
@@ -190,15 +203,28 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 #lightbox{position:fixed;inset:0;background:rgba(15,14,12,.93);display:none;z-index:200;overflow:hidden;touch-action:none;user-select:none}
 #lightbox img{position:absolute;left:0;top:0;transform-origin:0 0;max-width:none;cursor:grab;-webkit-user-drag:none}
 #lb-controls{position:fixed;top:14px;right:14px;z-index:201;display:flex;gap:8px;align-items:center}
-#lb-controls button{height:38px;padding:0 14px;border-radius:19px;border:none;background:rgba(255,255,255,.12);color:#fff;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer;transition:background .15s;backdrop-filter:blur(4px)}
-#lb-controls button:hover{background:rgba(255,255,255,.24)}
+#lb-controls button,#lb-keys button{height:38px;padding:0 14px;border-radius:19px;border:none;background:rgba(255,255,255,.12);color:#fff;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer;transition:background .15s;backdrop-filter:blur(4px)}
+#lb-controls button:hover,#lb-keys button:hover{background:rgba(255,255,255,.24)}
+/* Quick keys inside the zoomed viewer — same set as the bottom bar, so Claude
+   Code question prompts are answerable without leaving the screenshot */
+#lb-keys{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:201;display:flex;gap:8px}
+#lb-keys button{min-width:38px;padding:0 12px}
 #lb-click.on{background:var(--err)}
 #lb-auto.on{background:var(--ok)}
 #lb-int{min-width:52px}
 #lb-close{width:38px;padding:0;font-size:20px;line-height:1;border-radius:50%}
 
 /* Toast */
-#toast{position:fixed;bottom:20px;right:20px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 16px;font-size:13px;display:none;z-index:300;max-width:300px;box-shadow:0 4px 16px rgba(28,25,23,.1)}
+/* ===== Quick keys bar (fixed bottom) — answer Claude Code question prompts
+   (arrows/enter to move the selector, Sh+Tab for mode, 1/2 for numbered answers)
+   from anywhere on the page, with a trail of recently tapped keys ===== */
+#quick-keys{position:fixed;left:0;right:0;bottom:0;z-index:90;display:flex;align-items:center;justify-content:center;gap:10px;padding:7px 10px;background:var(--card);border-top:1px solid var(--border);box-shadow:0 -2px 10px rgba(28,25,23,.06)}
+.qk-btns{display:flex;gap:6px;flex-shrink:0}
+.qk-trail{font-size:11px;color:var(--dim);min-width:0;max-width:38%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;direction:rtl;text-align:left}
+.qk-trail bdi{direction:ltr}
+body{padding-bottom:62px}
+
+#toast{position:fixed;bottom:64px;right:20px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 16px;font-size:13px;display:none;z-index:300;max-width:300px;box-shadow:0 4px 16px rgba(28,25,23,.1)}
 #toast.error{border-color:var(--err);color:var(--err)}
 #toast.ok{border-color:var(--ok);color:var(--ok)}
 
@@ -212,22 +238,21 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 /* ===== Responsive ===== */
 @media(max-width:920px){
   /* Promote every panel into one column (rails + center collapse via display:contents)
-     so we can order them top→bottom: Windows → Projects (context pickers on top, unlike
-     desktop where they sit in the rails) → Screen → Type Text (kept adjacent so you can
-     scroll screen↔input in one flick) → then DOM order (Keys chips → History → Scheduled
-     → Actions chips → Claude → Shell).
+     so we can order them top→bottom: Screen first (the thing you look at), then
+     Windows (used constantly, collapsible) → Projects (collapsible) → Type Text
+     → then DOM order (Keys chips → History → Scheduled → Actions chips → Claude → Shell).
      Keys/Actions rail panels hide — mob-tools chip rows cover them. */
   .main-row{flex-direction:column;align-items:stretch}
   .rail,.center{display:contents}
   .rail-tools{display:none}
   .mob-tools{display:flex}
-  #win-panel{order:-4}
-  #proj-panel{order:-3}
-  #screen-panel{order:-2}
+  #screen-panel{order:-4}
+  #win-panel{order:-3}
+  #proj-panel{order:-2}
   #type-panel{order:-1}
 }
 @media(max-width:560px){
-  body{padding:10px}
+  body{padding:10px 10px 62px}  /* keep clearance for the fixed quick-keys bar */
   .screen-head{flex-wrap:wrap}
 }
 
@@ -275,8 +300,8 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 
   <!-- Left rail (desktop): Windows (bottom-aligned to Screen) + Keys (top-aligned to Type Text) -->
   <div class="rail">
-    <div class="panel tight" id="win-panel">
-      <h3>Windows — current: <b id="win-current">…</b></h3>
+    <div class="panel tight acc" id="win-panel">
+      <h3 onclick="togglePanel('win-panel')">Windows — current: <b id="win-current">…</b></h3>
       <select id="win-select"><option value="">— select window —</option></select>
       <div class="btn-row">
         <button class="btn btn-sm btn-soft" onclick="loadWindows()">&#10227; Refresh</button>
@@ -340,6 +365,16 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
         <button class="btn btn-soft" id="human-btn" onclick="toggleHumanize()" title="Clean up transcript via LLM">AI: OFF</button>
         <button class="btn btn-soft" id="mic-btn" onclick="toggleMic()" title="Voice to text"></button>
         <button class="btn btn-primary" onclick="doType()">Type</button>
+      </div>
+      <div class="type-controls">
+        <button class="btn btn-soft" id="twin-btn" onclick="toggleTwin()" title="Inject HAE twin persona + principles into Improve">Twin: OFF</button>
+        <select id="imp-style" onchange="impStyleChanged()" title="Improve style">
+          <option value="structured" selected>Structured</option>
+          <option value="detailed">Detailed</option>
+          <option value="concise">Concise</option>
+          <option value="translate">&rarr; EN</option>
+        </select>
+        <button class="btn btn-soft" id="imp-btn" onclick="doImprove()" title="Rewrite the text below with AI — original saved to History, nothing is sent">&#10024; Improve</button>
       </div>
       <div class="input-row">
         <textarea id="type-input" rows="2" placeholder="Text to type... (Enter = send, Shift+Enter = new row, paste image = send to PC)"></textarea>
@@ -415,8 +450,8 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 
   <!-- Right rail (desktop): Projects (bottom-aligned to Screen) + Actions (top-aligned to Type Text) -->
   <div class="rail">
-    <div class="panel tight" id="proj-panel">
-      <h3>Projects — current: <b id="proj-current">…</b></h3>
+    <div class="panel tight acc" id="proj-panel">
+      <h3 onclick="togglePanel('proj-panel')">Projects — current: <b id="proj-current">…</b></h3>
       <select id="proj-select"><option value="">— select project —</option></select>
       <div class="btn-row">
         <button class="btn btn-sm btn-soft" onclick="loadFolders()">&#10227; Refresh</button>
@@ -435,6 +470,19 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 
 </div>
 </div>
+
+<!-- Quick keys: fixed bottom bar for Claude Code question prompts -->
+<div id="quick-keys">
+  <div class="qk-trail" id="qk-trail"><span class="hint">no keys tapped yet</span></div>
+  <div class="qk-btns">
+    <button class="btn btn-sm" onclick="doKey('left')" title="Arrow left">&larr;</button>
+    <button class="btn btn-sm" onclick="doKey('right')" title="Arrow right">&rarr;</button>
+    <button class="btn btn-sm btn-ok-soft" onclick="doKey('enter')">Enter</button>
+    <button class="btn btn-sm btn-ok-soft" onclick="doKey('shift+tab')" title="Cycle Claude Code mode">Sh+Tab</button>
+    <button class="btn btn-sm" onclick="qkDigit('1')" title="Type 1 + Enter">1</button>
+    <button class="btn btn-sm" onclick="qkDigit('2')" title="Type 2 + Enter">2</button>
+  </div>
+</div>
 </div>
 
 <!-- Lightbox viewer -->
@@ -448,6 +496,14 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
   <div class="scroll-pad" id="lb-scroll">
     <button data-scroll="up" title="Scroll up (hold to keep scrolling)">▲</button>
     <button data-scroll="down" title="Scroll down (hold to keep scrolling)">▼</button>
+  </div>
+  <div id="lb-keys">
+    <button onclick="doKey('left')" title="Arrow left">&larr;</button>
+    <button onclick="doKey('right')" title="Arrow right">&rarr;</button>
+    <button onclick="doKey('enter')">Enter</button>
+    <button onclick="doKey('shift+tab')" title="Cycle Claude Code mode">Sh+Tab</button>
+    <button onclick="qkDigit('1')" title="Type 1 + Enter">1</button>
+    <button onclick="qkDigit('2')" title="Type 2 + Enter">2</button>
   </div>
   <img id="lb-img" alt="preview">
 </div>
@@ -532,6 +588,19 @@ window.addEventListener('resize', alignRails);
 new ResizeObserver(alignRails).observe(document.querySelector('.center'));
 alignRails();
 
+/* Accordion: Windows/Projects fold on title tap; state survives reloads.
+   Collapsed = hidden via CSS only — selects/chips keep updating underneath,
+   so expanding shows current data with no refetch. */
+function togglePanel(id){
+  const p = document.getElementById(id);
+  const collapsed = p.classList.toggle('collapsed');
+  localStorage.setItem('acc_' + id, collapsed ? '1' : '0');
+}
+['win-panel', 'proj-panel'].forEach(id => {
+  if (localStorage.getItem('acc_' + id) === '1')
+    document.getElementById(id).classList.add('collapsed');
+});
+
 // Telegram Mini App mode: auth via initData, no token needed
 const _twa = (window.Telegram && Telegram.WebApp) || null;
 if (_twa) {
@@ -562,7 +631,7 @@ const TG = (_twa && _twa.initData) ? _twa : null;
 /* Must equal config.VERSION — tests enforce it. The Telegram webview caches the
    Mini App page hard (no-cache headers are advisory there), so a stale UI can
    run against a new server for days. Detect it and reload past the cache once. */
-const CLIENT_VERSION = '0.17.1';
+const CLIENT_VERSION = '0.18.0';
 
 function _checkStaleClient(serverVersion) {
   if (!serverVersion || serverVersion === CLIENT_VERSION) return false;
@@ -1512,7 +1581,27 @@ async function doCodeSel() {
 }
 
 /* ===== Input actions ===== */
+/* Recently-tapped-keys trail in the bottom quick-keys bar. Hooked centrally in
+   doKey so every key press (bar, Keys rail, mob chips) shows up; newest last. */
+const _qkTrail = [];
+const _QK_LABELS = {left: '←', right: '→', enter: 'Enter', 'shift+tab': 'Sh+Tab',
+                    escape: 'Esc', backspace: 'Bksp', space: 'Space', tab: 'Tab'};
+function _qkPush(label) {
+  _qkTrail.push(label);
+  if (_qkTrail.length > 8) _qkTrail.shift();
+  const el = document.getElementById('qk-trail');
+  el.innerHTML = '';
+  const b = document.createElement('bdi');
+  b.textContent = _qkTrail.join(' · ');
+  el.appendChild(b);
+}
+function qkDigit(d) {          // Claude numbered answers: types digit + Enter
+  _qkPush(d + '⏎');
+  doTypePreset(d);
+}
+
 async function doKey(key, repeat, interval) {
+  _qkPush((_QK_LABELS[key] || key) + (repeat > 1 ? '×' + repeat : ''));
   try {
     const r = await api('POST', '/api/key', {key, repeat: repeat||1, interval: interval||0}, 0);
     if (r.ok) toast(`Pressed: ${key}` + (repeat > 1 ? ` x${repeat}` : ''));
@@ -1577,7 +1666,7 @@ function renderHistory() {
     box.innerHTML = '<span class="hint">Sent messages appear here — click one to refill its input</span>';
     return;
   }
-  const targets = {type: 'type-input', shell: 'sh-input', claude: 'claude-input'};
+  const targets = {type: 'type-input', draft: 'type-input', shell: 'sh-input', claude: 'claude-input'};
   h.forEach(item => {
     const row = document.createElement('div');
     row.className = 'hist-row';
@@ -1832,6 +1921,54 @@ function _syncHumanBtn() {
   b.classList.toggle('btn-soft', !_humanize);
 }
 _syncHumanBtn();
+
+/* ===== Improve text (AI rewrite of the Type field, never auto-sends) ===== */
+let _twin = localStorage.getItem('tg_twin') === '1';
+function toggleTwin() {
+  _twin = !_twin;
+  localStorage.setItem('tg_twin', _twin ? '1' : '0');
+  _syncTwinBtn();
+  toast('Twin persona: ' + (_twin ? 'ON' : 'OFF'));
+}
+function _syncTwinBtn() {
+  const b = document.getElementById('twin-btn');
+  b.textContent = 'Twin: ' + (_twin ? 'ON' : 'OFF');
+  b.classList.toggle('btn-primary', _twin);
+  b.classList.toggle('btn-soft', !_twin);
+}
+_syncTwinBtn();
+
+function impStyleChanged() {
+  localStorage.setItem('tg_imp_style', document.getElementById('imp-style').value);
+}
+document.getElementById('imp-style').value =
+  localStorage.getItem('tg_imp_style') || 'structured';
+
+async function doImprove() {
+  const input = document.getElementById('type-input');
+  const text = input.value.trim();
+  if (!text) { toast('Nothing to improve — type something first', true); return; }
+  // Original goes to History FIRST so it survives even if the request dies
+  addHistory('draft', text);
+  const btn = document.getElementById('imp-btn');
+  const style = document.getElementById('imp-style').value;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+  try {
+    const r = await api('POST', '/api/improve', {text, style, twin: _twin}, 60000);
+    if (!r.ok) { toast('Improve failed: ' + (r.error || '?'), true); return; }
+    // Replace the field only — the user reads the result and sends it themselves
+    input.value = r.improved;
+    autoGrow(input);
+    input.focus();
+    toast('Improved (' + r.style + ')'
+          + (r.twin_used ? ' · twin' : '')
+          + (r.twin_missing ? ' · twin profile not found' : ''));
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '&#10024; Improve';
+  }
+}
 
 async function toggleMic() {
   const btn = document.getElementById('mic-btn');

@@ -7,7 +7,7 @@ load_dotenv()
 # Bot settings
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0"))
-VERSION = "0.17.1"
+VERSION = "0.18.0"
 
 # Web dashboard / Mini App
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
@@ -36,6 +36,12 @@ HUMANIZE_FALLBACKS = [
 # gets pasted straight into Claude Code). "none" for qwen, "low" for gpt-oss.
 HUMANIZE_REASONING = os.getenv("HUMANIZE_REASONING", "none")
 HUMANIZE_DEFAULT = os.getenv("HUMANIZE_DEFAULT", "1") == "1"
+# HAE twin profile (persona.md + principles.md) — injected into "Improve text"
+# prompts when the Twin toggle is on. Missing dir = twin unavailable, not an error.
+HAE_PROFILE_DIR = os.getenv(
+    "HAE_PROFILE_DIR",
+    os.path.join(os.path.expanduser("~"), ".hae", "profile"),
+)
 
 # Claude Code metrics (live model/effort/context + 5h/weekly limits)
 _CC_HOME = os.path.join(os.path.expanduser("~"), ".claude")

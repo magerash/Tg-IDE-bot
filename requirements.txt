@@ -5,6 +5,7 @@ pyautogui
 pygetwindow
 Pillow
 aiohttp
+psutil
 
 # Dev/test
 pytest

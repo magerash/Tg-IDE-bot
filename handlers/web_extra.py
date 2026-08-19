@@ -179,6 +179,34 @@ async def api_stt(request):
         return _err(str(e), 500)
 
 
+async def api_improve(request):
+    """POST {text, style, twin} → {improved, twin_used, style}. Rewrites typed text
+    into a better prompt; never auto-sends — the client shows it for review.
+    LLM failure is a loud 502: the client keeps the original text and toasts."""
+    from handlers.web import _check_auth, _err, _json
+    if not _check_auth(request):
+        return _err("Unauthorized", 401)
+    try:
+        data = await request.json()
+        text = (data.get("text") or "").strip()
+        if not text:
+            return _err("No text")
+        style = data.get("style") or "structured"
+        twin = bool(data.get("twin"))
+        from utils.improve import improve
+        try:
+            improved, twin_used = await improve(text, style, twin)
+        except Exception as e:
+            logger.error("improve failed: %s", e)
+            return _err(str(e)[:300], 502)
+        return _json({"ok": True, "improved": improved, "style": style,
+                      "twin_used": twin_used,
+                      "twin_missing": twin and not twin_used})
+    except Exception as e:
+        logger.error("web /api/improve error: %s", e)
+        return _err(str(e), 500)
+
+
 async def api_claude(request):
     from handlers.web import _check_auth, _err, _json
     if not _check_auth(request):
@@ -295,4 +323,5 @@ def register_extra_routes(app):
     app.router.add_post("/api/project", api_project)
     app.router.add_post("/api/paste", api_paste)
     app.router.add_post("/api/stt", api_stt)
+    app.router.add_post("/api/improve", api_improve)
     app.router.add_post("/api/claude", api_claude)

@@ -446,6 +446,11 @@ def create_web_app():
     web_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web")
     if os.path.isdir(web_dir):
         app.router.add_get("/", index_page)
+        # Browsers request /favicon.ico at the root unprompted; no auth — it is
+        # public branding, same as the login page itself
+        async def favicon(request):
+            return web.FileResponse(os.path.join(web_dir, "favicon.ico"))
+        app.router.add_get("/favicon.ico", favicon)
         app.router.add_static("/static/", web_dir, name="static")
 
     logger.info("Web app created with %d routes", len(app.router.routes()))

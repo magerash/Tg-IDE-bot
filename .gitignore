@@ -16,6 +16,9 @@ build/
 # Bot artifacts
 *.png
 bot.log
+# ...but favicon assets are source, not artifacts
+!web/favicon-*.png
+!web/apple-touch-icon.png
 
 # OS
 Thumbs.db

@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.17.1
+# TG-IDE-Bot v0.18.0
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -114,6 +114,14 @@ curl -k -o /dev/null -w "%{http_code}\n" https://bot.magerash.com:8443/ # Caddy 
 **Gotcha:** when matching processes by command line, exclude your own shell (`$_.ProcessId -ne $PID`) — a `Where-Object { $_.CommandLine -match 'start_tunnel_vps' }` filter matches the very command that contains that string, so the kill loop terminates your own session and inflates keeper counts by one.
 
 ## Changelog
+
+### v0.18.0 2026-08-20
+- **Improve text (AI)**: ✨ Improve button on the dashboard Type field — rewrites rough text via LLM in a chosen style (Structured / Detailed / Concise / →EN). Never auto-sends; the original is saved to History as a `draft` entry first. Optional **Twin** toggle injects the HAE operator profile so output matches your own prompt style; Russian input stays Russian (deterministic language hint — instructions alone lost to a 6KB English persona)
+- **Quick-keys bar**: fixed bottom row — ← → Enter Sh+Tab 1 2 — for answering Claude Code question prompts from anywhere, with a recently-tapped-keys trail. Same keys also inside the zoomed screenshot viewer
+- **Mobile layout**: Screen first, then Windows, then Projects; Windows/Projects fold as accordions (state persisted)
+- **Fix: zombie instance could hold the web port through an endless crash loop.** Singleton guard rewritten on psutil API kills — the old `taskkill`/powershell subprocesses timed out on every restart when process creation on the box hung, while an in-process kill worked instantly
+- **Favicon**: rounded-square Telegram-blue "TG" tile (SVG + PNG + ICO + apple-touch)
+- Tests 36 → 43
 
 ### v0.17.1 2026-08-17
 - **Fix: typing still landed nowhere in a Claude Code terminal.** Claude Code binds Ctrl+V to "paste image from clipboard", so a text paste is a silent no-op — key delivered, clipboard correct, prompt empty. The paste key is now chosen from the target window: terminals (VS Code, PowerShell, git bash, Windows Terminal) get **Ctrl+Shift+V**, ordinary apps keep Ctrl+V. Tunable via `TYPE_PASTE_HOTKEY` / `TYPE_TERMINAL_PASTE_HOTKEY` / `TYPE_TERMINAL_HINTS`
