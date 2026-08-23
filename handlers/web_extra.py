@@ -142,8 +142,9 @@ async def api_paste(request):
 async def api_stt(request):
     """POST raw audio body (webm/ogg/wav) → Groq Whisper → {text, raw}.
     ?humanize=1 also cleans the transcript via LLM (falls back to raw on error)."""
-    from handlers.web import _check_auth, _err, _json
-    if not _check_auth(request):
+    # Refine-scoped tokens reach this one — it is a text-refinement endpoint.
+    from handlers.web import _check_auth_refine, _err, _json
+    if not _check_auth_refine(request):
         return _err("Unauthorized", 401)
     try:
         from utils.stt import MAX_AUDIO_SIZE, STTError, transcribe
@@ -183,8 +184,9 @@ async def api_improve(request):
     """POST {text, style, twin} → {improved, twin_used, style}. Rewrites typed text
     into a better prompt; never auto-sends — the client shows it for review.
     LLM failure is a loud 502: the client keeps the original text and toasts."""
-    from handlers.web import _check_auth, _err, _json
-    if not _check_auth(request):
+    # Refine-scoped tokens reach this one — it is a text-refinement endpoint.
+    from handlers.web import _check_auth_refine, _err, _json
+    if not _check_auth_refine(request):
         return _err("Unauthorized", 401)
     try:
         data = await request.json()

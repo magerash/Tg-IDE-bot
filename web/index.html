@@ -37,6 +37,10 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
 h1{font-size:17px;font-weight:600;text-align:center;padding:6px 0 2px;letter-spacing:-.2px}
 .theme-toggle{position:absolute;top:16px;right:16px;width:34px;height:34px;border:1px solid var(--border);border-radius:9px;background:var(--card);color:var(--text);font-size:16px;cursor:pointer;line-height:1;z-index:50;box-shadow:var(--shadow)}
 .theme-toggle:hover{background:var(--accent-soft)}
+/* Cross-link to the other surface. Mirrors .theme-toggle on the left so it sits
+   in the header without stealing a row from the panel stack. */
+.view-link{position:absolute;top:16px;left:16px;height:34px;display:inline-flex;align-items:center;gap:5px;padding:0 12px;border:1px solid var(--border);border-radius:9px;background:var(--card);color:var(--text);font-size:13px;font-weight:500;text-decoration:none;z-index:50;box-shadow:var(--shadow)}
+.view-link:hover{background:var(--accent-soft)}
 .status-bar{display:flex;justify-content:center;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--dim);padding:4px 0 14px}
 .status-bar span{color:var(--text);font-weight:500}
 
@@ -188,6 +192,20 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 .type-controls select{width:auto;flex:1 1 auto;min-width:0}
 .type-controls .btn:not(#mic-btn):not(#imp-btn){width:88px;flex-shrink:0}
 #imp-btn{flex-shrink:0}
+/* Rendered markdown preview of the Type field (headers/tables/code like a file view) */
+.md-body{border:1px solid var(--border);border-radius:9px;padding:10px 12px;margin-top:8px;font-size:13px;max-height:320px;overflow:auto;background:var(--card)}
+.md-body h1,.md-body h2,.md-body h3,.md-body h4,.md-body h5,.md-body h6{margin:8px 0 4px;line-height:1.25}
+.md-body h1{font-size:17px}.md-body h2{font-size:15px}.md-body h3{font-size:14px}
+.md-body h4,.md-body h5,.md-body h6{font-size:13px}
+.md-body p{margin:4px 0}
+.md-body ul,.md-body ol{margin:4px 0 4px 18px}
+.md-body code{background:var(--accent-soft);border-radius:4px;padding:1px 4px;font-size:12px}
+.md-body pre{background:var(--accent-soft);border-radius:8px;padding:8px 10px;overflow-x:auto;margin:6px 0}
+.md-body pre code{background:none;padding:0}
+.md-body table{border-collapse:collapse;margin:6px 0;font-size:12px}
+.md-body th,.md-body td{border:1px solid var(--border);padding:4px 8px;text-align:left}
+.md-body blockquote{border-left:3px solid var(--border);margin:4px 0;padding:2px 10px;color:var(--dim)}
+.md-body a{color:inherit}
 #mic-btn{flex:1;min-height:46px;font-size:15px;display:flex;align-items:center;justify-content:center}
 .chip-row{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch}
 #win-recent,#proj-recent{margin-top:8px}
@@ -277,6 +295,7 @@ body{padding-bottom:62px}
 <!-- Main UI -->
 <div id="main" style="display:none">
 <div class="wrap">
+<a class="view-link" href="/refine" title="Text workbench: mic, Improve, markdown, Copy — no PC control">&#10024; Refine</a>
 <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle night theme">🌙</button>
 <h1>TG-IDE-Bot</h1>
 <div class="status-bar" id="status-bar">Connecting...</div>
@@ -375,10 +394,13 @@ body{padding-bottom:62px}
           <option value="translate">&rarr; EN</option>
         </select>
         <button class="btn btn-soft" id="imp-btn" onclick="doImprove()" title="Rewrite the text below with AI — original saved to History, nothing is sent">&#10024; Improve</button>
+        <button class="btn btn-soft" id="md-btn" onclick="toggleMd()" title="Render the text below as markdown (headers, tables, code)">MD: OFF</button>
+        <button class="btn btn-soft" id="blocks-btn" onclick="toggleBlocks()" title="Fold big pasted text into a block chip instead of filling the field">Blocks: ON</button>
       </div>
       <div class="input-row">
         <textarea id="type-input" rows="2" placeholder="Text to type... (Enter = send, Shift+Enter = new row, paste image = send to PC)"></textarea>
       </div>
+      <div class="md-body" id="md-preview" style="display:none"></div>
       <div class="btn-grid">
         <button class="btn btn-sm btn-soft" onclick="doTypePreset('/clear')">/clear</button>
         <button class="btn btn-sm btn-soft" onclick="doTypePreset('/caveman')">/caveman</button>
@@ -510,9 +532,8 @@ body{padding-bottom:62px}
 
 <div id="toast"></div>
 
+<script src="/static/common.js?v=0.19.0"></script>
 <script>
-let TOKEN = localStorage.getItem('tg_bot_token') || '';
-let BASE = location.origin;
 let autoTimer = null, autoOn = false;
 let lastRect = null, clickMode = false, lastCapture = 'window';  // window capture is the entry default
 
@@ -538,19 +559,6 @@ const ACTIONS = [
   ['APK List','btn-soft',()=>doApks()],
   ['Restart Bot','btn-red-soft',()=>doRestart()]
 ];
-/* ===== Theme (night/day) ===== */
-function applyTheme(t){
-  if(t==='dark') document.documentElement.dataset.theme='dark';
-  else document.documentElement.removeAttribute('data-theme');
-  const b=document.getElementById('theme-toggle');
-  if(b) b.textContent = t==='dark' ? '☀' : '🌙';
-}
-function toggleTheme(){
-  const next = document.documentElement.dataset.theme==='dark' ? 'light' : 'dark';
-  try{ localStorage.setItem('tg_theme', next); }catch(e){}
-  applyTheme(next);
-}
-applyTheme(localStorage.getItem('tg_theme')||'light');
 
 function renderTools(){
   document.querySelectorAll('[data-keys]').forEach(el=>{
@@ -601,20 +609,6 @@ function togglePanel(id){
     document.getElementById(id).classList.add('collapsed');
 });
 
-// Telegram Mini App mode: auth via initData, no token needed
-const _twa = (window.Telegram && Telegram.WebApp) || null;
-if (_twa) {
-  _twa.ready();
-  _twa.expand();
-  // Android/iOS Telegram close the Mini App on a vertical drag inside the webview.
-  // Panning a zoomed screenshot is exactly that gesture, so the viewer used to
-  // "close itself" mid-pan with no back press. Bot API 7.7+; older clients ignore it.
-  try { _twa.disableVerticalSwipes(); } catch (e) {}
-  // macOS Telegram: hex colors here break webview rendering (solid red screen) — skip
-  if (_twa.platform !== 'macos') {
-    try { _twa.setBackgroundColor('#faf9f7'); _twa.setHeaderColor('#ffffff'); } catch (e) {}
-  }
-}
 
 /* Telegram BackButton: while the viewer is open, hardware/HW back must close the
    viewer, not the whole Mini App. */
@@ -626,34 +620,8 @@ function _tgBack(show, onClick) {
     else { b.hide(); b.offClick(onClick); }
   } catch (e) {}
 }
-const TG = (_twa && _twa.initData) ? _twa : null;
 
-/* Must equal config.VERSION — tests enforce it. The Telegram webview caches the
-   Mini App page hard (no-cache headers are advisory there), so a stale UI can
-   run against a new server for days. Detect it and reload past the cache once. */
-const CLIENT_VERSION = '0.18.0';
 
-function _checkStaleClient(serverVersion) {
-  if (!serverVersion || serverVersion === CLIENT_VERSION) return false;
-  const msg = `Stale dashboard (UI ${CLIENT_VERSION}, bot ${serverVersion})`;
-  if (sessionStorage.getItem('tg_reloaded_for') === serverVersion) {
-    setStatus(msg + ' — reload failed, clear the app cache', true);
-    return false;                 // already tried; don't loop
-  }
-  sessionStorage.setItem('tg_reloaded_for', serverVersion);
-  setStatus(msg + ' — reloading…', true);
-  // Query string differs → the webview cannot serve the cached entry
-  location.replace(location.pathname + '?v=' + encodeURIComponent(serverVersion));
-  return true;
-}
-
-function doAuth() {
-  const v = document.getElementById('token-input').value.trim();
-  if (!v) return;                 // empty input must not wipe a working token
-  TOKEN = v;
-  localStorage.setItem('tg_bot_token', TOKEN);
-  checkAuth();
-}
 
 async function checkAuth() {
   try {
@@ -675,65 +643,7 @@ async function checkAuth() {
   }
 }
 
-/* fetch() has NO timeout of its own. Through the reverse-SSH tunnel a request
-   whose upstream died mid-flight hangs on the proxy indefinitely — and with the
-   single-flight capture queue one such request wedges the live view forever
-   (the symptom: "web updates, Telegram never does"). Every call gets an abort
-   deadline; long jobs pass their own (0 = wait as long as it takes). */
-const API_TIMEOUT = 20000;
 
-async function api(method, path, body, timeoutMs) {
-  const headers = {'Content-Type': 'application/json'};
-  if (TG) headers['X-Telegram-Init-Data'] = TG.initData;
-  else headers['Authorization'] = 'Bearer ' + TOKEN;
-  const opts = {method, headers, cache: 'no-store'};
-  if (body) opts.body = JSON.stringify(body);
-  const ms = timeoutMs === undefined ? API_TIMEOUT : timeoutMs;
-  const ctl = new AbortController();
-  const timer = ms ? setTimeout(() => ctl.abort(), ms) : null;
-  opts.signal = ctl.signal;
-  try {
-    const r = await fetch(BASE + path, opts);
-    const text = await r.text();
-    if (r.status === 401 && TG) {
-      // Mini App initData expires after 24h — a reopened cached webview 401s
-      return {ok: false, error: 'Session expired — close and reopen the Mini App'};
-    }
-    try {
-      return JSON.parse(text);
-    } catch(e) {
-      // Non-JSON reply (404 page, proxy error) — surface readable error
-      return {ok: false, error: 'HTTP ' + r.status + ': ' + text.slice(0, 120)};
-    }
-  } catch(e) {
-    if (e.name === 'AbortError') return {ok: false, error: `Timed out after ${ms / 1000}s — tunnel stalled?`};
-    return {ok: false, error: e.message};
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
-
-function toast(msg, isErr) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.className = isErr ? 'error' : 'ok';
-  t.style.display = 'block';
-  setTimeout(() => t.style.display = 'none', 3000);
-  setStatus(msg, isErr);
-}
-
-/* Persistent status field in Actions rail (+ mobile) — last action result with time */
-function setStatus(msg, isErr) {
-  const time = new Date().toLocaleTimeString();
-  document.querySelectorAll('[data-status]').forEach(el => {
-    el.className = 'action-status ' + (isErr ? 'err' : 'ok');
-    el.innerHTML = '';
-    const b = document.createElement('b');
-    b.textContent = msg;
-    el.appendChild(b);
-    el.appendChild(document.createTextNode(time));
-  });
-}
 
 function updateStatus(data) {
   document.getElementById('status-bar').innerHTML =
@@ -1630,68 +1540,11 @@ bindSendKeys('type-input', () => doType());
 bindSendKeys('claude-input', () => doClaude());
 bindSendKeys('sh-input', () => doSh());
 
-/* ===== Auto-grow inputs to fit content (long humanized prompts) ===== */
-function autoGrow(el) {
-  el.style.height = 'auto';
-  el.style.height = Math.min(el.scrollHeight + 2, 400) + 'px';
-}
 ['type-input', 'claude-input', 'sh-input'].forEach(id => {
   const el = document.getElementById(id);
   el.addEventListener('input', () => autoGrow(el));
 });
 
-/* ===== History (localStorage, newest first, cap 100) ===== */
-function _history() {
-  try { return JSON.parse(localStorage.getItem('tg_history') || '[]'); }
-  catch(e) { return []; }
-}
-
-function addHistory(kind, text) {
-  const h = _history();
-  h.unshift({t: new Date().toISOString(), kind, text});
-  localStorage.setItem('tg_history', JSON.stringify(h.slice(0, 100)));
-  renderHistory();
-}
-
-function clearHistory() {
-  localStorage.removeItem('tg_history');
-  renderHistory();
-}
-
-function renderHistory() {
-  const box = document.getElementById('history-list');
-  const h = _history();
-  box.innerHTML = '';
-  if (!h.length) {
-    box.innerHTML = '<span class="hint">Sent messages appear here — click one to refill its input</span>';
-    return;
-  }
-  const targets = {type: 'type-input', draft: 'type-input', shell: 'sh-input', claude: 'claude-input'};
-  h.forEach(item => {
-    const row = document.createElement('div');
-    row.className = 'hist-row';
-    const time = document.createElement('span');
-    time.className = 'hist-time';
-    time.textContent = new Date(item.t).toLocaleTimeString().slice(0, 5);
-    const kind = document.createElement('span');
-    kind.className = 'hist-kind ' + item.kind;
-    kind.textContent = item.kind;
-    const text = document.createElement('span');
-    text.className = 'hist-text';
-    text.textContent = item.text;
-    text.title = item.text;
-    row.append(time, kind, text);
-    row.onclick = () => {
-      const target = targets[item.kind];
-      if (target) {
-        const el = document.getElementById(target);
-        el.value = item.text; autoGrow(el); el.focus();
-      }
-    };
-    box.appendChild(row);
-  });
-}
-renderHistory();
 
 /* ===== Paste compose: attachments (images + big text blocks) sent on Type =====
    Image paste / Alt+V -> thumbnail chip. Text > 400 chars or > 8 lines -> block
@@ -1761,11 +1614,11 @@ document.getElementById('type-input').addEventListener('paste', e => {
     }
   }
   const text = e.clipboardData.getData('text/plain');
-  if (text && (text.length > TEXT_BLOCK_CHARS || text.split('\n').length > TEXT_BLOCK_LINES)) {
+  if (_blockPaste && text && (text.length > TEXT_BLOCK_CHARS || text.split('\n').length > TEXT_BLOCK_LINES)) {
     e.preventDefault();
     addTextAttachment(text);
   }
-  // small text — native paste
+  // small text (or Blocks: OFF) — native paste into the field
 });
 
 /* Alt+V anywhere: clipboard image -> attachment chip */
@@ -1812,6 +1665,7 @@ async function doType() {
           (imgs.length && text ? ' + ' : '') + (text ? text.slice(0, 50) : ''));
     input.value = '';
     autoGrow(input);
+    if (_mdOn) _mdRenderNow();     // clear the stale preview too
     attachments.forEach(a => a.url && URL.revokeObjectURL(a.url));
     attachments.length = 0;
     renderAttachments();
@@ -1898,194 +1752,25 @@ async function doTypePreset(text, enter=true) {
   } catch(e) { toast(e.message, true); }
 }
 
-/* ===== Voice to text: mic button records, /api/stt transcribes into Type field ===== */
-const MIC_ICON = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>';
-const STOP_ICON = '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
-let _rec = null, _recTimer = null, _recTick = null, _recT0 = 0;
-const REC_MAX_S = 600;   // 10 min — WAV stays under Groq 25MB cap
-document.getElementById('mic-btn').innerHTML = MIC_ICON;
 
-/* Humanize toggle: clean transcript via LLM server-side (persisted) */
-let _humanize = localStorage.getItem('tg_humanize') !== '0';
-function toggleHumanize() {
-  _humanize = !_humanize;
-  localStorage.setItem('tg_humanize', _humanize ? '1' : '0');
-  _syncHumanBtn();
-  toast('Transcript cleanup: ' + (_humanize ? 'ON' : 'OFF (raw)'));
-}
-function _syncHumanBtn() {
-  // Monochrome toggle: dark = ON, gray = OFF (palette: gray/white/black/red only)
-  const b = document.getElementById('human-btn');
-  b.textContent = 'AI: ' + (_humanize ? 'ON' : 'OFF');
-  b.classList.toggle('btn-primary', _humanize);
-  b.classList.toggle('btn-soft', !_humanize);
-}
-_syncHumanBtn();
 
-/* ===== Improve text (AI rewrite of the Type field, never auto-sends) ===== */
-let _twin = localStorage.getItem('tg_twin') === '1';
-function toggleTwin() {
-  _twin = !_twin;
-  localStorage.setItem('tg_twin', _twin ? '1' : '0');
-  _syncTwinBtn();
-  toast('Twin persona: ' + (_twin ? 'ON' : 'OFF'));
-}
-function _syncTwinBtn() {
-  const b = document.getElementById('twin-btn');
-  b.textContent = 'Twin: ' + (_twin ? 'ON' : 'OFF');
-  b.classList.toggle('btn-primary', _twin);
-  b.classList.toggle('btn-soft', !_twin);
-}
-_syncTwinBtn();
 
-function impStyleChanged() {
-  localStorage.setItem('tg_imp_style', document.getElementById('imp-style').value);
+/* ===== Blocks toggle: fold big pasted text into a chip, or let it inline ===== */
+let _blockPaste = localStorage.getItem('tg_blocks') !== '0';
+function toggleBlocks() {
+  _blockPaste = !_blockPaste;
+  localStorage.setItem('tg_blocks', _blockPaste ? '1' : '0');
+  _syncBlocksBtn();
+  toast('Big paste → block chip: ' + (_blockPaste ? 'ON' : 'OFF (paste inline)'));
 }
-document.getElementById('imp-style').value =
-  localStorage.getItem('tg_imp_style') || 'structured';
-
-async function doImprove() {
-  const input = document.getElementById('type-input');
-  const text = input.value.trim();
-  if (!text) { toast('Nothing to improve — type something first', true); return; }
-  // Original goes to History FIRST so it survives even if the request dies
-  addHistory('draft', text);
-  const btn = document.getElementById('imp-btn');
-  const style = document.getElementById('imp-style').value;
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span>';
-  try {
-    const r = await api('POST', '/api/improve', {text, style, twin: _twin}, 60000);
-    if (!r.ok) { toast('Improve failed: ' + (r.error || '?'), true); return; }
-    // Replace the field only — the user reads the result and sends it themselves
-    input.value = r.improved;
-    autoGrow(input);
-    input.focus();
-    toast('Improved (' + r.style + ')'
-          + (r.twin_used ? ' · twin' : '')
-          + (r.twin_missing ? ' · twin profile not found' : ''));
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '&#10024; Improve';
-  }
+function _syncBlocksBtn() {
+  const b = document.getElementById('blocks-btn');
+  b.textContent = 'Blocks: ' + (_blockPaste ? 'ON' : 'OFF');
+  b.classList.toggle('btn-primary', _blockPaste);
+  b.classList.toggle('btn-soft', !_blockPaste);
 }
+_syncBlocksBtn();
 
-async function toggleMic() {
-  const btn = document.getElementById('mic-btn');
-  if (_rec) { _rec.stop(); return; }
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({audio: true});
-    _micLabel = stream.getAudioTracks()[0]?.label || 'unknown device';
-    const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus'
-               : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '';
-    const chunks = [];
-    _rec = new MediaRecorder(stream, mime ? {mimeType: mime} : undefined);
-    _rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
-    _rec.onstop = async () => {
-      clearTimeout(_recTimer);
-      clearInterval(_recTick);
-      stream.getTracks().forEach(t => t.stop());
-      const blob = new Blob(chunks, {type: _rec.mimeType || 'audio/webm'});
-      _rec = null;
-      btn.classList.remove('btn-red');
-      if (blob.size < 1000) { btn.innerHTML = MIC_ICON; toast('Recording too short', true); return; }
-      btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>';
-      // MediaRecorder webm lacks duration metadata — some decoders read it as 0s
-      // silence ("Thank you." hallucination). Re-encode to WAV via Web Audio.
-      let payload = blob;
-      _lastPeak = -1;
-      try { payload = await blobToWav(blob); } catch(e) { /* fall back to raw blob */ }
-      if (_lastPeak >= 0 && _lastPeak < 0.005) {
-        btn.disabled = false; btn.innerHTML = MIC_ICON;
-        toast(`Mic "${_micLabel}" captured pure silence (peak ${_lastPeak.toFixed(4)}) — check mic permission / input device / OS mic privacy`, true);
-        return;
-      }
-      setStatus(`Uploading audio (${(payload.size / 1024 / 1024).toFixed(1)}MB)...`, false);
-      const r = await sttUpload(payload);
-      btn.disabled = false; btn.innerHTML = MIC_ICON;
-      if (r.ok && r.text) {
-        const input = document.getElementById('type-input');
-        input.value = input.value ? input.value.replace(/\s*$/, ' ') + r.text : r.text;
-        autoGrow(input);
-        input.focus();
-        addHistory('type', r.text);
-        // A failed cleanup must say so — silently handing back the raw transcript
-        // is indistinguishable from "the AI button does nothing" (Groq retiring
-        // llama-3.3-70b did exactly that for a day).
-        if (r.humanize_error) toast('AI cleanup failed, raw text: ' + r.humanize_error, true);
-        else toast(r.humanized
-          ? `Transcribed + cleaned (raw ${r.raw.length} → ${r.text.length} chars)`
-          : 'Transcribed (' + r.text.length + ' chars)');
-      } else toast(r.error || 'STT: empty result', true);
-    };
-    _rec.start();
-    btn.classList.add('btn-red');
-    btn.innerHTML = STOP_ICON;
-    // Ticking mm:ss on the button; ⚠ during the last minute
-    _recT0 = Date.now();
-    _recTick = setInterval(() => {
-      const s = Math.floor((Date.now() - _recT0) / 1000);
-      const mm = String(Math.floor(s / 60)), ss = String(s % 60).padStart(2, '0');
-      btn.innerHTML = (s >= REC_MAX_S - 60 ? '⚠ ' : '') + mm + ':' + ss;
-    }, 1000);
-    _recTimer = setTimeout(() => {
-      if (_rec) { toast('Max 10 min reached, transcribing...', true); _rec.stop(); }
-    }, REC_MAX_S * 1000);
-  } catch(e) { toast('Mic: ' + e.message + ' — Telegram webview may block mic, try browser', true); }
-}
-
-let _lastPeak = -1;   // max |sample| of last recording; -1 = unknown (decode failed)
-let _micLabel = '';   // device label of last used mic (for diagnostics)
-
-/* Decode any recorded blob -> mono 16kHz 16-bit WAV (small, decodes everywhere) */
-async function blobToWav(blob) {
-  const raw = await blob.arrayBuffer();
-  const ac = new (window.AudioContext || window.webkitAudioContext)();
-  const decoded = await ac.decodeAudioData(raw);
-  ac.close();
-  const rate = 16000;
-  const frames = Math.ceil(decoded.duration * rate);
-  const oc = new OfflineAudioContext(1, frames, rate);
-  const src = oc.createBufferSource();
-  src.buffer = decoded;
-  src.connect(oc.destination);
-  src.start();
-  const rendered = await oc.startRendering();
-  const pcm = rendered.getChannelData(0);
-  _lastPeak = 0;
-  for (let i = 0; i < pcm.length; i++) { const a = Math.abs(pcm[i]); if (a > _lastPeak) _lastPeak = a; }
-  const buf = new ArrayBuffer(44 + pcm.length * 2);
-  const v = new DataView(buf);
-  const wstr = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
-  wstr(0, 'RIFF'); v.setUint32(4, 36 + pcm.length * 2, true); wstr(8, 'WAVE');
-  wstr(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
-  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
-  wstr(36, 'data'); v.setUint32(40, pcm.length * 2, true);
-  for (let i = 0; i < pcm.length; i++) {
-    const s = Math.max(-1, Math.min(1, pcm[i]));
-    v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
-  }
-  return new Blob([buf], {type: 'audio/wav'});
-}
-
-async function sttUpload(blob) {
-  const headers = {'Content-Type': blob.type || 'audio/webm'};
-  if (TG) headers['X-Telegram-Init-Data'] = TG.initData;
-  else headers['Authorization'] = 'Bearer ' + TOKEN;
-  try {
-    const url = BASE + '/api/stt' + (_humanize ? '?humanize=1' : '');
-    // Abort guard: big WAV over mobile + tunnel can stall — fail loud, not spin forever
-    const ctl = new AbortController();
-    const kill = setTimeout(() => ctl.abort(), 180000);
-    const r = await fetch(url, {method: 'POST', headers, body: blob, signal: ctl.signal});
-    clearTimeout(kill);
-    const text = await r.text();
-    try { return JSON.parse(text); }
-    catch(e) { return {ok: false, error: 'HTTP ' + r.status + ': ' + text.slice(0, 120)}; }
-  } catch(e) {
-    return {ok: false, error: e.name === 'AbortError' ? 'Upload timed out (3 min)' : e.message};
-  }
-}
 
 async function doClaude() {
   const input = document.getElementById('claude-input');

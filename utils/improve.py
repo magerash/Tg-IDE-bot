@@ -106,13 +106,13 @@ async def improve(text: str, style: str, twin: bool = False) -> tuple[str, bool]
             # principles into the output as fake "constraints".
             system = _TWIN_HEADER + ctx + _TWIN_FOOTER + system
             twin_used = True
+        else:
+            logger.warning("Improve: twin requested but profile empty/missing at %s",
+                           HAE_PROFILE_DIR)
     if style != "translate":
         hint = _lang_hint(text)
         if hint:
             system += hint
-        else:
-            logger.warning("Improve: twin requested but profile empty/missing at %s",
-                           HAE_PROFILE_DIR)
     out = await chat(system, text)
     logger.debug("Improve(%s, twin=%s): %d -> %d chars",
                  style, twin_used, len(text), len(out))

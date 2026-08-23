@@ -21,6 +21,8 @@ from utils import project  # noqa: E402
 
 AUTH = {"Authorization": f"Bearer {WEB_TOKEN}"}
 INDEX = os.path.join(ROOT, "web", "index.html")
+COMMON = os.path.join(ROOT, "web", "common.js")
+REFINE = os.path.join(ROOT, "web", "refine.html")
 
 
 def _run(coro):
@@ -581,8 +583,14 @@ def test_grab_to_jpeg_downscales():
 # --- HTML/JS consistency (catches broken buttons without a browser) ---
 
 def _html():
-    with open(INDEX, encoding="utf-8") as f:
-        return f.read()
+    """index.html + the shared script it loads — the page as the browser sees it.
+
+    The regex invariants below must see both halves: once code moved into
+    common.js, reading index.html alone would let them pass by looking at less,
+    which is worse than failing (v0.19.0 extraction).
+    """
+    with open(INDEX, encoding="utf-8") as f, open(COMMON, encoding="utf-8") as g:
+        return f.read() + "\n" + g.read()
 
 
 def test_onclick_handlers_defined():
@@ -703,7 +711,23 @@ def test_favicon_assets_and_links():
     _run(go())
 
 
-# --- Python side sanity ---
+def test_md_preview_and_blocks_toggle():
+    """Type field gets a rendered-markdown preview pane (Improve detailed returns
+    markdown) and the auto block-chip paste behavior gets an off switch."""
+    html = _html()
+    # Blocks toggle gates the auto-block paste path — OFF must paste inline
+    paste = re.search(r"getElementById\('type-input'\)\.addEventListener\('paste'.*?\n\}\);",
+                      html, re.S)
+    assert paste and "_blockPaste && text &&" in paste.group(0), \
+        "block-chip paste must respect the Blocks toggle"
+    # XSS guard: raw text is escaped before markdown tags are injected
+    fn = re.search(r"function _mdRender\(src\) \{.*?\n\}", html, re.S)
+    assert fn and "_mdEsc(src)" in fn.group(0), "must escape HTML before rendering"
+    # preview is fed on input, after Improve, and after send clears the field
+    assert "_mdAuto(r.improved)" in html
+    assert "if (_mdOn) _mdRenderNow()" in html
+    # both toggles persist
+    assert "tg_md" in html and "tg_blocks" in html
 
 def test_all_handlers_import():
     import handlers.audio  # noqa: F401

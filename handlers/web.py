@@ -19,7 +19,9 @@ from config import (
 from handlers.files import _find_apks
 from utils import project
 from handlers.screen import _grab_frame, _grab_to_jpeg
-from utils.webauth import check_token, validate_init_data
+from utils.webauth import (
+    SCOPE_TTL, check_token, make_scoped_token, validate_init_data, verify_scoped_token,
+)
 from utils.window import get_active_window_rect
 
 logger = logging.getLogger("bot.web")
@@ -35,6 +37,35 @@ def _check_auth(request):
     auth = request.headers.get("Authorization", "")
     bearer = auth.removeprefix("Bearer ") if auth.startswith("Bearer ") else ""
     return check_token(bearer, request.query.get("token", ""), WEB_TOKEN)
+
+
+def _bearer(request):
+    auth = request.headers.get("Authorization", "")
+    return auth.removeprefix("Bearer ") if auth.startswith("Bearer ") else ""
+
+
+def _scope_secret():
+    """Key material for scoped tokens. BOT_TOKEN is None when unconfigured, and
+    an empty secret must mint and validate nothing — never crash."""
+    return BOT_TOKEN or WEB_TOKEN or ""
+
+
+_SCOPES = {"refine"}
+
+
+def _check_auth_refine(request):
+    """Full auth, OR a refine-scoped bearer.
+
+    Deliberately a SECOND function rather than a `refine_ok=` kwarg on
+    _check_auth: the 24 system handlers then keep a zero-line diff, and a bad
+    merge that drops this fails CLOSED (a scoped token stops working on
+    /api/improve — loud and harmless) instead of quietly opening a shell route.
+    Exactly three handlers may call it; test_every_api_handler_checks_auth pins
+    the count.
+    """
+    if _check_auth(request):
+        return True
+    return verify_scoped_token(_bearer(request), _scope_secret(), "refine")
 
 
 def _json(data, status=200):
@@ -310,8 +341,32 @@ async def api_git(request):
         return _err(str(e), 500)
 
 
-async def api_status(request):
+async def api_scope(request):
+    """Exchange a full credential for a scope-limited one.
+
+    Requires FULL auth on purpose — a refine token must not be able to mint
+    another, or its 12h lifetime becomes unbounded.
+    """
     if not _check_auth(request):
+        return _err("Unauthorized", 401)
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    scope = data.get("scope", "")
+    if scope not in _SCOPES:
+        return _err(f"Unknown scope: {scope!r}")
+    token = make_scoped_token(_scope_secret(), scope, SCOPE_TTL)
+    if not token:
+        return _err("Scoped tokens unavailable — no BOT_TOKEN/WEB_TOKEN configured", 500)
+    logger.info("Minted %s-scoped token (ttl %ds)", scope, SCOPE_TTL)
+    return _json({"ok": True, "token": token, "ttl": SCOPE_TTL, "scope": scope})
+
+
+async def api_status(request):
+    # Refine-scoped too: this is the CLIENT_VERSION staleness probe, and a page
+    # that cannot check its own version silently runs stale forever.
+    if not _check_auth_refine(request):
         return _err("Unauthorized", 401)
     uptime = int(time.time() - _start_time)
     h, rem = divmod(uptime, 3600)
@@ -399,14 +454,14 @@ async def api_restart(request):
     return _json({"ok": True, "msg": "Restarting bot..."})
 
 
-async def index_page(request):
-    """Serve the web dashboard (no-cache: webviews must always get fresh HTML).
+def _serve_html(name):
+    """Serve a page no-cache — webviews must always get fresh HTML.
 
-    Telegram's webview treats these headers as advisory, so the page also
-    self-checks CLIENT_VERSION against /api/status and reloads with ?v= when
-    it finds itself stale — see _checkStaleClient() in index.html.
+    Telegram's webview treats these headers as advisory, so each page also
+    self-checks CLIENT_VERSION against /api/status and reloads with ?v= when it
+    finds itself stale — see _checkStaleClient() in common.js.
     """
-    html_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web", "index.html")
+    html_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web", name)
     if os.path.isfile(html_path):
         return web.FileResponse(
             html_path,
@@ -416,7 +471,18 @@ async def index_page(request):
                 "Expires": "0",
             },
         )
-    return web.Response(text="Dashboard not found", status=404)
+    return web.Response(text=f"{name} not found", status=404)
+
+
+async def index_page(request):
+    """Full dashboard — screen, keys, shell, everything."""
+    return _serve_html("index.html")
+
+
+async def refine_page(request):
+    """Text workbench: mic, Improve, Twin, markdown, Copy. No system controls,
+    and it runs on a refine-scoped token that every system route rejects."""
+    return _serve_html("refine.html")
 
 
 def create_web_app():
@@ -435,6 +501,7 @@ def create_web_app():
     app.router.add_post("/api/sh", api_sh)
     app.router.add_post("/api/git", api_git)
     app.router.add_get("/api/status", api_status)
+    app.router.add_post("/api/scope", api_scope)
     app.router.add_post("/api/build", api_build)
     app.router.add_get("/api/apks", api_apk_list)
     app.router.add_post("/api/restart", api_restart)
@@ -446,6 +513,7 @@ def create_web_app():
     web_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web")
     if os.path.isdir(web_dir):
         app.router.add_get("/", index_page)
+        app.router.add_get("/refine", refine_page)
         # Browsers request /favicon.ico at the root unprompted; no auth — it is
         # public branding, same as the login page itself
         async def favicon(request):
@@ -467,6 +535,13 @@ def miniapp_url(base: str = "", version: str = "") -> str:
     base = base or WEBAPP_URL
     sep = "&" if "?" in base else "?"
     return f"{base}{sep}v={version or VERSION}"
+
+
+def refine_url(base: str = "", version: str = "") -> str:
+    """Version-stamped /refine URL, tolerant of a trailing slash and of a
+    WEBAPP_URL that already carries a query string."""
+    root, sep, query = (base or WEBAPP_URL).partition("?")
+    return miniapp_url(root.rstrip("/") + "/refine" + sep + query, version)
 
 
 async def setup_menu_button(bot):

@@ -9,7 +9,7 @@ import pyautogui
 from telegram import InlineKeyboardButton as Btn, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from config import ALLOWED_USER_ID, MAX_FILE_SIZE, VERSION
+from config import ALLOWED_USER_ID, MAX_FILE_SIZE, VERSION, WEBAPP_URL
 from utils import project
 from handlers.files import _find_apks
 from handlers.input import type_and_enter
@@ -24,7 +24,7 @@ _start_time = time.time()
 _cooldowns: dict[str, float] = {}
 COOLDOWN_SEC = 2.0
 
-KEYBOARD = InlineKeyboardMarkup([
+_BASE_ROWS = [
     [Btn("Screen", callback_data="p:screen"), Btn("Window", callback_data="p:window")],
     [Btn("Git Status", callback_data="p:git_status"), Btn("Git Log", callback_data="p:git_log"), Btn("Git Diff", callback_data="p:git_diff")],
     [Btn("Build", callback_data="p:build"), Btn("Build APK", callback_data="p:build_apk"), Btn("APK", callback_data="p:apk"), Btn("Status", callback_data="p:status")],
@@ -33,7 +33,31 @@ KEYBOARD = InlineKeyboardMarkup([
     [Btn("/clear", callback_data="p:type_clear"), Btn("/caveman", callback_data="p:type_caveman"), Btn("Ultrathink", callback_data="p:type_ultra")],
     [Btn("/plan", callback_data="p:type_plan"), Btn("/hae:release-plan", callback_data="p:type_rplan"), Btn("/hae:twin", callback_data="p:type_twin")],
     [Btn("Let's finish (LF)", callback_data="p:type_finish"), Btn("LF CB", callback_data="p:type_finish_cur"), Btn("LF NB", callback_data="p:type_finish_new"), Btn("/model", callback_data="p:type_model")],
-])
+]
+
+
+def _webapp_row(chat_type: str) -> list:
+    """Mini App entry points: the full dashboard, and the refine-only view.
+
+    Private chats only. Telegram rejects web_app inline buttons anywhere else
+    with BUTTON_TYPE_INVALID and fails the WHOLE message, so an unguarded row
+    would take /panel down in any group the bot sits in — @auth_required checks
+    the user, not the chat. Empty or non-HTTPS WEBAPP_URL means no buttons
+    rather than a broken panel.
+    """
+    if chat_type != "private" or not WEBAPP_URL.startswith("https://"):
+        return []
+    from telegram import WebAppInfo
+    from handlers.web import miniapp_url, refine_url
+    return [Btn("🖥 Dashboard", web_app=WebAppInfo(url=miniapp_url())),
+            Btn("✨ Refine", web_app=WebAppInfo(url=refine_url()))]
+
+
+def build_keyboard(chat_type: str = "private") -> InlineKeyboardMarkup:
+    """Panel keyboard. Built per message, not once at import: the web_app row
+    depends on where the message is going."""
+    row = _webapp_row(chat_type)
+    return InlineKeyboardMarkup(([row] if row else []) + _BASE_ROWS)
 
 _TYPE_PRESETS = {
     "type_finish": "let's finish",
@@ -59,7 +83,8 @@ _KEY_MAP = {"enter": "enter", "esc": "escape", "ctrlc": ("ctrl", "c"), "tab": "t
 async def panel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/panel — show inline keyboard control panel."""
     logger.debug("/panel called")
-    await update.message.reply_text("Control Panel", reply_markup=KEYBOARD)
+    await update.message.reply_text(
+        "Control Panel", reply_markup=build_keyboard(update.effective_chat.type))
 
 
 async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

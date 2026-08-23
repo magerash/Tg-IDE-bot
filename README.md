@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.18.0
+# TG-IDE-Bot v0.19.0
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -114,6 +114,17 @@ curl -k -o /dev/null -w "%{http_code}\n" https://bot.magerash.com:8443/ # Caddy 
 **Gotcha:** when matching processes by command line, exclude your own shell (`$_.ProcessId -ne $PID`) — a `Where-Object { $_.CommandLine -match 'start_tunnel_vps' }` filter matches the very command that contains that string, so the kill loop terminates your own session and inflates keeper counts by one.
 
 ## Changelog
+
+### v0.19.0 2026-08-24
+- **Split-view Mini App**: text refinement now has its own page, **`/refine`** — mic → speech-to-text, AI cleanup, ✨ Improve, Twin, markdown preview and a **📋 Copy** button, with no screen, keys, shell, git or restart anywhere on it. Text leaves that view through the clipboard only; there is deliberately no Type button, because typing into a focused window is remote control and Copy is not
+- **The split is enforced on the server, not just hidden in the UI.** The refine page runs on a 12h scope-limited token minted by `POST /api/scope`; only `/api/status`, `/api/stt` and `/api/improve` accept it, and all 24 system endpoints answer 401. Two tests keep it that way, so "this view can't type to your PC" cannot quietly regress the next time a button is added
+- Where the boundary really is: inside Telegram, `initData` is readable by any script on the page, so this defends against the page's own code and narrows the browser flow — it is not a sandbox against the operator. Written up in `materials/chunks/features/refinement-view.md`
+- **Reach it** from the `✨ Refine` link in the dashboard header, or the `🖥 Dashboard` / `✨ Refine` buttons now on the first row of `/panel` (private chats only — Telegram rejects Mini App buttons in groups and fails the whole message)
+- **`web/common.js`**: ~460 lines shared by both pages (`api()`, toasts, theme, History, markdown, the mic→WAV→Whisper stack, Improve) extracted out of `index.html`, which drops 2332 → 1889 lines. One copy of each hard-won bug fix instead of two
+- **Security fix in the markdown preview** (shared by both views): HTML-escaping now covers quotes, and link targets are restricted to `http(s)`/`mailto`/relative — a `[x](javascript:…)` link previously rendered as a live link that would run script with the page's credentials
+- **Copy** uses the async clipboard API with an `execCommand` fallback for Telegram's Android webview, which refuses the former. An empty field never clobbers the clipboard, and very large text is selected rather than copied
+- Fixes: markdown preview went stale after voice transcription; the stale-client reload flag is now per page; `improve.py` logged a misleading "twin profile missing" warning on any non-Russian input
+- Tests 43 → **67**
 
 ### v0.18.0 2026-08-20
 - **Improve text (AI)**: ✨ Improve button on the dashboard Type field — rewrites rough text via LLM in a chosen style (Structured / Detailed / Concise / →EN). Never auto-sends; the original is saved to History as a `draft` entry first. Optional **Twin** toggle injects the HAE operator profile so output matches your own prompt style; Russian input stays Russian (deterministic language hint — instructions alone lost to a 6KB English persona)
