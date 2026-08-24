@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.19.0
+# TG-IDE-Bot v0.19.1
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -114,6 +114,14 @@ curl -k -o /dev/null -w "%{http_code}\n" https://bot.magerash.com:8443/ # Caddy 
 **Gotcha:** when matching processes by command line, exclude your own shell (`$_.ProcessId -ne $PID`) — a `Where-Object { $_.CommandLine -match 'start_tunnel_vps' }` filter matches the very command that contains that string, so the kill loop terminates your own session and inflates keeper counts by one.
 
 ## Changelog
+
+### v0.19.1 2026-08-24
+- **`/refine` uses the whole window.** On a 2000px screen the view was a 640px column stranded in the middle with the text scrolling inside 400px of it while the rest of the page sat empty. The wrap goes to `max-width:1180px` and, above 760px, both panes are sized from the viewport (`calc(100vh - 300px)`, min 340px) instead of from their content
+- The fix needed the JS as well as the CSS: `autoGrow` writes an **inline** height capped at 400px, and an inline height beats a stylesheet rule — it silently undid the fit on every keystroke, every Improve, every transcription. `autoGrow` is now wrapped on this page and clears the inline height on wide screens, keeping the original growth behaviour for the stacked phone layout
+- Reading measure is capped **inside** the preview (`.md-body>* {max-width:78ch}`) rather than on the pane, so long-form text stays comfortable to read while the panel still fills the window
+- **Char/word counter** next to Copy — routed through the wrapped `autoGrow`, so every programmatic write (Improve, transcription, history refill, Clear) updates it for free, not just typing
+- Diagnosed but not code: **typing lands where the inner keyboard focus is.** `focus_window_exact` raises the *window* only. With VS Code focused but the caret in the editor rather than the integrated terminal — or Claude Desktop foreground with its chat box unfocused — `ctrl+shift+v` / `ctrl+v` hits a different control and the text vanishes while the bot still reports `Typed:`. Clipboard write, keystroke injection and paste key were each proven working against a live window. `utils/scheduler.py` already solves this with a command-palette "Terminal: Focus on Terminal View" step; `/api/type` and `text_handler` do not use it yet
+- Tests 67 → **68**
 
 ### v0.19.0 2026-08-24
 - **Split-view Mini App**: text refinement now has its own page, **`/refine`** — mic → speech-to-text, AI cleanup, ✨ Improve, Twin, markdown preview and a **📋 Copy** button, with no screen, keys, shell, git or restart anywhere on it. Text leaves that view through the clipboard only; there is deliberately no Type button, because typing into a focused window is remote control and Copy is not

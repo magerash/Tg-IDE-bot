@@ -122,6 +122,20 @@ def test_refine_has_no_type_button():
     assert 'id="copy-btn"' in refine
 
 
+def test_refine_uses_the_whole_window_on_a_wide_screen():
+    """Reported from a 2000px window: a 640px column stranded in the middle with
+    the text scrolling inside 400px of it while the rest of the page sat empty.
+    The panes are sized from the viewport now, and autoGrow must not write an
+    inline height on top of that (it caps at 400px and undoes the fit)."""
+    refine = _read(REFINE)
+    assert "max-width:1180px" in refine, "the wrap is back to a phone-width column"
+    assert "calc(100vh - 300px)" in refine, "panes no longer sized from the viewport"
+    grow = re.search(r"autoGrow = function \(el\) \{[\s\S]*?^\};", refine, re.M)
+    assert grow, "autoGrow is not overridden on the refine page"
+    assert "el.style.height = ''" in grow.group(0), "inline height still fights the CSS"
+    assert 'id="char-count"' in refine and "_syncCount" in refine
+
+
 def test_the_two_views_link_to_each_other():
     """Without this the refine view is only reachable from /panel — invisible in
     a browser, and invisible in Telegram to anyone who opens the Mini App with

@@ -35,7 +35,7 @@
   --dark:#100f0d;--shadow:0 1px 3px rgba(0,0,0,.45);
 }
 body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:16px}
-.wrap{max-width:640px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
+.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
 h1{font-size:17px;font-weight:600;text-align:center;padding:6px 0 2px;letter-spacing:-.2px}
 .theme-toggle{position:absolute;top:16px;right:16px;width:34px;height:34px;border:1px solid var(--border);border-radius:9px;background:var(--card);color:var(--text);font-size:16px;cursor:pointer;line-height:1;z-index:50;box-shadow:var(--shadow)}
 .theme-toggle:hover{background:var(--accent-soft)}
@@ -94,12 +94,20 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 .md-body blockquote{border-left:3px solid var(--border);margin:4px 0;padding:2px 10px;color:var(--dim)}
 .md-body a{color:inherit}
 
-/* Wide screens: edit and read side by side — this view is a document editor,
-   not a form with an appendix. Stacked below 760px. */
+.counter{font-size:11px;color:var(--dim);margin-left:auto;white-space:nowrap;font-variant-numeric:tabular-nums}
+
+/* Wide screens: edit and read side by side, both panes filling the viewport.
+   This view is a document editor — a 640px column stranded in a 2000px window
+   with the text scrolling inside 400px of it was the whole complaint. */
 @media(min-width:760px){
-  .split.md-on{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:start}
-  .split.md-on .md-body{margin-top:0;max-height:none;min-height:140px}
+  .split.md-on{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:stretch}
+  .split .input-row{height:100%}
+  .split textarea,.split.md-on .md-body{height:calc(100vh - 300px);min-height:340px;max-height:none}
+  .split.md-on .md-body{margin-top:0;overflow:auto}
 }
+/* Long-form reading: cap the measure inside the pane rather than the pane itself,
+   so the column stays comfortable while the panel still uses the window. */
+.md-body>*{max-width:78ch}
 
 .action-status{margin-top:10px;padding:8px 10px;border-radius:9px;background:var(--accent-soft);font-size:11px;line-height:1.45;color:var(--dim);word-break:break-word;min-height:33px}
 .action-status b{display:block;color:var(--text);font-weight:500}
@@ -176,6 +184,7 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
     <div class="out-row">
       <button class="btn btn-primary" id="copy-btn" onclick="doCopy()">&#128203; Copy</button>
       <button class="btn btn-soft btn-sm" id="clear-btn" onclick="doClear()">Clear</button>
+      <span class="counter" id="char-count"></span>
     </div>
     <p class="hint">Nothing is typed to your PC. Text leaves this view only via Copy.</p>
   </div>
@@ -204,7 +213,7 @@ window.MD_DEFAULT_ON = true;
 window.HISTORY_TARGETS = {type: 'type-input', draft: 'type-input',
                           shell: 'type-input', claude: 'type-input'};
 </script>
-<script src="/static/common.js?v=0.19.0"></script>
+<script src="/static/common.js?v=0.19.1"></script>
 <script>
 /* ===== Refine view =====
    Runs on a refine-scoped token, not the full credential. The server rejects
@@ -399,13 +408,46 @@ function doClear() {
 /* Side-by-side edit/preview only makes sense while the preview is visible */
 function _syncSplit() {
   document.getElementById('type-split').classList.toggle('md-on', _mdOn);
+  _fitField();
 }
 const _mdSync = _syncMd;
 _syncMd = function () { _mdSync(); _syncSplit(); };
-_syncSplit();
 
+/* On a wide screen CSS sizes both panes to fill the window. autoGrow writes an
+   inline height capped at 400px, which fights that and puts the text back into a
+   short scrolling box inside an otherwise empty page — so clear it there
+   instead, and keep autoGrow for the stacked phone layout. */
+const _wide = () => window.matchMedia('(min-width:760px)').matches;
 const _ti = document.getElementById('type-input');
+
+function _fitField() {
+  if (_wide()) _ti.style.height = '';
+  else _rawGrow(_ti);
+}
+
+function _syncCount() {
+  const t = _ti.value;
+  const words = t.trim() ? t.trim().split(/\s+/).length : 0;
+  const n = x => x.toLocaleString('en-US').replace(/,/g, ' ');
+  document.getElementById('char-count').textContent =
+    t ? n(t.length) + ' chars · ' + n(words) + ' words' : '';
+}
+
+const _rawGrow = autoGrow;
+autoGrow = function (el) {
+  // Every programmatic write (Improve, transcription, history refill, Clear)
+  // routes through here, so the counter and the fit follow for free.
+  if (el === _ti) {
+    _syncCount();
+    if (_wide()) { el.style.height = ''; return; }
+  }
+  _rawGrow(el);
+};
+
 _ti.addEventListener('input', () => autoGrow(_ti));
+window.addEventListener('resize', _fitField);
+_syncSplit();
+_syncCount();
 
 /* A full credential must not sit in the address bar (or in a screenshot of it) */
 if (location.search.includes('token=')) {
