@@ -55,7 +55,7 @@ const TG = (!window.NO_AMBIENT_AUTH && _twa && _twa.initData) ? _twa : null;
 /* Must equal config.VERSION — tests enforce it. The Telegram webview caches the
    Mini App page hard (no-cache headers are advisory there), so a stale UI can
    run against a new server for days. Detect it and reload past the cache once. */
-const CLIENT_VERSION = '0.19.1';
+const CLIENT_VERSION = '0.20.0';
 
 function _checkStaleClient(serverVersion) {
   if (!serverVersion || serverVersion === CLIENT_VERSION) return false;

@@ -639,9 +639,9 @@ def test_mobile_order_and_accordion():
 
 
 def test_quick_keys_bar_at_bottom():
-    """Fixed bottom bar with the Claude-question keys (←/→/Enter/Sh+Tab/1/2),
-    a recently-tapped trail with an empty state, and body clearance so the
-    bar never covers the last panel."""
+    """Fixed bottom bar with the Claude-question keys (←/→/Enter/Sh+Tab/Tab plus
+    the freeform field), a recently-tapped trail with an empty state, and body
+    clearance so the bar never covers the last panel."""
     html = _html()
     bar = re.search(r'<div id="quick-keys">.*?</div>\s*</div>', html, re.S)
     assert bar, "quick-keys bar missing"
@@ -651,8 +651,10 @@ def test_quick_keys_bar_at_bottom():
     assert lb, "lightbox quick-keys row missing"
     for where, chunk in (("bottom bar", bar), ("lightbox", lb.group(0))):
         for onclick in ("doKey('left')", "doKey('right')", "doKey('enter')",
-                        "doKey('shift+tab')", "qkDigit('1')", "qkDigit('2')"):
+                        "doKey('shift+tab')", "doKey('tab')"):
             assert onclick in chunk, f"{where} lacks {onclick}"
+        # Tab must not be the same button as Sh+Tab, and must not have replaced it
+        assert chunk.count("doKey('tab')") == 1 and "doKey('shift+tab')" in chunk
     # lightbox row must render above the z-200 overlay
     assert re.search(r"#lb-keys\{[^}]*z-index:201", html)
     # pinned to the viewport bottom, under lightbox/auth overlays
@@ -664,6 +666,133 @@ def test_quick_keys_bar_at_bottom():
     # body keeps clearance for the bar at every breakpoint
     assert "body{padding-bottom:62px}" in html
     assert "body{padding:10px 10px 62px}" in html
+
+
+def test_tab_and_freeform_field_replace_the_digit_buttons():
+    """Tab-then-Enter needs its own key: Sh+Tab cycles Claude Code's mode, Tab
+    accepts/advances, and a bar that carries only Sh+Tab cannot do the workflow.
+    The two fixed digit buttons are gone in favour of one field that types any
+    answer + Enter — but the Keys rail keeps 1/2/3 for one-tap replies."""
+    html = _html()
+    assert "qkDigit(" not in html, "dead digit helper left behind"
+    for fid in ("qk-type", "lb-type"):
+        assert f'id="{fid}" class="qk-input"' in html, f"{fid} freeform field missing"
+        assert f"bindSendKeys('{fid}', () => qkSend('{fid}'))" in html,             f"{fid} does not send on Enter"
+    # Tab is untinted in both bars; Sh+Tab keeps its green — that is the whole
+    # visual distinction between two keys one keystroke apart.
+    assert re.search(r"""<button class="btn btn-sm" onclick="doKey\('tab'\)""", html)
+    assert re.search(r"""<button class="btn btn-sm btn-ok-soft" onclick="doKey\('shift\+tab'\)""", html)
+    assert re.search(r"""<button class="lb-ok" onclick="doKey\('shift\+tab'\)""", html)
+    assert re.search(r"""<button onclick="doKey\('tab'\)""", html)
+    assert "#lb-keys button.lb-ok{" in html, "viewer has no green pill style"
+    # rail keeps the numbered answers
+    assert "doTypePreset('1')" in html and "doTypePreset('2')" in html
+
+
+def test_claude_launcher_is_orange_in_both_surfaces():
+    """One orange button starts a session; it sits in Actions and in the viewer,
+    and it must not read as another git/build action, hence the brand colour."""
+    html = _html()
+    assert "['Claude','btn-claude',()=>doClaudeCode()]" in html, "Actions lost the launcher"
+    assert 'id="lb-claude" onclick="doClaudeCode()"' in html, "viewer lost the launcher"
+    # brand orange defined in BOTH palettes, and the class actually uses it
+    assert re.search(r"^:root\{.*?--claude:#d97757", html, re.S | re.M)
+    assert re.search(r'^:root\[data-theme="dark"\]\{.*?--claude:', html, re.S | re.M)
+    assert ".btn-claude{background:var(--claude)" in html
+    assert "#lb-claude,#lb-proj-row button.lb-claude{background:var(--claude)}" in html
+    # and it asks for the terminal focus, or it would type into the editor
+    fn = html.split("async function doClaudeCode()")[1].split("\nasync function")[0]
+    assert "terminal: true" in fn and "text: 'claude'" in fn
+    # A reused terminal may already run Claude Code, where `claude` is just a chat
+    # message to that session — the launcher must always get a fresh shell.
+    assert "new_terminal: true" in fn
+    assert "r.terminal" in fn and "toast(" in fn, "a missed terminal focus must be loud"
+
+
+def test_lightbox_project_row_opens_and_focuses():
+    """Pick a project, focus or open its VS Code window, start Claude — without
+    leaving the zoomed screenshot, and without typing anything."""
+    html = _html()
+    row = re.search(r'<div id="lb-proj-row">.*?</div>', html, re.S)
+    assert row, "viewer project row missing"
+    row = row.group(0)
+    assert 'id="lb-proj"' in row
+    assert "doFocusProj('lb-proj')" in row and "doCodeSel('lb-proj')" in row
+    assert "_fillSelect('lb-proj'" in html, "viewer select is never filled"
+    # focus targets the VS Code window of that project (containment match server-side)
+    assert "_focusTitle(folder + ' - Visual Studio Code')" in html
+    # form controls in the overlay must be exempt from pan/pinch/backdrop-close
+    assert "const _lbCtl = el => ['BUTTON', 'INPUT', 'SELECT', 'OPTION']" in html
+    assert "e.target.tagName === 'BUTTON'" not in html, "gesture guard still button-only"
+
+
+def test_viewer_controls_stay_compact_on_a_phone():
+    """The viewer rows float over the picture. At the desktop 38px/8px sizing they
+    wrapped into four rows on a phone and covered half the screenshot, so the small
+    screen gets 32px pills, one row per group, and shrinkable select/field."""
+    html = _html()
+    head = "@media(max-width:620px),(max-height:520px){"
+    assert head in html, "no compact rule for the zoomed viewer"
+    css = html.split(head, 1)[1].split("\n}", 1)[0]
+    assert "height:32px" in css, "controls still desktop-height inside the viewer"
+    assert "flex-wrap:nowrap" in css, "rows may still wrap into a wall of buttons"
+    # a flex item without min-width:0 refuses to shrink and overflows the viewport
+    for sel in ("#lb-proj-row select", "#lb-keys .qk-input"):
+        # the selector appears twice (shared sizing + the shrink rule) — one of the
+        # bodies must carry both, or that control refuses to give up width
+        bodies = re.findall(re.escape(sel) + r"\{([^}]*)\}", css)
+        assert any("min-width:0" in b and "flex:1 1 auto" in b for b in bodies), sel
+    assert "#lb-proj-row .lb-lbl{display:none}" in css, "Focus keeps its label on a phone"
+    # ...which only saves width if the label is really wrapped in the markup
+    assert '<span class="lb-lbl"> Focus</span>' in html
+
+
+def test_type_focuses_the_terminal_before_typing(monkeypatch):
+    """`terminal: true` must move the caret into the VS Code integrated terminal
+    BEFORE the paste. Order is the whole point: focus after typing is no focus at
+    all, and a fresh `code -n` leaves the caret in the editor, where ctrl+shift+v
+    is an editor binding and the text disappears while the bot answers 'Typed:'."""
+    import handlers.input as hin
+    import utils.vscode as vsc
+
+    calls = []
+    monkeypatch.setattr(hin, "type_and_enter", lambda t, e=True: calls.append(("type", t, e)))
+    monkeypatch.setattr(vsc, "focus_vscode_terminal", lambda: calls.append(("focus",)))
+
+    async def go(active, terminal):
+        calls.clear()
+        monkeypatch.setattr(vsc, "get_active_window_title", lambda: active)
+        async with await _client() as c:
+            r = await c.post("/api/type", json={"text": "claude", "terminal": terminal},
+                             headers=AUTH)
+            assert r.status == 200
+            return await r.json()
+
+    data = _run(go("Tg-IDE-bot - Visual Studio Code", True))
+    assert calls == [("focus",), ("type", "claude", True)], calls
+    assert data["terminal"] is True
+
+    # Not VS Code: still types (the user may be aiming at a plain terminal), but
+    # says so instead of pretending the text reached Claude Code.
+    data = _run(go("Untitled - Notepad", True))
+    assert calls == [("type", "claude", True)], calls
+    assert data["terminal"] is False and "not VS Code" in data["terminal_msg"]
+
+    # Default path is unchanged — no flag, no palette detour.
+    data = _run(go("Tg-IDE-bot - Visual Studio Code", False))
+    assert calls == [("type", "claude", True)] and "terminal" not in data
+
+
+def test_terminal_focus_lives_in_one_place():
+    """Scheduler and /api/type must share the palette sequence — a second copy
+    drifts, and the drift is invisible until text lands in a source file."""
+    import pathlib as _pl
+
+    hits = [n for n in ("utils/scheduler.py", "handlers/web.py", "utils/vscode.py")
+            if "Terminal: Focus on Terminal View" in _pl.Path(ROOT, n).read_text(encoding="utf-8")]
+    assert hits == ["utils/vscode.py"], f"palette sequence duplicated in {hits}"
+    src = _pl.Path(ROOT, "utils/scheduler.py").read_text(encoding="utf-8")
+    assert "from utils.vscode import focus_vscode_terminal" in src
 
 
 def test_singleton_guard_spawns_no_processes():

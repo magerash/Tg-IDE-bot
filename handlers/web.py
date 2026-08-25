@@ -234,12 +234,32 @@ async def api_type(request):
         data = await request.json()
         text = data.get("text", "")
         enter = data.get("enter", True)
+        # terminal=True: move the caret into the VS Code integrated terminal first.
+        # Window focus alone raises the window and leaves the caret in the editor,
+        # where ctrl+shift+v is an editor binding and the paste disappears.
+        terminal = bool(data.get("terminal"))
+        # new_terminal: open a FRESH terminal first. Reusing the active one hands
+        # the text to whatever runs in it — if that is already Claude Code, `claude`
+        # becomes a chat message to that session instead of starting one.
+        new_terminal = bool(data.get("new_terminal"))
         if not text:
             return _err("Missing 'text'")
 
         from handlers.input import type_and_enter
-        await asyncio.to_thread(type_and_enter, text, bool(enter))
-        return _json({"ok": True, "typed": text})
+        from utils.vscode import focus_terminal_if_active
+
+        def _do():
+            focused, msg = focus_terminal_if_active(new_terminal) if terminal else (False, "")
+            type_and_enter(text, bool(enter))
+            return focused, msg
+
+        focused, msg = await asyncio.to_thread(_do)
+        out = {"ok": True, "typed": text}
+        if terminal:
+            # Reported, never swallowed — a caller that types into the wrong control
+            # must be able to say so instead of answering a cheerful "Typed:".
+            out["terminal"], out["terminal_msg"] = focused, msg
+        return _json(out)
     except Exception as e:
         logger.error("web /api/type error: %s", e)
         return _err(str(e), 500)

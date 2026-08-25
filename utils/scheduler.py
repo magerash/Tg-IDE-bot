@@ -69,19 +69,6 @@ async def remove_job(job_id):
     return changed
 
 
-def _focus_vscode_terminal():
-    """Move keyboard focus into the VS Code integrated terminal via the command
-    palette. Position-/layout-independent (a fixed click can't work — the window
-    may be moved/resized, and raw focus lands in the editor, not the terminal)."""
-    import pyautogui
-    from handlers.input import type_and_enter
-
-    pyautogui.hotkey("ctrl", "shift", "p")
-    time.sleep(0.35)
-    type_and_enter("Terminal: Focus on Terminal View")  # waits before Enter
-    time.sleep(0.35)
-
-
 def _fire_sync(job):
     """Focus the target window (best effort) then type the message + Enter.
 
@@ -102,7 +89,8 @@ def _fire_sync(job):
         time.sleep(SCHEDULE_FOCUS_SETTLE)  # let the window actually come forward
         if job.get("terminal", True) and "Visual Studio Code" in window:
             try:
-                _focus_vscode_terminal()
+                from utils.vscode import focus_vscode_terminal
+                focus_vscode_terminal()
             except Exception as e:
                 logger.warning("terminal focus failed: %s", e)
     type_and_enter(job["text"], job.get("enter", True))

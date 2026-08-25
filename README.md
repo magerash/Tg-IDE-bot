@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.19.1
+# TG-IDE-Bot v0.20.0
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -114,6 +114,15 @@ curl -k -o /dev/null -w "%{http_code}\n" https://bot.magerash.com:8443/ # Caddy 
 **Gotcha:** when matching processes by command line, exclude your own shell (`$_.ProcessId -ne $PID`) — a `Where-Object { $_.CommandLine -match 'start_tunnel_vps' }` filter matches the very command that contains that string, so the kill loop terminates your own session and inflates keeper counts by one.
 
 ## Changelog
+
+### v0.20.0 2026-08-25
+- **Typing lands in the terminal now.** v0.19.1 diagnosed it: window focus raises the *window*, the inner keyboard focus stays put, and after `code -n` that is the editor — where `ctrl+shift+v` is an editor binding and the paste vanishes while the bot reports `Typed:`. `POST /api/type` accepts `terminal: true` and moves the caret into the VS Code integrated terminal first
+- `utils/vscode.py` holds the command-palette sequence, once. The scheduler's private copy was deleted and it imports the shared helper; a test fails if a second copy appears. The outcome is echoed back (`terminal`, `terminal_msg`) and a non-VS-Code foreground is a loud toast, not a silent success — the text is still typed either way
+- **Claude Code launcher** — one orange button in the Actions rail, the quick-keys bar and the zoomed viewer. Types `claude` + Enter into a **fresh** terminal: focusing the last active one hands `claude` to a session already running Claude Code as a chat message. `VSCODE_NEW_TERMINAL_WAIT` (1.6s) waits for the shell prompt, since keystrokes sent before it are dropped by the pty
+- **Freeform answer field replaces the `1` / `2` buttons** (bar + viewer) — Enter sends text + Enter, so `3`, `yes` or a path are answerable too; `Tab` added beside `Sh+Tab`, tinted apart
+- **Viewer project row** — project select + 🖥 Focus + Open + Claude: pick a project, focus or open its VS Code window, start a session, without leaving the zoomed screenshot. Shares `_selectedProject(selId)` and `loadFolders()` with the dashboard panel. The viewer's gesture guard now exempts `INPUT`/`SELECT`/`OPTION` as well as `BUTTON`, or a tap on the field would pan the image and dismiss the viewer
+- **Compact viewer controls on phones and short landscape windows** (`max-width:620px`, `max-height:520px`): 32px pills, one row per group, select and field shrink to fit. At desktop sizing the two rows wrapped into four and covered half the screenshot
+- Tests 68 → **74**
 
 ### v0.19.1 2026-08-24
 - **`/refine` uses the whole window.** On a 2000px screen the view was a 640px column stranded in the middle with the text scrolling inside 400px of it while the rest of the page sat empty. The wrap goes to `max-width:1180px` and, above 760px, both panes are sized from the viewport (`calc(100vh - 300px)`, min 340px) instead of from their content

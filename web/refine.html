@@ -20,6 +20,7 @@
   --ok:#16a34a;--ok-soft:#e9f7ee;--ok-soft-hover:#daf0e2;
   --err:#dc2626;--err-hover:#c7202f;--err-soft:#fdeceb;--err-soft-hover:#fadcda;
   --warn:#b45309;--warn-soft:#fdf3e3;--warn-soft-hover:#f8e9cf;
+  --claude:#d97757;--claude-hover:#c4623f;   /* Claude brand orange — the launcher button */
   --dark:#1c1917;--shadow:0 1px 2px rgba(28,25,23,.05);
   --rail-w:170px;          /* width of Keys / Actions side rails */
   --screen-h:260px;        /* min-height of the screenshot area */
@@ -32,6 +33,7 @@
   --ok:#22c55e;--ok-soft:#183a25;--ok-soft-hover:#1f4a2f;
   --err:#f05252;--err-hover:#e23b3b;--err-soft:#3a1e1e;--err-soft-hover:#4a2525;
   --warn:#eab308;--warn-soft:#3a2f18;--warn-soft-hover:#4a3d1f;
+  --claude:#e08a6b;--claude-hover:#cf7754;
   --dark:#100f0d;--shadow:0 1px 3px rgba(0,0,0,.45);
 }
 body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:16px}
@@ -213,7 +215,7 @@ window.MD_DEFAULT_ON = true;
 window.HISTORY_TARGETS = {type: 'type-input', draft: 'type-input',
                           shell: 'type-input', claude: 'type-input'};
 </script>
-<script src="/static/common.js?v=0.19.1"></script>
+<script src="/static/common.js?v=0.20.0"></script>
 <script>
 /* ===== Refine view =====
    Runs on a refine-scoped token, not the full credential. The server rejects
