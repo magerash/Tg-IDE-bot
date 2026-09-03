@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TG-IDE-Bot</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script>try{var _t=localStorage.getItem('tg_theme');if(_t)document.documentElement.dataset.theme=_t;}catch(e){}</script>
 <style>
@@ -15,6 +19,7 @@
   --ok:#16a34a;--ok-soft:#e9f7ee;--ok-soft-hover:#daf0e2;
   --err:#dc2626;--err-hover:#c7202f;--err-soft:#fdeceb;--err-soft-hover:#fadcda;
   --warn:#b45309;--warn-soft:#fdf3e3;--warn-soft-hover:#f8e9cf;
+  --claude:#d97757;--claude-hover:#c4623f;   /* Claude brand orange — the launcher button */
   --dark:#1c1917;--shadow:0 1px 2px rgba(28,25,23,.05);
   --rail-w:170px;          /* width of Keys / Actions side rails */
   --screen-h:260px;        /* min-height of the screenshot area */
@@ -27,12 +32,17 @@
   --ok:#22c55e;--ok-soft:#183a25;--ok-soft-hover:#1f4a2f;
   --err:#f05252;--err-hover:#e23b3b;--err-soft:#3a1e1e;--err-soft-hover:#4a2525;
   --warn:#eab308;--warn-soft:#3a2f18;--warn-soft-hover:#4a3d1f;
+  --claude:#e08a6b;--claude-hover:#cf7754;
   --dark:#100f0d;--shadow:0 1px 3px rgba(0,0,0,.45);
 }
 body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:16px}
 h1{font-size:17px;font-weight:600;text-align:center;padding:6px 0 2px;letter-spacing:-.2px}
 .theme-toggle{position:absolute;top:16px;right:16px;width:34px;height:34px;border:1px solid var(--border);border-radius:9px;background:var(--card);color:var(--text);font-size:16px;cursor:pointer;line-height:1;z-index:50;box-shadow:var(--shadow)}
 .theme-toggle:hover{background:var(--accent-soft)}
+/* Cross-link to the other surface. Mirrors .theme-toggle on the left so it sits
+   in the header without stealing a row from the panel stack. */
+.view-link{position:absolute;top:16px;left:16px;height:34px;display:inline-flex;align-items:center;gap:5px;padding:0 12px;border:1px solid var(--border);border-radius:9px;background:var(--card);color:var(--text);font-size:13px;font-weight:500;text-decoration:none;z-index:50;box-shadow:var(--shadow)}
+.view-link:hover{background:var(--accent-soft)}
 .status-bar{display:flex;justify-content:center;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--dim);padding:4px 0 14px}
 .status-bar span{color:var(--text);font-weight:500}
 
@@ -74,6 +84,12 @@ h1{font-size:17px;font-weight:600;text-align:center;padding:6px 0 2px;letter-spa
 .panel.tight{padding:12px}
 .panel h3{font-size:11px;font-weight:600;color:var(--dim);margin-bottom:10px;text-transform:uppercase;letter-spacing:1.2px}
 .panel h3 b{color:var(--text)}
+/* Accordion panels (Windows / Projects): tap the title to fold the body away */
+.panel.acc>h3{cursor:pointer;user-select:none;-webkit-user-select:none}
+.panel.acc>h3::after{content:'▾';float:right;color:var(--dim);font-size:11px}
+.panel.acc.collapsed>h3::after{content:'▸'}
+.panel.acc.collapsed>h3{margin-bottom:0}
+.panel.acc.collapsed>:not(h3){display:none}
 
 /* Buttons */
 .btn{padding:8px 14px;border:1px solid var(--border);border-radius:9px;cursor:pointer;font-size:13px;font-weight:500;font-family:inherit;background:var(--card);color:var(--text);transition:background .15s,transform .1s,border-color .15s}
@@ -93,6 +109,10 @@ h1{font-size:17px;font-weight:600;text-align:center;padding:6px 0 2px;letter-spa
 .btn-red-soft:hover{background:var(--err-soft-hover)}
 .btn-warn-soft{background:var(--warn-soft);border-color:transparent;color:var(--warn)}
 .btn-warn-soft:hover{background:var(--warn-soft-hover)}
+/* Claude Code launcher: solid brand orange everywhere, so the one button that
+   starts a session is never mistaken for a git/build action next to it. */
+.btn-claude{background:var(--claude);border-color:var(--claude);color:#fff}
+.btn-claude:hover{background:var(--claude-hover)}
 .btn-sm{padding:6px 11px;font-size:12px}
 .btn-block{width:100%}
 .btn[disabled]{opacity:.4;cursor:not-allowed}
@@ -120,6 +140,7 @@ h1{font-size:17px;font-weight:600;text-align:center;padding:6px 0 2px;letter-spa
 .hist-kind.shell{color:var(--err)}
 .hist-kind.claude{color:#7c3aed}
 .hist-kind.image{color:#0369a1}
+.hist-kind.draft{color:var(--dim)}
 .hist-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 
 /* Action status field: last action result, stays visible (unlike toast) */
@@ -173,8 +194,24 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 /* Mobile tool chips (hidden on desktop) */
 .mob-tools{display:none;flex-direction:column;gap:8px}
 /* Type controls: big record button center, small Type/AI on the sides */
-.type-controls{display:flex;gap:8px;align-items:center;margin-bottom:8px}
-.type-controls .btn:not(#mic-btn){width:88px;flex-shrink:0}
+.type-controls{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+.type-controls select{width:auto;flex:1 1 auto;min-width:0}
+.type-controls .btn:not(#mic-btn):not(#imp-btn){width:88px;flex-shrink:0}
+#imp-btn{flex-shrink:0}
+/* Rendered markdown preview of the Type field (headers/tables/code like a file view) */
+.md-body{border:1px solid var(--border);border-radius:9px;padding:10px 12px;margin-top:8px;font-size:13px;max-height:320px;overflow:auto;background:var(--card)}
+.md-body h1,.md-body h2,.md-body h3,.md-body h4,.md-body h5,.md-body h6{margin:8px 0 4px;line-height:1.25}
+.md-body h1{font-size:17px}.md-body h2{font-size:15px}.md-body h3{font-size:14px}
+.md-body h4,.md-body h5,.md-body h6{font-size:13px}
+.md-body p{margin:4px 0}
+.md-body ul,.md-body ol{margin:4px 0 4px 18px}
+.md-body code{background:var(--accent-soft);border-radius:4px;padding:1px 4px;font-size:12px}
+.md-body pre{background:var(--accent-soft);border-radius:8px;padding:8px 10px;overflow-x:auto;margin:6px 0}
+.md-body pre code{background:none;padding:0}
+.md-body table{border-collapse:collapse;margin:6px 0;font-size:12px}
+.md-body th,.md-body td{border:1px solid var(--border);padding:4px 8px;text-align:left}
+.md-body blockquote{border-left:3px solid var(--border);margin:4px 0;padding:2px 10px;color:var(--dim)}
+.md-body a{color:inherit}
 #mic-btn{flex:1;min-height:46px;font-size:15px;display:flex;align-items:center;justify-content:center}
 .chip-row{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch}
 #win-recent,#proj-recent{margin-top:8px}
@@ -190,15 +227,49 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 #lightbox{position:fixed;inset:0;background:rgba(15,14,12,.93);display:none;z-index:200;overflow:hidden;touch-action:none;user-select:none}
 #lightbox img{position:absolute;left:0;top:0;transform-origin:0 0;max-width:none;cursor:grab;-webkit-user-drag:none}
 #lb-controls{position:fixed;top:14px;right:14px;z-index:201;display:flex;gap:8px;align-items:center}
-#lb-controls button{height:38px;padding:0 14px;border-radius:19px;border:none;background:rgba(255,255,255,.12);color:#fff;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer;transition:background .15s;backdrop-filter:blur(4px)}
-#lb-controls button:hover{background:rgba(255,255,255,.24)}
+#lb-controls button,#lb-keys button{height:38px;padding:0 14px;border-radius:19px;border:none;background:rgba(255,255,255,.12);color:#fff;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer;transition:background .15s;backdrop-filter:blur(4px)}
+#lb-controls button:hover,#lb-keys button:hover{background:rgba(255,255,255,.24)}
+/* Quick keys inside the zoomed viewer — same set as the bottom bar, so Claude
+   Code question prompts are answerable without leaving the screenshot */
+#lb-bottom{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:201;display:flex;flex-direction:column;align-items:center;gap:8px;max-width:calc(100vw - 28px)}
+#lb-keys{position:relative;z-index:201;display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+#lb-keys button{min-width:38px;padding:0 12px}
+/* Green pills mirror the dashboard (Enter / Sh+Tab), which is what leaves the
+   new plain Tab pill visually distinct from Sh+Tab inside the viewer. */
+#lb-keys button.lb-ok{background:rgba(22,163,74,.55)}
+#lb-keys button.lb-ok:hover{background:rgba(22,163,74,.75)}
+#lb-keys .qk-input{height:38px;border-radius:19px;border:none;background:rgba(255,255,255,.12);color:#fff;font-size:13px;backdrop-filter:blur(4px)}
+#lb-keys .qk-input::placeholder{color:rgba(255,255,255,.55)}
+#lb-keys .qk-input,#lb-proj-row select{touch-action:auto;user-select:text}
+/* Project row: pick a project, open/focus its VS Code window, start Claude Code —
+   the whole "get a session running" flow without leaving the zoomed screenshot. */
+#lb-proj-row{position:relative;z-index:201;display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+#lb-proj-row button{height:38px;padding:0 14px;border-radius:19px;border:none;background:rgba(255,255,255,.12);color:#fff;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer;transition:background .15s;backdrop-filter:blur(4px)}
+#lb-proj-row button:hover{background:rgba(255,255,255,.24)}
+#lb-proj-row select{height:38px;max-width:190px;padding:0 12px;border-radius:19px;border:none;background:rgba(255,255,255,.12);color:#fff;font-family:inherit;font-size:13px}
+#lb-proj-row select option{color:#1c1917}
+#lb-claude,#lb-proj-row button.lb-claude{background:var(--claude)}
+#lb-claude:hover,#lb-proj-row button.lb-claude:hover{background:var(--claude-hover)}
 #lb-click.on{background:var(--err)}
 #lb-auto.on{background:var(--ok)}
 #lb-int{min-width:52px}
 #lb-close{width:38px;padding:0;font-size:20px;line-height:1;border-radius:50%}
 
 /* Toast */
-#toast{position:fixed;bottom:20px;right:20px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 16px;font-size:13px;display:none;z-index:300;max-width:300px;box-shadow:0 4px 16px rgba(28,25,23,.1)}
+/* ===== Quick keys bar (fixed bottom) — answer Claude Code question prompts
+   (arrows/enter to move the selector, Sh+Tab for mode, 1/2 for numbered answers)
+   from anywhere on the page, with a trail of recently tapped keys ===== */
+#quick-keys{position:fixed;left:0;right:0;bottom:0;z-index:90;display:flex;align-items:center;justify-content:center;gap:10px;padding:7px 10px;background:var(--card);border-top:1px solid var(--border);box-shadow:0 -2px 10px rgba(28,25,23,.06)}
+.qk-btns{display:flex;gap:6px;flex-shrink:0}
+.qk-trail{font-size:11px;color:var(--dim);min-width:0;max-width:38%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;direction:rtl;text-align:left}
+.qk-trail bdi{direction:ltr}
+/* Freeform answer field: replaces the fixed 1/2 digit buttons — any answer, not
+   just the two that happened to have a button. Enter sends text + Enter. */
+.qk-input{width:120px;min-width:80px;padding:6px 10px;border:1px solid var(--border);border-radius:9px;background:var(--card);color:var(--text);font-family:inherit;font-size:12px}
+.qk-input:focus{outline:none;border-color:var(--accent)}
+body{padding-bottom:62px}
+
+#toast{position:fixed;bottom:64px;right:20px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 16px;font-size:13px;display:none;z-index:300;max-width:300px;box-shadow:0 4px 16px rgba(28,25,23,.1)}
 #toast.error{border-color:var(--err);color:var(--err)}
 #toast.ok{border-color:var(--ok);color:var(--ok)}
 
@@ -212,23 +283,50 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 /* ===== Responsive ===== */
 @media(max-width:920px){
   /* Promote every panel into one column (rails + center collapse via display:contents)
-     so we can order them top→bottom: Windows → Projects (context pickers on top, unlike
-     desktop where they sit in the rails) → Screen → Type Text (kept adjacent so you can
-     scroll screen↔input in one flick) → then DOM order (Keys chips → History → Scheduled
-     → Actions chips → Claude → Shell).
+     so we can order them top→bottom: Screen first (the thing you look at), then
+     Windows (used constantly, collapsible) → Projects (collapsible) → Type Text
+     → then DOM order (Keys chips → History → Scheduled → Actions chips → Claude → Shell).
      Keys/Actions rail panels hide — mob-tools chip rows cover them. */
   .main-row{flex-direction:column;align-items:stretch}
   .rail,.center{display:contents}
   .rail-tools{display:none}
   .mob-tools{display:flex}
-  #win-panel{order:-4}
-  #proj-panel{order:-3}
-  #screen-panel{order:-2}
+  #screen-panel{order:-4}
+  #win-panel{order:-3}
+  #proj-panel{order:-2}
   #type-panel{order:-1}
 }
 @media(max-width:560px){
-  body{padding:10px}
+  body{padding:10px 10px 62px}  /* keep clearance for the fixed quick-keys bar */
   .screen-head{flex-wrap:wrap}
+  /* Keep the bar to ONE row: clearance is a fixed 62px, so a wrapped bar would
+     sit on top of the last panel. Trail and launcher have homes elsewhere
+     (Actions chips + the viewer row); the keys and the field do not. */
+  .qk-trail{display:none}
+  #quick-keys .btn-claude{display:none}
+  .qk-input{width:84px}
+}
+
+/* Zoomed viewer on a phone (or a short landscape window): both control rows sit
+   ON TOP of the picture, so every pixel they take is picture lost. At 38px pills
+   with 8px gaps the two rows wrapped into four and ate half the screen. Compact
+   to 32px, one row each — buttons keep their size, the select and the freeform
+   field absorb whatever width is left. */
+@media(max-width:620px),(max-height:520px){
+  #lb-bottom{bottom:8px;gap:6px;max-width:calc(100vw - 16px);width:calc(100vw - 16px)}
+  #lb-proj-row,#lb-keys{gap:6px;flex-wrap:nowrap;width:100%}
+  #lb-controls{top:8px;right:8px;gap:6px}
+  #lb-controls button,#lb-keys button,#lb-proj-row button,
+  #lb-keys .qk-input,#lb-proj-row select{height:32px;font-size:12px;padding:0 9px;border-radius:16px}
+  #lb-controls button,#lb-keys button,#lb-proj-row button{flex:0 0 auto}
+  #lb-keys button{min-width:32px;padding:0 8px}
+  #lb-close{width:32px;font-size:18px;padding:0}
+  #lb-int{min-width:40px}
+  /* min-width:0 or a flex item refuses to shrink below its content width and the
+     row overflows the viewport instead of fitting. */
+  #lb-proj-row select{flex:1 1 auto;min-width:0;max-width:none;padding:0 8px}
+  #lb-keys .qk-input{flex:1 1 auto;min-width:0;width:auto}
+  #lb-proj-row .lb-lbl{display:none}   /* 🖥 alone still reads as "focus window" */
 }
 
 /* Loading */
@@ -252,6 +350,7 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 <!-- Main UI -->
 <div id="main" style="display:none">
 <div class="wrap">
+<a class="view-link" href="/refine" title="Text workbench: mic, Improve, markdown, Copy — no PC control">&#10024; Refine</a>
 <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle night theme">🌙</button>
 <h1>TG-IDE-Bot</h1>
 <div class="status-bar" id="status-bar">Connecting...</div>
@@ -275,8 +374,8 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 
   <!-- Left rail (desktop): Windows (bottom-aligned to Screen) + Keys (top-aligned to Type Text) -->
   <div class="rail">
-    <div class="panel tight" id="win-panel">
-      <h3>Windows — current: <b id="win-current">…</b></h3>
+    <div class="panel tight acc" id="win-panel">
+      <h3 onclick="togglePanel('win-panel')">Windows — current: <b id="win-current">…</b></h3>
       <select id="win-select"><option value="">— select window —</option></select>
       <div class="btn-row">
         <button class="btn btn-sm btn-soft" onclick="loadWindows()">&#10227; Refresh</button>
@@ -341,9 +440,22 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
         <button class="btn btn-soft" id="mic-btn" onclick="toggleMic()" title="Voice to text"></button>
         <button class="btn btn-primary" onclick="doType()">Type</button>
       </div>
+      <div class="type-controls">
+        <button class="btn btn-soft" id="twin-btn" onclick="toggleTwin()" title="Inject HAE twin persona + principles into Improve">Twin: OFF</button>
+        <select id="imp-style" onchange="impStyleChanged()" title="Improve style">
+          <option value="structured" selected>Structured</option>
+          <option value="detailed">Detailed</option>
+          <option value="concise">Concise</option>
+          <option value="translate">&rarr; EN</option>
+        </select>
+        <button class="btn btn-soft" id="imp-btn" onclick="doImprove()" title="Rewrite the text below with AI — original saved to History, nothing is sent">&#10024; Improve</button>
+        <button class="btn btn-soft" id="md-btn" onclick="toggleMd()" title="Render the text below as markdown (headers, tables, code)">MD: OFF</button>
+        <button class="btn btn-soft" id="blocks-btn" onclick="toggleBlocks()" title="Fold big pasted text into a block chip instead of filling the field">Blocks: ON</button>
+      </div>
       <div class="input-row">
         <textarea id="type-input" rows="2" placeholder="Text to type... (Enter = send, Shift+Enter = new row, paste image = send to PC)"></textarea>
       </div>
+      <div class="md-body" id="md-preview" style="display:none"></div>
       <div class="btn-grid">
         <button class="btn btn-sm btn-soft" onclick="doTypePreset('/clear')">/clear</button>
         <button class="btn btn-sm btn-soft" onclick="doTypePreset('/caveman')">/caveman</button>
@@ -415,8 +527,8 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 
   <!-- Right rail (desktop): Projects (bottom-aligned to Screen) + Actions (top-aligned to Type Text) -->
   <div class="rail">
-    <div class="panel tight" id="proj-panel">
-      <h3>Projects — current: <b id="proj-current">…</b></h3>
+    <div class="panel tight acc" id="proj-panel">
+      <h3 onclick="togglePanel('proj-panel')">Projects — current: <b id="proj-current">…</b></h3>
       <select id="proj-select"><option value="">— select project —</option></select>
       <div class="btn-row">
         <button class="btn btn-sm btn-soft" onclick="loadFolders()">&#10227; Refresh</button>
@@ -435,6 +547,20 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 
 </div>
 </div>
+
+<!-- Quick keys: fixed bottom bar for Claude Code question prompts -->
+<div id="quick-keys">
+  <div class="qk-trail" id="qk-trail"><span class="hint">no keys tapped yet</span></div>
+  <div class="qk-btns">
+    <button class="btn btn-sm" onclick="doKey('left')" title="Arrow left">&larr;</button>
+    <button class="btn btn-sm" onclick="doKey('right')" title="Arrow right">&rarr;</button>
+    <button class="btn btn-sm btn-ok-soft" onclick="doKey('enter')">Enter</button>
+    <button class="btn btn-sm btn-ok-soft" onclick="doKey('shift+tab')" title="Cycle Claude Code mode">Sh+Tab</button>
+    <button class="btn btn-sm" onclick="doKey('tab')" title="Tab — next field / accept completion (NOT Sh+Tab)">Tab</button>
+    <button class="btn btn-sm btn-claude" onclick="doClaudeCode()" title="Start Claude Code in the VS Code terminal">Claude</button>
+    <input id="qk-type" class="qk-input" placeholder="type&hellip; &#9166;" title="Type text + Enter into the focused window">
+  </div>
+</div>
 </div>
 
 <!-- Lightbox viewer -->
@@ -449,14 +575,29 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
     <button data-scroll="up" title="Scroll up (hold to keep scrolling)">▲</button>
     <button data-scroll="down" title="Scroll down (hold to keep scrolling)">▼</button>
   </div>
+  <div id="lb-bottom">
+    <div id="lb-proj-row">
+      <select id="lb-proj"><option value="">&mdash; select project &mdash;</option></select>
+      <button onclick="doFocusProj('lb-proj')" title="Focus this project's VS Code window">&#128421;<span class="lb-lbl"> Focus</span></button>
+      <button onclick="doCodeSel('lb-proj')" title="Open this project in a new VS Code window">Open</button>
+      <button id="lb-claude" onclick="doClaudeCode()" title="Start Claude Code in the VS Code terminal">Claude</button>
+    </div>
+    <div id="lb-keys">
+      <button onclick="doKey('left')" title="Arrow left">&larr;</button>
+      <button onclick="doKey('right')" title="Arrow right">&rarr;</button>
+      <button class="lb-ok" onclick="doKey('enter')">Enter</button>
+      <button class="lb-ok" onclick="doKey('shift+tab')" title="Cycle Claude Code mode">Sh+Tab</button>
+      <button onclick="doKey('tab')" title="Tab — next field / accept completion (NOT Sh+Tab)">Tab</button>
+      <input id="lb-type" class="qk-input" placeholder="type&hellip; &#9166;" title="Type text + Enter into the focused window">
+    </div>
+  </div>
   <img id="lb-img" alt="preview">
 </div>
 
 <div id="toast"></div>
 
+<script src="/static/common.js?v=0.20.0"></script>
 <script>
-let TOKEN = localStorage.getItem('tg_bot_token') || '';
-let BASE = location.origin;
 let autoTimer = null, autoOn = false;
 let lastRect = null, clickMode = false, lastCapture = 'window';  // window capture is the entry default
 
@@ -480,21 +621,9 @@ const ACTIONS = [
   ['Build','btn-ok-soft',()=>doBuild(false)],
   ['Build APK','btn-ok-soft',()=>doBuild(true)],
   ['APK List','btn-soft',()=>doApks()],
+  ['Claude','btn-claude',()=>doClaudeCode()],
   ['Restart Bot','btn-red-soft',()=>doRestart()]
 ];
-/* ===== Theme (night/day) ===== */
-function applyTheme(t){
-  if(t==='dark') document.documentElement.dataset.theme='dark';
-  else document.documentElement.removeAttribute('data-theme');
-  const b=document.getElementById('theme-toggle');
-  if(b) b.textContent = t==='dark' ? '☀' : '🌙';
-}
-function toggleTheme(){
-  const next = document.documentElement.dataset.theme==='dark' ? 'light' : 'dark';
-  try{ localStorage.setItem('tg_theme', next); }catch(e){}
-  applyTheme(next);
-}
-applyTheme(localStorage.getItem('tg_theme')||'light');
 
 function renderTools(){
   document.querySelectorAll('[data-keys]').forEach(el=>{
@@ -532,20 +661,19 @@ window.addEventListener('resize', alignRails);
 new ResizeObserver(alignRails).observe(document.querySelector('.center'));
 alignRails();
 
-// Telegram Mini App mode: auth via initData, no token needed
-const _twa = (window.Telegram && Telegram.WebApp) || null;
-if (_twa) {
-  _twa.ready();
-  _twa.expand();
-  // Android/iOS Telegram close the Mini App on a vertical drag inside the webview.
-  // Panning a zoomed screenshot is exactly that gesture, so the viewer used to
-  // "close itself" mid-pan with no back press. Bot API 7.7+; older clients ignore it.
-  try { _twa.disableVerticalSwipes(); } catch (e) {}
-  // macOS Telegram: hex colors here break webview rendering (solid red screen) — skip
-  if (_twa.platform !== 'macos') {
-    try { _twa.setBackgroundColor('#faf9f7'); _twa.setHeaderColor('#ffffff'); } catch (e) {}
-  }
+/* Accordion: Windows/Projects fold on title tap; state survives reloads.
+   Collapsed = hidden via CSS only — selects/chips keep updating underneath,
+   so expanding shows current data with no refetch. */
+function togglePanel(id){
+  const p = document.getElementById(id);
+  const collapsed = p.classList.toggle('collapsed');
+  localStorage.setItem('acc_' + id, collapsed ? '1' : '0');
 }
+['win-panel', 'proj-panel'].forEach(id => {
+  if (localStorage.getItem('acc_' + id) === '1')
+    document.getElementById(id).classList.add('collapsed');
+});
+
 
 /* Telegram BackButton: while the viewer is open, hardware/HW back must close the
    viewer, not the whole Mini App. */
@@ -557,34 +685,8 @@ function _tgBack(show, onClick) {
     else { b.hide(); b.offClick(onClick); }
   } catch (e) {}
 }
-const TG = (_twa && _twa.initData) ? _twa : null;
 
-/* Must equal config.VERSION — tests enforce it. The Telegram webview caches the
-   Mini App page hard (no-cache headers are advisory there), so a stale UI can
-   run against a new server for days. Detect it and reload past the cache once. */
-const CLIENT_VERSION = '0.17.0';
 
-function _checkStaleClient(serverVersion) {
-  if (!serverVersion || serverVersion === CLIENT_VERSION) return false;
-  const msg = `Stale dashboard (UI ${CLIENT_VERSION}, bot ${serverVersion})`;
-  if (sessionStorage.getItem('tg_reloaded_for') === serverVersion) {
-    setStatus(msg + ' — reload failed, clear the app cache', true);
-    return false;                 // already tried; don't loop
-  }
-  sessionStorage.setItem('tg_reloaded_for', serverVersion);
-  setStatus(msg + ' — reloading…', true);
-  // Query string differs → the webview cannot serve the cached entry
-  location.replace(location.pathname + '?v=' + encodeURIComponent(serverVersion));
-  return true;
-}
-
-function doAuth() {
-  const v = document.getElementById('token-input').value.trim();
-  if (!v) return;                 // empty input must not wipe a working token
-  TOKEN = v;
-  localStorage.setItem('tg_bot_token', TOKEN);
-  checkAuth();
-}
 
 async function checkAuth() {
   try {
@@ -606,65 +708,7 @@ async function checkAuth() {
   }
 }
 
-/* fetch() has NO timeout of its own. Through the reverse-SSH tunnel a request
-   whose upstream died mid-flight hangs on the proxy indefinitely — and with the
-   single-flight capture queue one such request wedges the live view forever
-   (the symptom: "web updates, Telegram never does"). Every call gets an abort
-   deadline; long jobs pass their own (0 = wait as long as it takes). */
-const API_TIMEOUT = 20000;
 
-async function api(method, path, body, timeoutMs) {
-  const headers = {'Content-Type': 'application/json'};
-  if (TG) headers['X-Telegram-Init-Data'] = TG.initData;
-  else headers['Authorization'] = 'Bearer ' + TOKEN;
-  const opts = {method, headers, cache: 'no-store'};
-  if (body) opts.body = JSON.stringify(body);
-  const ms = timeoutMs === undefined ? API_TIMEOUT : timeoutMs;
-  const ctl = new AbortController();
-  const timer = ms ? setTimeout(() => ctl.abort(), ms) : null;
-  opts.signal = ctl.signal;
-  try {
-    const r = await fetch(BASE + path, opts);
-    const text = await r.text();
-    if (r.status === 401 && TG) {
-      // Mini App initData expires after 24h — a reopened cached webview 401s
-      return {ok: false, error: 'Session expired — close and reopen the Mini App'};
-    }
-    try {
-      return JSON.parse(text);
-    } catch(e) {
-      // Non-JSON reply (404 page, proxy error) — surface readable error
-      return {ok: false, error: 'HTTP ' + r.status + ': ' + text.slice(0, 120)};
-    }
-  } catch(e) {
-    if (e.name === 'AbortError') return {ok: false, error: `Timed out after ${ms / 1000}s — tunnel stalled?`};
-    return {ok: false, error: e.message};
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
-
-function toast(msg, isErr) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.className = isErr ? 'error' : 'ok';
-  t.style.display = 'block';
-  setTimeout(() => t.style.display = 'none', 3000);
-  setStatus(msg, isErr);
-}
-
-/* Persistent status field in Actions rail (+ mobile) — last action result with time */
-function setStatus(msg, isErr) {
-  const time = new Date().toLocaleTimeString();
-  document.querySelectorAll('[data-status]').forEach(el => {
-    el.className = 'action-status ' + (isErr ? 'err' : 'ok');
-    el.innerHTML = '';
-    const b = document.createElement('b');
-    b.textContent = msg;
-    el.appendChild(b);
-    el.appendChild(document.createTextNode(time));
-  });
-}
 
 function updateStatus(data) {
   document.getElementById('status-bar').innerHTML =
@@ -1098,6 +1142,10 @@ function bindImgClick() {
    started on the image. Without them a plain tap (or the tail of a pinch) looked
    like a backdrop tap and closed the viewer. */
 const _lb = {sc: 1, min: 1, tx: 0, ty: 0, ptrs: new Map(), dist: 0, moved: false, lastTap: 0, click: false, closeTimer: null, onBackdrop: false, multi: false};
+/* Controls layered over the viewer (keys, project row, the freeform field) must be
+   exempt from pan/pinch/backdrop-close, or a tap on the input starts a drag and the
+   viewer dismisses itself mid-typing. SELECT/INPUT matter as much as BUTTON now. */
+const _lbCtl = el => ['BUTTON', 'INPUT', 'SELECT', 'OPTION'].includes(el.tagName);
 const _lbBox = () => document.getElementById('lightbox');
 const _lbImg = () => document.getElementById('lb-img');
 
@@ -1122,6 +1170,9 @@ function openLightbox(src) {
   if (img.complete) img.onload();
   // Auto is a single shared loop — the viewer just mirrors its state
   _lbSyncAutoBtn();
+  // Project row is filled by loadFolders(); if the viewer opened before that
+  // landed it would show an empty list, so pull once here.
+  if (document.getElementById('lb-proj').options.length < 2) loadFolders();
   // The viewer wants ≥1920 to be worth zooming into; the frame we just showed
   // was sized for the small panel. Pull a sharp one right away.
   _lastHash = '';
@@ -1180,7 +1231,7 @@ function _lbZoomAt(cx, cy, factor) {
   }, {passive: false});
 
   box.addEventListener('pointerdown', e => {
-    if (e.target.tagName === 'BUTTON') return;
+    if (_lbCtl(e.target)) return;
     e.preventDefault();
     box.setPointerCapture(e.pointerId);
     _lb.ptrs.set(e.pointerId, {x: e.clientX, y: e.clientY});
@@ -1217,7 +1268,7 @@ function _lbZoomAt(cx, cy, factor) {
   });
 
   box.addEventListener('pointerup', e => {
-    if (e.target.tagName === 'BUTTON') return;
+    if (_lbCtl(e.target)) return;
     _lb.ptrs.delete(e.pointerId);
     _lb.dist = 0;
     if (_lb.moved || _lb.multi) return;
@@ -1477,12 +1528,13 @@ async function loadFolders() {
     _projList = r.folders || [];       // deleted/renamed folders drop out of recents
     document.getElementById('proj-current').textContent = r.current || '?';
     _fillSelect('proj-select', r.folders, '— select project —', r.current);
+    _fillSelect('lb-proj', r.folders, '— select project —', r.current);   // viewer copy
     renderRecents('proj');
   } catch(e) { toast(e.message, true); }
 }
 
-function _selectedProject() {
-  const folder = document.getElementById('proj-select').value;
+function _selectedProject(selId = 'proj-select') {
+  const folder = document.getElementById(selId).value;
   if (!folder) toast('Select project first', true);
   return folder;
 }
@@ -1501,8 +1553,8 @@ async function setProjectSel() {
   await _setProject(folder);
 }
 
-async function doCodeSel() {
-  const folder = _selectedProject();
+async function doCodeSel(selId) {
+  const folder = _selectedProject(selId);
   if (!folder) return;
   try {
     const r = await api('POST', '/api/code', {folder});
@@ -1511,8 +1563,65 @@ async function doCodeSel() {
   } catch(e) { toast(e.message, true); }
 }
 
+/* Focus an ALREADY open project window instead of opening a second one.
+   '<folder> - Visual Studio Code' is matched by containment server-side, so it
+   still hits the window even though VS Code prefixes the open file to the title
+   ('index.html - Tg-IDE-bot - Visual Studio Code'). */
+async function doFocusProj(selId) {
+  const folder = _selectedProject(selId);
+  if (!folder) return;
+  await _focusTitle(folder + ' - Visual Studio Code');
+}
+
 /* ===== Input actions ===== */
+/* Recently-tapped-keys trail in the bottom quick-keys bar. Hooked centrally in
+   doKey so every key press (bar, Keys rail, mob chips) shows up; newest last. */
+const _qkTrail = [];
+const _QK_LABELS = {left: '←', right: '→', enter: 'Enter', 'shift+tab': 'Sh+Tab',
+                    escape: 'Esc', backspace: 'Bksp', space: 'Space', tab: 'Tab'};
+function _qkPush(label) {
+  _qkTrail.push(label);
+  if (_qkTrail.length > 8) _qkTrail.shift();
+  const el = document.getElementById('qk-trail');
+  el.innerHTML = '';
+  const b = document.createElement('bdi');
+  b.textContent = _qkTrail.join(' · ');
+  el.appendChild(b);
+}
+/* Freeform answer field (bottom bar + viewer). Replaces the fixed 1/2 digit
+   buttons: the same two taps still work by typing them, and everything the two
+   buttons could not answer ("3", "yes", a path) now works too. */
+function qkSend(id) {
+  const el = document.getElementById(id);
+  const text = el.value.trim();
+  if (!text) return;
+  _qkPush((text.length > 12 ? text.slice(0, 12) + '…' : text) + '⏎');
+  el.value = '';
+  doTypePreset(text);
+}
+
+/* Claude Code launcher (orange). `terminal: true` makes the server move the caret
+   into the VS Code integrated terminal before typing — after `code -n` the caret
+   sits in the editor, where the paste is swallowed by an editor binding.
+   `new_terminal: true` opens a fresh one: "focus the terminal view" lands in the
+   last active terminal, and if that already runs Claude Code the word `claude`
+   arrives as a chat message to that session instead of starting a new one
+   (observed live, 2026-08-25). A new terminal is always a shell prompt, and it
+   also covers a just-opened window with no terminal yet. The server says whether
+   the focus really happened, and a miss is a loud toast. */
+async function doClaudeCode() {
+  _qkPush('claude⏎');
+  try {
+    const r = await api('POST', '/api/type',
+                        {text: 'claude', enter: true, terminal: true, new_terminal: true}, 120000);
+    if (!r.ok) { toast(r.error, true); return; }
+    if (r.terminal) toast('Claude Code starting in a new terminal — ' + r.terminal_msg);
+    else toast('Typed "claude", but ' + r.terminal_msg, true);
+  } catch(e) { toast(e.message, true); }
+}
+
 async function doKey(key, repeat, interval) {
+  _qkPush((_QK_LABELS[key] || key) + (repeat > 1 ? '×' + repeat : ''));
   try {
     const r = await api('POST', '/api/key', {key, repeat: repeat||1, interval: interval||0}, 0);
     if (r.ok) toast(`Pressed: ${key}` + (repeat > 1 ? ` x${repeat}` : ''));
@@ -1537,72 +1646,17 @@ function bindSendKeys(id, sendFn) {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendFn(); }
   });
 }
+bindSendKeys('qk-type', () => qkSend('qk-type'));
+bindSendKeys('lb-type', () => qkSend('lb-type'));
 bindSendKeys('type-input', () => doType());
 bindSendKeys('claude-input', () => doClaude());
 bindSendKeys('sh-input', () => doSh());
 
-/* ===== Auto-grow inputs to fit content (long humanized prompts) ===== */
-function autoGrow(el) {
-  el.style.height = 'auto';
-  el.style.height = Math.min(el.scrollHeight + 2, 400) + 'px';
-}
 ['type-input', 'claude-input', 'sh-input'].forEach(id => {
   const el = document.getElementById(id);
   el.addEventListener('input', () => autoGrow(el));
 });
 
-/* ===== History (localStorage, newest first, cap 100) ===== */
-function _history() {
-  try { return JSON.parse(localStorage.getItem('tg_history') || '[]'); }
-  catch(e) { return []; }
-}
-
-function addHistory(kind, text) {
-  const h = _history();
-  h.unshift({t: new Date().toISOString(), kind, text});
-  localStorage.setItem('tg_history', JSON.stringify(h.slice(0, 100)));
-  renderHistory();
-}
-
-function clearHistory() {
-  localStorage.removeItem('tg_history');
-  renderHistory();
-}
-
-function renderHistory() {
-  const box = document.getElementById('history-list');
-  const h = _history();
-  box.innerHTML = '';
-  if (!h.length) {
-    box.innerHTML = '<span class="hint">Sent messages appear here — click one to refill its input</span>';
-    return;
-  }
-  const targets = {type: 'type-input', shell: 'sh-input', claude: 'claude-input'};
-  h.forEach(item => {
-    const row = document.createElement('div');
-    row.className = 'hist-row';
-    const time = document.createElement('span');
-    time.className = 'hist-time';
-    time.textContent = new Date(item.t).toLocaleTimeString().slice(0, 5);
-    const kind = document.createElement('span');
-    kind.className = 'hist-kind ' + item.kind;
-    kind.textContent = item.kind;
-    const text = document.createElement('span');
-    text.className = 'hist-text';
-    text.textContent = item.text;
-    text.title = item.text;
-    row.append(time, kind, text);
-    row.onclick = () => {
-      const target = targets[item.kind];
-      if (target) {
-        const el = document.getElementById(target);
-        el.value = item.text; autoGrow(el); el.focus();
-      }
-    };
-    box.appendChild(row);
-  });
-}
-renderHistory();
 
 /* ===== Paste compose: attachments (images + big text blocks) sent on Type =====
    Image paste / Alt+V -> thumbnail chip. Text > 400 chars or > 8 lines -> block
@@ -1672,11 +1726,11 @@ document.getElementById('type-input').addEventListener('paste', e => {
     }
   }
   const text = e.clipboardData.getData('text/plain');
-  if (text && (text.length > TEXT_BLOCK_CHARS || text.split('\n').length > TEXT_BLOCK_LINES)) {
+  if (_blockPaste && text && (text.length > TEXT_BLOCK_CHARS || text.split('\n').length > TEXT_BLOCK_LINES)) {
     e.preventDefault();
     addTextAttachment(text);
   }
-  // small text — native paste
+  // small text (or Blocks: OFF) — native paste into the field
 });
 
 /* Alt+V anywhere: clipboard image -> attachment chip */
@@ -1723,6 +1777,7 @@ async function doType() {
           (imgs.length && text ? ' + ' : '') + (text ? text.slice(0, 50) : ''));
     input.value = '';
     autoGrow(input);
+    if (_mdOn) _mdRenderNow();     // clear the stale preview too
     attachments.forEach(a => a.url && URL.revokeObjectURL(a.url));
     attachments.length = 0;
     renderAttachments();
@@ -1809,142 +1864,25 @@ async function doTypePreset(text, enter=true) {
   } catch(e) { toast(e.message, true); }
 }
 
-/* ===== Voice to text: mic button records, /api/stt transcribes into Type field ===== */
-const MIC_ICON = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>';
-const STOP_ICON = '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
-let _rec = null, _recTimer = null, _recTick = null, _recT0 = 0;
-const REC_MAX_S = 600;   // 10 min — WAV stays under Groq 25MB cap
-document.getElementById('mic-btn').innerHTML = MIC_ICON;
 
-/* Humanize toggle: clean transcript via LLM server-side (persisted) */
-let _humanize = localStorage.getItem('tg_humanize') !== '0';
-function toggleHumanize() {
-  _humanize = !_humanize;
-  localStorage.setItem('tg_humanize', _humanize ? '1' : '0');
-  _syncHumanBtn();
-  toast('Transcript cleanup: ' + (_humanize ? 'ON' : 'OFF (raw)'));
-}
-function _syncHumanBtn() {
-  // Monochrome toggle: dark = ON, gray = OFF (palette: gray/white/black/red only)
-  const b = document.getElementById('human-btn');
-  b.textContent = 'AI: ' + (_humanize ? 'ON' : 'OFF');
-  b.classList.toggle('btn-primary', _humanize);
-  b.classList.toggle('btn-soft', !_humanize);
-}
-_syncHumanBtn();
 
-async function toggleMic() {
-  const btn = document.getElementById('mic-btn');
-  if (_rec) { _rec.stop(); return; }
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({audio: true});
-    _micLabel = stream.getAudioTracks()[0]?.label || 'unknown device';
-    const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus'
-               : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '';
-    const chunks = [];
-    _rec = new MediaRecorder(stream, mime ? {mimeType: mime} : undefined);
-    _rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
-    _rec.onstop = async () => {
-      clearTimeout(_recTimer);
-      clearInterval(_recTick);
-      stream.getTracks().forEach(t => t.stop());
-      const blob = new Blob(chunks, {type: _rec.mimeType || 'audio/webm'});
-      _rec = null;
-      btn.classList.remove('btn-red');
-      if (blob.size < 1000) { btn.innerHTML = MIC_ICON; toast('Recording too short', true); return; }
-      btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>';
-      // MediaRecorder webm lacks duration metadata — some decoders read it as 0s
-      // silence ("Thank you." hallucination). Re-encode to WAV via Web Audio.
-      let payload = blob;
-      _lastPeak = -1;
-      try { payload = await blobToWav(blob); } catch(e) { /* fall back to raw blob */ }
-      if (_lastPeak >= 0 && _lastPeak < 0.005) {
-        btn.disabled = false; btn.innerHTML = MIC_ICON;
-        toast(`Mic "${_micLabel}" captured pure silence (peak ${_lastPeak.toFixed(4)}) — check mic permission / input device / OS mic privacy`, true);
-        return;
-      }
-      setStatus(`Uploading audio (${(payload.size / 1024 / 1024).toFixed(1)}MB)...`, false);
-      const r = await sttUpload(payload);
-      btn.disabled = false; btn.innerHTML = MIC_ICON;
-      if (r.ok && r.text) {
-        const input = document.getElementById('type-input');
-        input.value = input.value ? input.value.replace(/\s*$/, ' ') + r.text : r.text;
-        autoGrow(input);
-        input.focus();
-        addHistory('type', r.text);
-        toast(r.raw && r.raw !== r.text
-          ? `Transcribed + cleaned (raw ${r.raw.length} → ${r.text.length} chars)`
-          : 'Transcribed (' + r.text.length + ' chars)');
-      } else toast(r.error || 'STT: empty result', true);
-    };
-    _rec.start();
-    btn.classList.add('btn-red');
-    btn.innerHTML = STOP_ICON;
-    // Ticking mm:ss on the button; ⚠ during the last minute
-    _recT0 = Date.now();
-    _recTick = setInterval(() => {
-      const s = Math.floor((Date.now() - _recT0) / 1000);
-      const mm = String(Math.floor(s / 60)), ss = String(s % 60).padStart(2, '0');
-      btn.innerHTML = (s >= REC_MAX_S - 60 ? '⚠ ' : '') + mm + ':' + ss;
-    }, 1000);
-    _recTimer = setTimeout(() => {
-      if (_rec) { toast('Max 10 min reached, transcribing...', true); _rec.stop(); }
-    }, REC_MAX_S * 1000);
-  } catch(e) { toast('Mic: ' + e.message + ' — Telegram webview may block mic, try browser', true); }
-}
 
-let _lastPeak = -1;   // max |sample| of last recording; -1 = unknown (decode failed)
-let _micLabel = '';   // device label of last used mic (for diagnostics)
-
-/* Decode any recorded blob -> mono 16kHz 16-bit WAV (small, decodes everywhere) */
-async function blobToWav(blob) {
-  const raw = await blob.arrayBuffer();
-  const ac = new (window.AudioContext || window.webkitAudioContext)();
-  const decoded = await ac.decodeAudioData(raw);
-  ac.close();
-  const rate = 16000;
-  const frames = Math.ceil(decoded.duration * rate);
-  const oc = new OfflineAudioContext(1, frames, rate);
-  const src = oc.createBufferSource();
-  src.buffer = decoded;
-  src.connect(oc.destination);
-  src.start();
-  const rendered = await oc.startRendering();
-  const pcm = rendered.getChannelData(0);
-  _lastPeak = 0;
-  for (let i = 0; i < pcm.length; i++) { const a = Math.abs(pcm[i]); if (a > _lastPeak) _lastPeak = a; }
-  const buf = new ArrayBuffer(44 + pcm.length * 2);
-  const v = new DataView(buf);
-  const wstr = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
-  wstr(0, 'RIFF'); v.setUint32(4, 36 + pcm.length * 2, true); wstr(8, 'WAVE');
-  wstr(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
-  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
-  wstr(36, 'data'); v.setUint32(40, pcm.length * 2, true);
-  for (let i = 0; i < pcm.length; i++) {
-    const s = Math.max(-1, Math.min(1, pcm[i]));
-    v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
-  }
-  return new Blob([buf], {type: 'audio/wav'});
+/* ===== Blocks toggle: fold big pasted text into a chip, or let it inline ===== */
+let _blockPaste = localStorage.getItem('tg_blocks') !== '0';
+function toggleBlocks() {
+  _blockPaste = !_blockPaste;
+  localStorage.setItem('tg_blocks', _blockPaste ? '1' : '0');
+  _syncBlocksBtn();
+  toast('Big paste → block chip: ' + (_blockPaste ? 'ON' : 'OFF (paste inline)'));
 }
-
-async function sttUpload(blob) {
-  const headers = {'Content-Type': blob.type || 'audio/webm'};
-  if (TG) headers['X-Telegram-Init-Data'] = TG.initData;
-  else headers['Authorization'] = 'Bearer ' + TOKEN;
-  try {
-    const url = BASE + '/api/stt' + (_humanize ? '?humanize=1' : '');
-    // Abort guard: big WAV over mobile + tunnel can stall — fail loud, not spin forever
-    const ctl = new AbortController();
-    const kill = setTimeout(() => ctl.abort(), 180000);
-    const r = await fetch(url, {method: 'POST', headers, body: blob, signal: ctl.signal});
-    clearTimeout(kill);
-    const text = await r.text();
-    try { return JSON.parse(text); }
-    catch(e) { return {ok: false, error: 'HTTP ' + r.status + ': ' + text.slice(0, 120)}; }
-  } catch(e) {
-    return {ok: false, error: e.name === 'AbortError' ? 'Upload timed out (3 min)' : e.message};
-  }
+function _syncBlocksBtn() {
+  const b = document.getElementById('blocks-btn');
+  b.textContent = 'Blocks: ' + (_blockPaste ? 'ON' : 'OFF');
+  b.classList.toggle('btn-primary', _blockPaste);
+  b.classList.toggle('btn-soft', !_blockPaste);
 }
+_syncBlocksBtn();
+
 
 async function doClaude() {
   const input = document.getElementById('claude-input');

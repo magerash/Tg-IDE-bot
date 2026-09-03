@@ -7,7 +7,7 @@ load_dotenv()
 # Bot settings
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0"))
-VERSION = "0.17.0"
+VERSION = "0.20.0"
 
 # Web dashboard / Mini App
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
@@ -21,9 +21,27 @@ PROJECTS_ROOT = os.getenv("PROJECTS_ROOT", r"C:\Projects")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 STT_MODEL = os.getenv("STT_MODEL", "whisper-large-v3-turbo")
 
-# Transcript cleanup (same Groq key)
-HUMANIZE_MODEL = os.getenv("HUMANIZE_MODEL", "llama-3.3-70b-versatile")
+# Transcript cleanup (same Groq key).
+# Groq retires models without notice — `llama-3.3-70b-versatile` started answering
+# 404 on 2026-08-17 mid-day and the whole Llama family vanished from the key, so
+# every voice message silently fell back to the raw transcript. Hence a fallback
+# chain: the first model that answers wins, and the switch is logged.
+HUMANIZE_MODEL = os.getenv("HUMANIZE_MODEL", "qwen/qwen3.6-27b")
+HUMANIZE_FALLBACKS = [
+    m.strip() for m in os.getenv("HUMANIZE_FALLBACKS", "openai/gpt-oss-20b").split(",")
+    if m.strip()
+]
+# Reasoning models otherwise dump their whole chain of thought into `content`
+# (qwen3.6 returned 7196 chars of "<think>…" for a 483-char transcript, which then
+# gets pasted straight into Claude Code). "none" for qwen, "low" for gpt-oss.
+HUMANIZE_REASONING = os.getenv("HUMANIZE_REASONING", "none")
 HUMANIZE_DEFAULT = os.getenv("HUMANIZE_DEFAULT", "1") == "1"
+# HAE twin profile (persona.md + principles.md) — injected into "Improve text"
+# prompts when the Twin toggle is on. Missing dir = twin unavailable, not an error.
+HAE_PROFILE_DIR = os.getenv(
+    "HAE_PROFILE_DIR",
+    os.path.join(os.path.expanduser("~"), ".hae", "profile"),
+)
 
 # Claude Code metrics (live model/effort/context + 5h/weekly limits)
 _CC_HOME = os.path.join(os.path.expanduser("~"), ".claude")
@@ -64,6 +82,22 @@ TYPING_INTERVAL = 0.02  # delay between keystrokes (seconds)
 # answers "Typed: ...". 0.1s lost that race often enough to look like "typing is
 # broken"; raise this if messages still pile up unsent.
 TYPE_ENTER_DELAY = float(os.getenv("TYPE_ENTER_DELAY", "0.45"))
+# Paste hotkey. Claude Code binds Ctrl+V to "paste image from clipboard", so in a
+# terminal running it a text Ctrl+V is a silent no-op — the keystroke arrives, the
+# clipboard is right, and nothing appears. Ctrl+Shift+V is the terminal paste and
+# works in every VS Code session tested, so terminal-ish targets get that one.
+TYPE_PASTE_HOTKEY = os.getenv("TYPE_PASTE_HOTKEY", "ctrl+v")
+TYPE_TERMINAL_PASTE_HOTKEY = os.getenv("TYPE_TERMINAL_PASTE_HOTKEY", "ctrl+shift+v")
+# Window titles that mean "a terminal is on the other end" (lowercase substrings)
+TYPE_TERMINAL_HINTS = [
+    h.strip().lower()
+    for h in os.getenv(
+        "TYPE_TERMINAL_HINTS",
+        "visual studio code,windows terminal,powershell,command prompt,cmd.exe,"
+        "conemu,cmder,mintty,git bash,wsl,alacritty,wezterm,kitty,tabby",
+    ).split(",")
+    if h.strip()
+]
 
 # File delivery
 APK_SEARCH_DIRS = [

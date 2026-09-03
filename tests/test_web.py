@@ -21,6 +21,8 @@ from utils import project  # noqa: E402
 
 AUTH = {"Authorization": f"Bearer {WEB_TOKEN}"}
 INDEX = os.path.join(ROOT, "web", "index.html")
+COMMON = os.path.join(ROOT, "web", "common.js")
+REFINE = os.path.join(ROOT, "web", "refine.html")
 
 
 def _run(coro):
@@ -108,6 +110,72 @@ def test_humanize_module():
     """humanize() passes empty text through and module imports clean."""
     from utils.humanize import humanize
     assert asyncio.run(humanize("  ")) == "  "
+
+
+def test_improve_endpoint_auth_and_validation():
+    """/api/improve rejects unauthenticated calls and empty text."""
+    async def go():
+        async with await _client() as c:
+            r = await c.post("/api/improve", json={"text": "x"})
+            assert r.status == 401
+            r = await c.post("/api/improve", headers=AUTH, json={"text": "  "})
+            assert (await r.json())["ok"] is False
+    _run(go())
+
+
+def test_improve_styles_match_ui_and_twin_is_optional(tmp_path, monkeypatch):
+    """Style keys must match the #imp-style dropdown (drift guard), the twin
+    block must only appear when the profile exists, and a missing profile must
+    be reported — not crash — so the toggle never looks silently dead."""
+    from utils import improve as imp
+
+    # server styles == UI options
+    sel = re.search(r'<select id="imp-style".*?</select>', _html(), re.S).group(0)
+    opts = set(re.findall(r'option value="(\w+)"', sel))
+    assert opts == set(imp.STYLES), f"UI styles {opts} != server {set(imp.STYLES)}"
+
+    # missing profile dir -> None, no raise
+    monkeypatch.setattr(imp, "HAE_PROFILE_DIR", str(tmp_path / "nope"))
+    imp._twin_cache.update(key=None, text=None)
+    assert imp._twin_context() is None
+
+    # present profile -> injected into system prompt only when twin=True
+    prof = tmp_path / "profile"
+    prof.mkdir()
+    (prof / "persona.md").write_text("OPERATOR-PERSONA-MARK", encoding="utf-8")
+    (prof / "principles.md").write_text("PRINCIPLES-MARK", encoding="utf-8")
+    monkeypatch.setattr(imp, "HAE_PROFILE_DIR", str(prof))
+    imp._twin_cache.update(key=None, text=None)
+
+    seen = {}
+
+    async def fake_chat(system, text):
+        seen["system"] = system
+        return "improved"
+
+    monkeypatch.setattr(imp, "chat", fake_chat)
+    out, used = asyncio.run(imp.improve("raw", "structured", twin=True))
+    assert out == "improved" and used is True
+    assert "OPERATOR-PERSONA-MARK" in seen["system"] and "PRINCIPLES-MARK" in seen["system"]
+
+    out, used = asyncio.run(imp.improve("raw", "structured", twin=False))
+    assert used is False and "OPERATOR-PERSONA-MARK" not in seen["system"]
+
+
+def test_improve_never_auto_sends_and_saves_draft_first():
+    """doImprove must push the original to History BEFORE the request and must
+    not send the result — the user reads it and sends themselves."""
+    html = _html()
+    m = re.search(r"async function doImprove\(\).*?\n\}", html, re.S)
+    assert m, "doImprove missing"
+    body = m.group(0)
+    hist = body.find("addHistory('draft'")
+    call = body.find("api('POST', '/api/improve'")
+    assert 0 <= hist < call, "original text must hit History before the LLM call"
+    assert "doType(" not in body, "improve must never auto-send"
+    assert re.search(r"/api/improve'[^;]*?,\s*\d{4,}\s*\)", body), "no explicit timeout"
+    # history knows the new kind
+    assert "draft: 'type-input'" in html and ".hist-kind.draft" in html
 
 
 def test_scheduler_add_list_remove(tmp_path):
@@ -359,6 +427,55 @@ def test_enter_waits_for_the_paste_to_land(monkeypatch):
     assert ("press", "enter") not in events, "enter=False must not submit"
 
 
+def test_humanize_survives_a_retired_model():
+    """Groq retired `llama-3.3-70b-versatile` mid-day and the whole Llama family
+    vanished from the key: every voice message quietly returned the raw transcript
+    and the AI toggle looked dead. A fallback chain plus a loud failure is the fix."""
+    import pathlib
+
+    from config import HUMANIZE_FALLBACKS, HUMANIZE_MODEL
+    from utils.humanize import _strip_reasoning
+
+    assert "llama-3.3-70b" not in HUMANIZE_MODEL, "primary model is the retired one"
+    assert HUMANIZE_FALLBACKS, "no fallback: one retirement kills the feature again"
+    assert HUMANIZE_MODEL not in HUMANIZE_FALLBACKS
+
+    # Reasoning models dump their thinking into `content` — it would be pasted
+    # into Claude Code verbatim (qwen3.6 returned 7196 chars for a 483-char input)
+    assert _strip_reasoning("<think>plan</think>Чистый текст") == "Чистый текст"
+    assert _strip_reasoning("Чистый текст\n<think>truncated") == "Чистый текст"
+
+    src = pathlib.Path(ROOT, "utils", "humanize.py").read_text(encoding="utf-8")
+    assert "raise RuntimeError(\"Humanize failed" in src, "failure must not be silent"
+
+
+def test_stt_reports_a_failed_cleanup():
+    """The endpoint must distinguish "cleaned" from "gave you the raw text",
+    and the UI must show it — otherwise a broken model is invisible."""
+    import pathlib
+
+    api = pathlib.Path(ROOT, "handlers", "web_extra.py").read_text(encoding="utf-8")
+    assert '"humanized"' in api and '"humanize_error"' in api
+
+    html = _html()
+    assert "humanize_error" in html and "AI cleanup failed" in html
+
+
+def test_paste_hotkey_follows_the_target_window():
+    """Claude Code owns Ctrl+V (its image-paste binding), so a text Ctrl+V into a
+    terminal running it is a silent no-op: key delivered, clipboard correct, prompt
+    empty. Terminal targets must get Ctrl+Shift+V; plain apps must NOT, since they
+    have no such binding and would receive nothing at all."""
+    from handlers.input import paste_hotkey_for
+
+    for title in ("Findar - Visual Studio Code", "Tg-IDE-bot - Visual Studio Code",
+                  "Windows PowerShell", "MINGW64:/c/Projects — git bash"):
+        assert paste_hotkey_for(title) == ("ctrl", "shift", "v"), title
+
+    for title in ("Untitled - Notepad", "Telegram", "", "Findar — Vivaldi"):
+        assert paste_hotkey_for(title) == ("ctrl", "v"), title
+
+
 def test_every_typing_path_uses_the_sequencer():
     """A caller that pairs _type_text with its own pyautogui.press('enter') skips
     the wait and reintroduces the race — the reason this bug hit TG chat, the Mini
@@ -466,8 +583,14 @@ def test_grab_to_jpeg_downscales():
 # --- HTML/JS consistency (catches broken buttons without a browser) ---
 
 def _html():
-    with open(INDEX, encoding="utf-8") as f:
-        return f.read()
+    """index.html + the shared script it loads — the page as the browser sees it.
+
+    The regex invariants below must see both halves: once code moved into
+    common.js, reading index.html alone would let them pass by looking at less,
+    which is worse than failing (v0.19.0 extraction).
+    """
+    with open(INDEX, encoding="utf-8") as f, open(COMMON, encoding="utf-8") as g:
+        return f.read() + "\n" + g.read()
 
 
 def test_onclick_handlers_defined():
@@ -498,7 +621,242 @@ def test_api_paths_in_js_are_registered():
     assert not missing, f"frontend calls unregistered API paths: {missing}"
 
 
-# --- Python side sanity ---
+def test_mobile_order_and_accordion():
+    """Mobile column must start Screen -> Windows -> Projects (windows used constantly,
+    screen is what you look at), and Windows/Projects fold as accordions."""
+    html = _html()
+    # order in the <=920px media block: screen above windows above projects
+    orders = dict(re.findall(r"#([\w-]+)\{order:(-\d+)\}", html))
+    assert int(orders["screen-panel"]) < int(orders["win-panel"]) < int(orders["proj-panel"]), \
+        f"mobile panel order broken: {orders}"
+    # both context panels are accordions with a toggle on the title
+    for pid in ("win-panel", "proj-panel"):
+        assert re.search(rf'class="panel tight acc" id="{pid}"', html), f"{pid} lost .acc"
+        assert f"togglePanel('{pid}')" in html, f"{pid} title toggle missing"
+    # collapsed state hides the body and persists
+    assert ".panel.acc.collapsed>:not(h3){display:none}" in html
+    assert "localStorage.setItem('acc_' + id" in html
+
+
+def test_quick_keys_bar_at_bottom():
+    """Fixed bottom bar with the Claude-question keys (←/→/Enter/Sh+Tab/Tab plus
+    the freeform field), a recently-tapped trail with an empty state, and body
+    clearance so the bar never covers the last panel."""
+    html = _html()
+    bar = re.search(r'<div id="quick-keys">.*?</div>\s*</div>', html, re.S)
+    assert bar, "quick-keys bar missing"
+    bar = bar.group(0)
+    # same key set must exist inside the lightbox viewer too (#lb-keys)
+    lb = re.search(r'<div id="lb-keys">.*?</div>', html, re.S)
+    assert lb, "lightbox quick-keys row missing"
+    for where, chunk in (("bottom bar", bar), ("lightbox", lb.group(0))):
+        for onclick in ("doKey('left')", "doKey('right')", "doKey('enter')",
+                        "doKey('shift+tab')", "doKey('tab')"):
+            assert onclick in chunk, f"{where} lacks {onclick}"
+        # Tab must not be the same button as Sh+Tab, and must not have replaced it
+        assert chunk.count("doKey('tab')") == 1 and "doKey('shift+tab')" in chunk
+    # lightbox row must render above the z-200 overlay
+    assert re.search(r"#lb-keys\{[^}]*z-index:201", html)
+    # pinned to the viewport bottom, under lightbox/auth overlays
+    assert re.search(r"#quick-keys\{position:fixed;left:0;right:0;bottom:0;z-index:90", html)
+    # empty state + trail fed centrally from doKey (rail presses show up too)
+    assert "no keys tapped yet" in bar
+    m = re.search(r"async function doKey\(.*?\n\}", html, re.S)
+    assert "_qkPush(" in m.group(0), "doKey must feed the trail"
+    # body keeps clearance for the bar at every breakpoint
+    assert "body{padding-bottom:62px}" in html
+    assert "body{padding:10px 10px 62px}" in html
+
+
+def test_tab_and_freeform_field_replace_the_digit_buttons():
+    """Tab-then-Enter needs its own key: Sh+Tab cycles Claude Code's mode, Tab
+    accepts/advances, and a bar that carries only Sh+Tab cannot do the workflow.
+    The two fixed digit buttons are gone in favour of one field that types any
+    answer + Enter — but the Keys rail keeps 1/2/3 for one-tap replies."""
+    html = _html()
+    assert "qkDigit(" not in html, "dead digit helper left behind"
+    for fid in ("qk-type", "lb-type"):
+        assert f'id="{fid}" class="qk-input"' in html, f"{fid} freeform field missing"
+        assert f"bindSendKeys('{fid}', () => qkSend('{fid}'))" in html,             f"{fid} does not send on Enter"
+    # Tab is untinted in both bars; Sh+Tab keeps its green — that is the whole
+    # visual distinction between two keys one keystroke apart.
+    assert re.search(r"""<button class="btn btn-sm" onclick="doKey\('tab'\)""", html)
+    assert re.search(r"""<button class="btn btn-sm btn-ok-soft" onclick="doKey\('shift\+tab'\)""", html)
+    assert re.search(r"""<button class="lb-ok" onclick="doKey\('shift\+tab'\)""", html)
+    assert re.search(r"""<button onclick="doKey\('tab'\)""", html)
+    assert "#lb-keys button.lb-ok{" in html, "viewer has no green pill style"
+    # rail keeps the numbered answers
+    assert "doTypePreset('1')" in html and "doTypePreset('2')" in html
+
+
+def test_claude_launcher_is_orange_in_both_surfaces():
+    """One orange button starts a session; it sits in Actions and in the viewer,
+    and it must not read as another git/build action, hence the brand colour."""
+    html = _html()
+    assert "['Claude','btn-claude',()=>doClaudeCode()]" in html, "Actions lost the launcher"
+    assert 'id="lb-claude" onclick="doClaudeCode()"' in html, "viewer lost the launcher"
+    # brand orange defined in BOTH palettes, and the class actually uses it
+    assert re.search(r"^:root\{.*?--claude:#d97757", html, re.S | re.M)
+    assert re.search(r'^:root\[data-theme="dark"\]\{.*?--claude:', html, re.S | re.M)
+    assert ".btn-claude{background:var(--claude)" in html
+    assert "#lb-claude,#lb-proj-row button.lb-claude{background:var(--claude)}" in html
+    # and it asks for the terminal focus, or it would type into the editor
+    fn = html.split("async function doClaudeCode()")[1].split("\nasync function")[0]
+    assert "terminal: true" in fn and "text: 'claude'" in fn
+    # A reused terminal may already run Claude Code, where `claude` is just a chat
+    # message to that session — the launcher must always get a fresh shell.
+    assert "new_terminal: true" in fn
+    assert "r.terminal" in fn and "toast(" in fn, "a missed terminal focus must be loud"
+
+
+def test_lightbox_project_row_opens_and_focuses():
+    """Pick a project, focus or open its VS Code window, start Claude — without
+    leaving the zoomed screenshot, and without typing anything."""
+    html = _html()
+    row = re.search(r'<div id="lb-proj-row">.*?</div>', html, re.S)
+    assert row, "viewer project row missing"
+    row = row.group(0)
+    assert 'id="lb-proj"' in row
+    assert "doFocusProj('lb-proj')" in row and "doCodeSel('lb-proj')" in row
+    assert "_fillSelect('lb-proj'" in html, "viewer select is never filled"
+    # focus targets the VS Code window of that project (containment match server-side)
+    assert "_focusTitle(folder + ' - Visual Studio Code')" in html
+    # form controls in the overlay must be exempt from pan/pinch/backdrop-close
+    assert "const _lbCtl = el => ['BUTTON', 'INPUT', 'SELECT', 'OPTION']" in html
+    assert "e.target.tagName === 'BUTTON'" not in html, "gesture guard still button-only"
+
+
+def test_viewer_controls_stay_compact_on_a_phone():
+    """The viewer rows float over the picture. At the desktop 38px/8px sizing they
+    wrapped into four rows on a phone and covered half the screenshot, so the small
+    screen gets 32px pills, one row per group, and shrinkable select/field."""
+    html = _html()
+    head = "@media(max-width:620px),(max-height:520px){"
+    assert head in html, "no compact rule for the zoomed viewer"
+    css = html.split(head, 1)[1].split("\n}", 1)[0]
+    assert "height:32px" in css, "controls still desktop-height inside the viewer"
+    assert "flex-wrap:nowrap" in css, "rows may still wrap into a wall of buttons"
+    # a flex item without min-width:0 refuses to shrink and overflows the viewport
+    for sel in ("#lb-proj-row select", "#lb-keys .qk-input"):
+        # the selector appears twice (shared sizing + the shrink rule) — one of the
+        # bodies must carry both, or that control refuses to give up width
+        bodies = re.findall(re.escape(sel) + r"\{([^}]*)\}", css)
+        assert any("min-width:0" in b and "flex:1 1 auto" in b for b in bodies), sel
+    assert "#lb-proj-row .lb-lbl{display:none}" in css, "Focus keeps its label on a phone"
+    # ...which only saves width if the label is really wrapped in the markup
+    assert '<span class="lb-lbl"> Focus</span>' in html
+
+
+def test_type_focuses_the_terminal_before_typing(monkeypatch):
+    """`terminal: true` must move the caret into the VS Code integrated terminal
+    BEFORE the paste. Order is the whole point: focus after typing is no focus at
+    all, and a fresh `code -n` leaves the caret in the editor, where ctrl+shift+v
+    is an editor binding and the text disappears while the bot answers 'Typed:'."""
+    import handlers.input as hin
+    import utils.vscode as vsc
+
+    calls = []
+    monkeypatch.setattr(hin, "type_and_enter", lambda t, e=True: calls.append(("type", t, e)))
+    monkeypatch.setattr(vsc, "focus_vscode_terminal", lambda: calls.append(("focus",)))
+
+    async def go(active, terminal):
+        calls.clear()
+        monkeypatch.setattr(vsc, "get_active_window_title", lambda: active)
+        async with await _client() as c:
+            r = await c.post("/api/type", json={"text": "claude", "terminal": terminal},
+                             headers=AUTH)
+            assert r.status == 200
+            return await r.json()
+
+    data = _run(go("Tg-IDE-bot - Visual Studio Code", True))
+    assert calls == [("focus",), ("type", "claude", True)], calls
+    assert data["terminal"] is True
+
+    # Not VS Code: still types (the user may be aiming at a plain terminal), but
+    # says so instead of pretending the text reached Claude Code.
+    data = _run(go("Untitled - Notepad", True))
+    assert calls == [("type", "claude", True)], calls
+    assert data["terminal"] is False and "not VS Code" in data["terminal_msg"]
+
+    # Default path is unchanged — no flag, no palette detour.
+    data = _run(go("Tg-IDE-bot - Visual Studio Code", False))
+    assert calls == [("type", "claude", True)] and "terminal" not in data
+
+
+def test_terminal_focus_lives_in_one_place():
+    """Scheduler and /api/type must share the palette sequence — a second copy
+    drifts, and the drift is invisible until text lands in a source file."""
+    import pathlib as _pl
+
+    hits = [n for n in ("utils/scheduler.py", "handlers/web.py", "utils/vscode.py")
+            if "Terminal: Focus on Terminal View" in _pl.Path(ROOT, n).read_text(encoding="utf-8")]
+    assert hits == ["utils/vscode.py"], f"palette sequence duplicated in {hits}"
+    src = _pl.Path(ROOT, "utils/scheduler.py").read_text(encoding="utf-8")
+    assert "from utils.vscode import focus_vscode_terminal" in src
+
+
+def test_singleton_guard_spawns_no_processes():
+    """The guard must kill via in-process API calls (psutil), never taskkill or
+    a powershell subprocess: when process creation hangs system-wide, subprocess
+    kills time out on every restart and a zombie holds the web port through an
+    endless crash loop (observed 2026-08-19, 40 min of Errno 10048)."""
+    import pathlib
+    src = pathlib.Path(ROOT, "utils", "singleton.py").read_text(encoding="utf-8")
+    assert "import psutil" in src, "guard must use psutil API kills"
+    assert "import subprocess" not in src and "subprocess.run" not in src, \
+        "guard must not spawn child processes"
+    assert ".wait(" in src, "must confirm death — port frees only when process is gone"
+    import utils.singleton  # noqa: F401 — import must not raise
+
+
+def test_favicon_assets_and_links():
+    """All favicon assets exist, the ICO really carries 16+32, every <head> link
+    resolves to a real file, and /favicon.ico is served without auth."""
+    import pathlib
+    from PIL import Image
+
+    web_dir = pathlib.Path(ROOT, "web")
+    ico = Image.open(web_dir / "favicon.ico")
+    assert set(getattr(ico, "info", {}).get("sizes", {(16, 16), (32, 32)})) >= \
+        {(16, 16), (32, 32)}
+    assert Image.open(web_dir / "favicon-32x32.png").size == (32, 32)
+    assert Image.open(web_dir / "favicon-16x16.png").size == (16, 16)
+    assert Image.open(web_dir / "apple-touch-icon.png").size == (180, 180)
+    assert "#229ED9" in (web_dir / "favicon.svg").read_text(encoding="utf-8")
+
+    html = _html()
+    hrefs = re.findall(r'<link rel="(?:icon|apple-touch-icon)"[^>]*href="([^"]+)"', html)
+    assert len(hrefs) == 4, f"expected 4 favicon links, got {hrefs}"
+    for href in hrefs:
+        name = href.rsplit("/", 1)[-1]
+        assert (web_dir / name).is_file(), f"{href} points at a missing file"
+
+    async def go():
+        async with await _client() as c:
+            r = await c.get("/favicon.ico")   # no auth headers on purpose
+            assert r.status == 200
+            body = await r.read()
+            assert body[:4] == b"\x00\x00\x01\x00", "not an ICO payload"
+    _run(go())
+
+
+def test_md_preview_and_blocks_toggle():
+    """Type field gets a rendered-markdown preview pane (Improve detailed returns
+    markdown) and the auto block-chip paste behavior gets an off switch."""
+    html = _html()
+    # Blocks toggle gates the auto-block paste path — OFF must paste inline
+    paste = re.search(r"getElementById\('type-input'\)\.addEventListener\('paste'.*?\n\}\);",
+                      html, re.S)
+    assert paste and "_blockPaste && text &&" in paste.group(0), \
+        "block-chip paste must respect the Blocks toggle"
+    # XSS guard: raw text is escaped before markdown tags are injected
+    fn = re.search(r"function _mdRender\(src\) \{.*?\n\}", html, re.S)
+    assert fn and "_mdEsc(src)" in fn.group(0), "must escape HTML before rendering"
+    # preview is fed on input, after Improve, and after send clears the field
+    assert "_mdAuto(r.improved)" in html
+    assert "if (_mdOn) _mdRenderNow()" in html
+    # both toggles persist
+    assert "tg_md" in html and "tg_blocks" in html
 
 def test_all_handlers_import():
     import handlers.audio  # noqa: F401

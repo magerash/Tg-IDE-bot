@@ -142,8 +142,9 @@ async def api_paste(request):
 async def api_stt(request):
     """POST raw audio body (webm/ogg/wav) → Groq Whisper → {text, raw}.
     ?humanize=1 also cleans the transcript via LLM (falls back to raw on error)."""
-    from handlers.web import _check_auth, _err, _json
-    if not _check_auth(request):
+    # Refine-scoped tokens reach this one — it is a text-refinement endpoint.
+    from handlers.web import _check_auth_refine, _err, _json
+    if not _check_auth_refine(request):
         return _err("Unauthorized", 401)
     try:
         from utils.stt import MAX_AUDIO_SIZE, STTError, transcribe
@@ -159,15 +160,52 @@ async def api_stt(request):
             return _err(str(e))
 
         text = raw
-        if raw and request.query.get("humanize") == "1":
+        wanted = raw and request.query.get("humanize") == "1"
+        err = None
+        if wanted:
             from utils.humanize import humanize
             try:
                 text = await humanize(raw)
             except Exception as e:
-                logger.warning("humanize failed, returning raw: %s", e)
-        return _json({"ok": True, "text": text, "raw": raw})
+                # Reported, not swallowed: a silent fallback is indistinguishable
+                # from "the AI button does nothing" (Groq retiring a model looked
+                # exactly like that for a day).
+                err = str(e)[:300]
+                logger.error("humanize failed, returning raw: %s", e)
+        return _json({"ok": True, "text": text, "raw": raw,
+                      "humanized": bool(wanted and err is None),
+                      "humanize_error": err})
     except Exception as e:
         logger.error("web /api/stt error: %s", e)
+        return _err(str(e), 500)
+
+
+async def api_improve(request):
+    """POST {text, style, twin} → {improved, twin_used, style}. Rewrites typed text
+    into a better prompt; never auto-sends — the client shows it for review.
+    LLM failure is a loud 502: the client keeps the original text and toasts."""
+    # Refine-scoped tokens reach this one — it is a text-refinement endpoint.
+    from handlers.web import _check_auth_refine, _err, _json
+    if not _check_auth_refine(request):
+        return _err("Unauthorized", 401)
+    try:
+        data = await request.json()
+        text = (data.get("text") or "").strip()
+        if not text:
+            return _err("No text")
+        style = data.get("style") or "structured"
+        twin = bool(data.get("twin"))
+        from utils.improve import improve
+        try:
+            improved, twin_used = await improve(text, style, twin)
+        except Exception as e:
+            logger.error("improve failed: %s", e)
+            return _err(str(e)[:300], 502)
+        return _json({"ok": True, "improved": improved, "style": style,
+                      "twin_used": twin_used,
+                      "twin_missing": twin and not twin_used})
+    except Exception as e:
+        logger.error("web /api/improve error: %s", e)
         return _err(str(e), 500)
 
 
@@ -287,4 +325,5 @@ def register_extra_routes(app):
     app.router.add_post("/api/project", api_project)
     app.router.add_post("/api/paste", api_paste)
     app.router.add_post("/api/stt", api_stt)
+    app.router.add_post("/api/improve", api_improve)
     app.router.add_post("/api/claude", api_claude)

@@ -58,17 +58,23 @@ async def audio_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         clean = raw
+        failed = ""
         if HUMANIZE_DEFAULT:
             from utils.humanize import humanize
             try:
                 await note.edit_text("🎙 ✨ Cleaning transcript...")
                 clean = await humanize(raw)
             except Exception as e:
-                logger.warning("humanize failed, using raw: %s", e)
+                # Say it out loud — a silent fallback to raw reads as "the AI
+                # cleanup quietly stopped working", which is what happened when
+                # Groq retired the model.
+                failed = f"\n\n⚠ AI cleanup failed (raw text): {str(e)[:200]}"
+                logger.error("humanize failed, using raw: %s", e)
 
         has_clean = clean != raw
         _last[msg.chat_id] = {"clean": clean, "raw": raw, "showing": "clean"}
-        await note.edit_text(f"🎙 {_display(clean)}", reply_markup=_kb("clean", has_clean))
+        await note.edit_text(f"🎙 {_display(clean)}{failed}",
+                             reply_markup=_kb("clean", has_clean))
         if len(clean) > _DISPLAY_CAP:  # full text for copy/reading
             await send_long_text_to_chat(context.bot, msg.chat_id, clean)
     except STTError as e:

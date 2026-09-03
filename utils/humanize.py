@@ -1,13 +1,21 @@
 """Clean raw speech transcripts into prompt-ready text via Groq LLM."""
 import logging
+import re
 
 import aiohttp
 
-from config import GROQ_API_KEY, HUMANIZE_MODEL
+from config import (
+    GROQ_API_KEY, HUMANIZE_FALLBACKS, HUMANIZE_MODEL, HUMANIZE_REASONING,
+)
 
 logger = logging.getLogger("bot.humanize")
 
 GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+# A model that ignores the reasoning setting can still emit its thinking inline.
+# That text would be pasted into Claude Code verbatim, so strip it defensively.
+_THINK_RE = re.compile(r"<(think|thinking|reasoning)>.*?</\1>", re.S | re.I)
+_OPEN_THINK_RE = re.compile(r"<(think|thinking|reasoning)>.*", re.S | re.I)
 
 _SYSTEM = (
     "You clean up raw speech-to-text dictation into ready-to-use text.\n"
@@ -23,32 +31,83 @@ _SYSTEM = (
 )
 
 
-async def humanize(text: str) -> str:
-    """Return cleaned transcript. Raises on API failure — caller falls back to raw."""
+def _strip_reasoning(text: str) -> str:
+    out = _THINK_RE.sub("", text)
+    out = _OPEN_THINK_RE.sub("", out)  # unterminated block = truncated thinking
+    return out.strip()
+
+
+async def _call(session, model: str, system: str, text: str,
+                reasoning: str | None) -> str:
+    payload = {
+        "model": model,
+        "temperature": 0.2,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": text},
+        ],
+    }
+    if reasoning:
+        payload["reasoning_effort"] = reasoning
+    async with session.post(
+        GROQ_CHAT_URL, json=payload,
+        headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+    ) as resp:
+        body = await resp.json(content_type=None)
+        if resp.status != 200:
+            msg = body.get("error", {}).get("message", str(body))[:300]
+            raise RuntimeError(f"{resp.status}: {msg}")
+        return (body["choices"][0]["message"].get("content") or "").strip()
+
+
+async def chat(system: str, text: str) -> str:
+    """Run text through the Groq model fallback chain with the given system prompt.
+    Raises when every model fails — callers fall back to the original text, but
+    must say so: a silent fallback looks exactly like "AI does nothing".
+    """
     if not GROQ_API_KEY:
         raise RuntimeError("GROQ_API_KEY not set")
     if not text.strip():
         return text
 
-    payload = {
-        "model": HUMANIZE_MODEL,
-        "temperature": 0.2,
-        "messages": [
-            {"role": "system", "content": _SYSTEM},
-            {"role": "user", "content": text},
-        ],
-    }
-    logger.debug("Humanize request: %d chars, model=%s", len(text), HUMANIZE_MODEL)
+    models = [HUMANIZE_MODEL] + [m for m in HUMANIZE_FALLBACKS if m != HUMANIZE_MODEL]
+    errors = []
     timeout = aiohttp.ClientTimeout(total=30)
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(
-            GROQ_CHAT_URL, json=payload,
-            headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
-        ) as resp:
-            body = await resp.json(content_type=None)
-            if resp.status != 200:
-                msg = body.get("error", {}).get("message", str(body))[:300]
-                raise RuntimeError(f"Humanize API error {resp.status}: {msg}")
-            out = (body["choices"][0]["message"]["content"] or "").strip()
-            logger.debug("Humanize result: %d -> %d chars", len(text), len(out))
-            return out or text
+        for model in models:
+            logger.debug("LLM request: %d chars, model=%s", len(text), model)
+            try:
+                out = await _call(session, model, system, text, HUMANIZE_REASONING)
+            except RuntimeError as e:
+                # A model that rejects reasoning_effort is worth one retry without it
+                if "reasoning" in str(e).lower():
+                    try:
+                        out = await _call(session, model, system, text, None)
+                    except Exception as e2:
+                        errors.append(f"{model} -> {e2}")
+                        continue
+                else:
+                    errors.append(f"{model} -> {e}")
+                    logger.warning("LLM model %s failed: %s", model, e)
+                    continue
+            except Exception as e:
+                errors.append(f"{model} -> {e}")
+                continue
+
+            out = _strip_reasoning(out)
+            if not out:
+                errors.append(f"{model} -> empty after stripping reasoning")
+                continue
+            if model != HUMANIZE_MODEL:
+                logger.warning("LLM fell back to %s (primary %s unavailable)",
+                               model, HUMANIZE_MODEL)
+            logger.debug("LLM result: %d -> %d chars via %s",
+                         len(text), len(out), model)
+            return out
+
+    raise RuntimeError("Humanize failed: " + "; ".join(errors))
+
+
+async def humanize(text: str) -> str:
+    """Return cleaned transcript. Raises when every model fails."""
+    return await chat(_SYSTEM, text)

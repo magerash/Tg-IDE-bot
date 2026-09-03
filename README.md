@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.17.0
+# TG-IDE-Bot v0.20.0
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -114,6 +114,49 @@ curl -k -o /dev/null -w "%{http_code}\n" https://bot.magerash.com:8443/ # Caddy 
 **Gotcha:** when matching processes by command line, exclude your own shell (`$_.ProcessId -ne $PID`) — a `Where-Object { $_.CommandLine -match 'start_tunnel_vps' }` filter matches the very command that contains that string, so the kill loop terminates your own session and inflates keeper counts by one.
 
 ## Changelog
+
+### v0.20.0 2026-08-25
+- **Typing lands in the terminal now.** v0.19.1 diagnosed it: window focus raises the *window*, the inner keyboard focus stays put, and after `code -n` that is the editor — where `ctrl+shift+v` is an editor binding and the paste vanishes while the bot reports `Typed:`. `POST /api/type` accepts `terminal: true` and moves the caret into the VS Code integrated terminal first
+- `utils/vscode.py` holds the command-palette sequence, once. The scheduler's private copy was deleted and it imports the shared helper; a test fails if a second copy appears. The outcome is echoed back (`terminal`, `terminal_msg`) and a non-VS-Code foreground is a loud toast, not a silent success — the text is still typed either way
+- **Claude Code launcher** — one orange button in the Actions rail, the quick-keys bar and the zoomed viewer. Types `claude` + Enter into a **fresh** terminal: focusing the last active one hands `claude` to a session already running Claude Code as a chat message. `VSCODE_NEW_TERMINAL_WAIT` (1.6s) waits for the shell prompt, since keystrokes sent before it are dropped by the pty
+- **Freeform answer field replaces the `1` / `2` buttons** (bar + viewer) — Enter sends text + Enter, so `3`, `yes` or a path are answerable too; `Tab` added beside `Sh+Tab`, tinted apart
+- **Viewer project row** — project select + 🖥 Focus + Open + Claude: pick a project, focus or open its VS Code window, start a session, without leaving the zoomed screenshot. Shares `_selectedProject(selId)` and `loadFolders()` with the dashboard panel. The viewer's gesture guard now exempts `INPUT`/`SELECT`/`OPTION` as well as `BUTTON`, or a tap on the field would pan the image and dismiss the viewer
+- **Compact viewer controls on phones and short landscape windows** (`max-width:620px`, `max-height:520px`): 32px pills, one row per group, select and field shrink to fit. At desktop sizing the two rows wrapped into four and covered half the screenshot
+- Tests 68 → **74**
+
+### v0.19.1 2026-08-24
+- **`/refine` uses the whole window.** On a 2000px screen the view was a 640px column stranded in the middle with the text scrolling inside 400px of it while the rest of the page sat empty. The wrap goes to `max-width:1180px` and, above 760px, both panes are sized from the viewport (`calc(100vh - 300px)`, min 340px) instead of from their content
+- The fix needed the JS as well as the CSS: `autoGrow` writes an **inline** height capped at 400px, and an inline height beats a stylesheet rule — it silently undid the fit on every keystroke, every Improve, every transcription. `autoGrow` is now wrapped on this page and clears the inline height on wide screens, keeping the original growth behaviour for the stacked phone layout
+- Reading measure is capped **inside** the preview (`.md-body>* {max-width:78ch}`) rather than on the pane, so long-form text stays comfortable to read while the panel still fills the window
+- **Char/word counter** next to Copy — routed through the wrapped `autoGrow`, so every programmatic write (Improve, transcription, history refill, Clear) updates it for free, not just typing
+- Diagnosed but not code: **typing lands where the inner keyboard focus is.** `focus_window_exact` raises the *window* only. With VS Code focused but the caret in the editor rather than the integrated terminal — or Claude Desktop foreground with its chat box unfocused — `ctrl+shift+v` / `ctrl+v` hits a different control and the text vanishes while the bot still reports `Typed:`. Clipboard write, keystroke injection and paste key were each proven working against a live window. `utils/scheduler.py` already solves this with a command-palette "Terminal: Focus on Terminal View" step; `/api/type` and `text_handler` do not use it yet
+- Tests 67 → **68**
+
+### v0.19.0 2026-08-24
+- **Split-view Mini App**: text refinement now has its own page, **`/refine`** — mic → speech-to-text, AI cleanup, ✨ Improve, Twin, markdown preview and a **📋 Copy** button, with no screen, keys, shell, git or restart anywhere on it. Text leaves that view through the clipboard only; there is deliberately no Type button, because typing into a focused window is remote control and Copy is not
+- **The split is enforced on the server, not just hidden in the UI.** The refine page runs on a 12h scope-limited token minted by `POST /api/scope`; only `/api/status`, `/api/stt` and `/api/improve` accept it, and all 24 system endpoints answer 401. Two tests keep it that way, so "this view can't type to your PC" cannot quietly regress the next time a button is added
+- Where the boundary really is: inside Telegram, `initData` is readable by any script on the page, so this defends against the page's own code and narrows the browser flow — it is not a sandbox against the operator. Written up in `materials/chunks/features/refinement-view.md`
+- **Reach it** from the `✨ Refine` link in the dashboard header, or the `🖥 Dashboard` / `✨ Refine` buttons now on the first row of `/panel` (private chats only — Telegram rejects Mini App buttons in groups and fails the whole message)
+- **`web/common.js`**: ~460 lines shared by both pages (`api()`, toasts, theme, History, markdown, the mic→WAV→Whisper stack, Improve) extracted out of `index.html`, which drops 2332 → 1889 lines. One copy of each hard-won bug fix instead of two
+- **Security fix in the markdown preview** (shared by both views): HTML-escaping now covers quotes, and link targets are restricted to `http(s)`/`mailto`/relative — a `[x](javascript:…)` link previously rendered as a live link that would run script with the page's credentials
+- **Copy** uses the async clipboard API with an `execCommand` fallback for Telegram's Android webview, which refuses the former. An empty field never clobbers the clipboard, and very large text is selected rather than copied
+- Fixes: markdown preview went stale after voice transcription; the stale-client reload flag is now per page; `improve.py` logged a misleading "twin profile missing" warning on any non-Russian input
+- Tests 43 → **67**
+
+### v0.18.0 2026-08-20
+- **Improve text (AI)**: ✨ Improve button on the dashboard Type field — rewrites rough text via LLM in a chosen style (Structured / Detailed / Concise / →EN). Never auto-sends; the original is saved to History as a `draft` entry first. Optional **Twin** toggle injects the HAE operator profile so output matches your own prompt style; Russian input stays Russian (deterministic language hint — instructions alone lost to a 6KB English persona)
+- **Quick-keys bar**: fixed bottom row — ← → Enter Sh+Tab 1 2 — for answering Claude Code question prompts from anywhere, with a recently-tapped-keys trail. Same keys also inside the zoomed screenshot viewer
+- **Mobile layout**: Screen first, then Windows, then Projects; Windows/Projects fold as accordions (state persisted)
+- **Fix: zombie instance could hold the web port through an endless crash loop.** Singleton guard rewritten on psutil API kills — the old `taskkill`/powershell subprocesses timed out on every restart when process creation on the box hung, while an in-process kill worked instantly
+- **Favicon**: rounded-square Telegram-blue "TG" tile (SVG + PNG + ICO + apple-touch)
+- Tests 36 → 43
+
+### v0.17.1 2026-08-17
+- **Fix: typing still landed nowhere in a Claude Code terminal.** Claude Code binds Ctrl+V to "paste image from clipboard", so a text paste is a silent no-op — key delivered, clipboard correct, prompt empty. The paste key is now chosen from the target window: terminals (VS Code, PowerShell, git bash, Windows Terminal) get **Ctrl+Shift+V**, ordinary apps keep Ctrl+V. Tunable via `TYPE_PASTE_HOTKEY` / `TYPE_TERMINAL_PASTE_HOTKEY` / `TYPE_TERMINAL_HINTS`
+- **Fix: voice cleanup stopped improving transcripts.** Groq retired `llama-3.3-70b-versatile` (404 on an existing key, whole Llama family gone); Whisper was unaffected, so recognition kept working and only the cleanup died. Model is now `qwen/qwen3.6-27b` with `openai/gpt-oss-20b` as fallback — same free Groq key, only the model string changed
+- Reasoning output is suppressed and stripped — an unguarded qwen3.6 returned 7196 chars of `<think>…` for a 483-char transcript, which would have been typed into Claude Code verbatim
+- A failed cleanup is now visible instead of silently returning raw text: `/api/stt` reports `humanized` + `humanize_error`, the dashboard toasts it, and Telegram appends `⚠ AI cleanup failed`
+- Tests 33 → 36
 
 ### v0.17.0 2026-08-17
 - **Fix: typing from the bot stopped submitting.** Text was pasted, then Enter was pressed 0.1s later — Claude Code buffers a bracketed paste and folds an Enter arriving inside that window into the paste as a newline, so the message sat unsent in the input box while the bot reported `Typed: ...`. Affected every surface at once (Telegram chat, Mini App, panel presets, voice, scheduled messages) because all four shared that delay
