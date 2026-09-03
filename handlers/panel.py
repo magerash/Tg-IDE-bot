@@ -12,7 +12,7 @@ from telegram.ext import ContextTypes
 from config import ALLOWED_USER_ID, MAX_FILE_SIZE, VERSION, WEBAPP_URL
 from utils import project
 from handlers.files import _find_apks
-from handlers.input import type_and_enter
+from handlers.input import press_keys, type_and_enter
 from handlers.screen import _grab_to_jpeg
 from utils.auth import auth_required
 from utils.chunks import send_long_text_to_chat
@@ -245,7 +245,7 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif cmd == "auto_mode":
             await query.answer("Auto: Shift+Tab ×3...")
             for i in range(3):
-                pyautogui.hotkey("shift", "tab")
+                press_keys("shift", "tab")
                 if i < 2:
                     await asyncio.sleep(1.0)
 
@@ -254,15 +254,17 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("Clicked 250,1000")
 
         elif cmd == "key_bksp30":
-            pyautogui.press("backspace", presses=30, interval=0.02)
+            for _ in range(30):
+                press_keys("backspace")
+                time.sleep(0.02)
             await query.answer("Backspace ×30")
 
         elif cmd.startswith("key_"):
             k = _KEY_MAP.get(cmd.removeprefix("key_"))
             if isinstance(k, tuple):
-                pyautogui.hotkey(*k)
+                press_keys(*k)
             elif k:
-                pyautogui.press(k)
+                press_keys(k)
             await query.answer(f"Pressed {cmd.removeprefix('key_')}")
 
         else:

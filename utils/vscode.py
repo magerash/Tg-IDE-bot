@@ -20,6 +20,10 @@ TERMINAL_WAIT = 0.35   # ...and the terminal focused before the caller types
 # A brand-new terminal has to spawn a shell and print its prompt; keystrokes sent
 # into the gap are dropped by the pty, which reads as "the button did nothing".
 NEW_TERMINAL_WAIT = float(os.getenv("VSCODE_NEW_TERMINAL_WAIT", "1.6"))
+# The palette is an ordinary text input, so it takes the ordinary paste key.
+PALETTE_PASTE = tuple(
+    p.strip() for p in os.getenv("VSCODE_PALETTE_PASTE", "ctrl+v").split("+") if p.strip()
+)
 
 
 def _palette(command: str):
@@ -28,12 +32,18 @@ def _palette(command: str):
     Position-/layout-independent: a fixed click cannot work (the window may be
     moved, resized or split), and a keybinding can be rebound — the palette
     entry is the stable name."""
-    import pyautogui
-    from handlers.input import type_and_enter
+    from handlers.input import press_keys, type_and_enter
 
-    pyautogui.hotkey("ctrl", "shift", "p")
+    # press_keys, not pyautogui: under a non-latin layout VkKeyScanW('p') is -1
+    # and the P is never sent, so Ctrl+Shift alone arrives and no palette opens.
+    press_keys("ctrl", "shift", "p")
     time.sleep(PALETTE_WAIT)
-    type_and_enter(command)  # waits before Enter
+    # PALETTE_PASTE, not the window's key. The palette is a quick input inside a
+    # window titled "Visual Studio Code", so the terminal rule gives it
+    # ctrl+shift+v — which it does not honour. The command name then never lands,
+    # Enter runs whatever was highlighted, no terminal is focused, and the caller's
+    # text goes to the editor while the API cheerfully reports "terminal focused".
+    type_and_enter(command, paste_keys=PALETTE_PASTE)  # waits before Enter
     time.sleep(TERMINAL_WAIT)
 
 

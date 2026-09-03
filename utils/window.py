@@ -105,6 +105,33 @@ def get_active_window_title() -> str:
         return ""
 
 
+def get_active_window_process() -> str:
+    """Lowercased executable name owning the foreground window ('' if unknown).
+
+    A window title belongs to whatever program is running inside it — Windows
+    Terminal running Claude Code is called '✳ Claude Code', and a title-only
+    rule then decides it is not a terminal and pastes with the wrong key. The
+    executable does not move, so it is what "is this a terminal?" must ask.
+    """
+    try:
+        import ctypes
+        import psutil
+        u32 = ctypes.windll.user32
+        hwnd = u32.GetForegroundWindow()
+        if not hwnd:
+            return ""
+        pid = ctypes.c_ulong()
+        u32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if not pid.value:
+            return ""
+        name = psutil.Process(pid.value).name().lower()
+        logger.debug("Active window process: %s", name)
+        return name
+    except Exception as e:
+        logger.debug("get_active_window_process failed: %s", e)
+        return ""
+
+
 def get_active_window_rect() -> tuple[int, int, int, int] | None:
     """Return (left, top, width, height) of active window, or None."""
     try:

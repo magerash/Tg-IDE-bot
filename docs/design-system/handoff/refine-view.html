@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Refine view — design handoff</title>
+<script>try{var t=localStorage.getItem('tg_theme');if(t==='dark')document.documentElement.dataset.theme='dark';}catch(e){}</script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#faf9f7;--card:#fff;--text:#1c1917;--dim:#a09b93;--border:#eae7e2;
+  --accent:#1c1917;--accent-hover:#3f3a36;--accent-soft:#f0eeea;--accent-soft-hover:#e6e3dd;
+  --accent-fg:#fff;        /* text on --accent (primary buttons) */
+  --ok:#16a34a;--ok-soft:#e9f7ee;--ok-soft-hover:#daf0e2;
+  --err:#dc2626;--err-hover:#c7202f;--err-soft:#fdeceb;--err-soft-hover:#fadcda;
+  --warn:#b45309;--warn-soft:#fdf3e3;--warn-soft-hover:#f8e9cf;
+  --dark:#1c1917;--shadow:0 1px 2px rgba(28,25,23,.05);
+  --rail-w:170px;          /* width of Keys / Actions side rails */
+  --screen-h:260px;        /* min-height of the screenshot area */
+}
+/* Night theme (Warm Mono dark) — toggled via data-theme on <html> */
+:root[data-theme="dark"]{
+  --bg:#1a1917;--card:#242220;--text:#ece9e4;--dim:#8a847c;--border:#35322e;
+  --accent:#ece9e4;--accent-hover:#d8d4cd;--accent-soft:#302d2a;--accent-soft-hover:#3a3733;
+  --accent-fg:#1a1917;
+  --ok:#22c55e;--ok-soft:#183a25;--ok-soft-hover:#1f4a2f;
+  --err:#f05252;--err-hover:#e23b3b;--err-soft:#3a1e1e;--err-soft-hover:#4a2525;
+  --warn:#eab308;--warn-soft:#3a2f18;--warn-soft-hover:#4a3d1f;
+  --dark:#100f0d;--shadow:0 1px 3px rgba(0,0,0,.45);
+}
+body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:16px}
+.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
+h1{font-size:17px;font-weight:600;text-align:center;padding:6px 0 2px;letter-spacing:-.2px}
+.theme-toggle{position:absolute;top:16px;right:16px;width:34px;height:34px;border:1px solid var(--border);border-radius:9px;background:var(--card);color:var(--text);font-size:16px;cursor:pointer;line-height:1;z-index:50;box-shadow:var(--shadow)}
+.theme-toggle:hover{background:var(--accent-soft)}
+/* Cross-link back to the full dashboard, mirroring .theme-toggle on the left. */
+.view-link{position:absolute;top:16px;left:16px;height:34px;display:inline-flex;align-items:center;gap:5px;padding:0 12px;border:1px solid var(--border);border-radius:9px;background:var(--card);color:var(--text);font-size:13px;font-weight:500;text-decoration:none;z-index:50;box-shadow:var(--shadow)}
+.view-link:hover{background:var(--accent-soft)}
+
+.panel{background:var(--card);border-radius:14px;padding:14px;border:1px solid var(--border);box-shadow:var(--shadow);min-width:0}
+.panel h3{font-size:11px;font-weight:600;color:var(--dim);margin-bottom:10px;text-transform:uppercase;letter-spacing:1.2px}
+
+.btn{padding:8px 14px;border:1px solid var(--border);border-radius:9px;cursor:pointer;font-size:13px;font-weight:500;font-family:inherit;background:var(--card);color:var(--text);transition:background .15s,transform .1s,border-color .15s}
+.btn:hover{background:var(--accent-soft)}
+.btn:active{transform:scale(.96)}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.btn-primary:hover{background:var(--accent-hover)}
+.btn-red{background:var(--err);border-color:var(--err);color:#fff}
+.btn-red:hover{background:var(--err-hover)}
+.btn-soft{background:var(--accent-soft);border-color:transparent;color:var(--text)}
+.btn-soft:hover{background:var(--accent-soft-hover)}
+.btn-ok-soft{background:var(--ok-soft);border-color:transparent;color:var(--ok)}
+.btn-ok-soft:hover{background:var(--ok-soft-hover)}
+.btn-red-soft{background:var(--err-soft);border-color:transparent;color:var(--err)}
+.btn-red-soft:hover{background:var(--err-soft-hover)}
+.btn-sm{padding:6px 11px;font-size:12px}
+.btn[disabled]{opacity:.4;cursor:not-allowed}
+
+select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:9px;background:var(--card);color:var(--text);font-size:13px;font-family:inherit;cursor:pointer}
+.hint{font-size:11px;color:var(--dim);margin-top:8px;line-height:1.4}
+.input-row{display:flex;gap:6px;align-items:flex-start}
+.input-row textarea{flex:1 1 auto;min-width:0;background:var(--card);border:1px solid var(--border);border-radius:9px;padding:9px 12px;color:var(--text);font-size:13px;font-family:inherit;resize:vertical;min-height:140px;max-height:400px;line-height:1.4;transition:border-color .15s,box-shadow .15s}
+.input-row textarea::placeholder{color:var(--dim)}
+.input-row textarea:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+
+/* Controls sit ABOVE the field so the thumb reaches mic/Improve without
+   scrolling past a tall textarea; Copy sits below, away from the mic. */
+.type-controls{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+.type-controls select{width:auto;flex:1 1 auto;min-width:0}
+.type-controls .btn:not(#mic-btn):not(#imp-btn){width:88px;flex-shrink:0}
+#imp-btn{flex-shrink:0}
+#mic-btn{flex:1;min-height:46px;font-size:15px;display:flex;align-items:center;justify-content:center}
+.out-row{display:flex;gap:8px;align-items:center;margin-top:8px}
+#copy-btn{flex:1;min-height:44px;font-size:14px}
+
+/* Rendered markdown preview of the Type field (headers/tables/code like a file view) */
+.md-body{border:1px solid var(--border);border-radius:9px;padding:10px 12px;margin-top:8px;font-size:13px;max-height:320px;overflow:auto;background:var(--card)}
+.md-body h1,.md-body h2,.md-body h3,.md-body h4,.md-body h5,.md-body h6{margin:8px 0 4px;line-height:1.25}
+.md-body h1{font-size:17px}.md-body h2{font-size:15px}.md-body h3{font-size:14px}
+.md-body h4,.md-body h5,.md-body h6{font-size:13px}
+.md-body p{margin:4px 0}
+.md-body ul,.md-body ol{margin:4px 0 4px 18px}
+.md-body code{background:var(--accent-soft);border-radius:4px;padding:1px 4px;font-size:12px}
+.md-body pre{background:var(--accent-soft);border-radius:8px;padding:8px 10px;overflow-x:auto;margin:6px 0}
+.md-body pre code{background:none;padding:0}
+.md-body table{border-collapse:collapse;margin:6px 0;font-size:12px}
+.md-body th,.md-body td{border:1px solid var(--border);padding:4px 8px;text-align:left}
+.md-body blockquote{border-left:3px solid var(--border);margin:4px 0;padding:2px 10px;color:var(--dim)}
+.md-body a{color:inherit}
+
+.counter{font-size:11px;color:var(--dim);margin-left:auto;white-space:nowrap;font-variant-numeric:tabular-nums}
+
+/* Wide screens: edit and read side by side, both panes filling the viewport.
+   This view is a document editor — a 640px column stranded in a 2000px window
+   with the text scrolling inside 400px of it was the whole complaint. */
+@media(min-width:760px){
+  .split.md-on{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:stretch}
+  .split .input-row{height:100%}
+  .split textarea,.split.md-on .md-body{height:calc(100vh - 300px);min-height:340px;max-height:none}
+  .split.md-on .md-body{margin-top:0;overflow:auto}
+}
+/* Long-form reading: cap the measure inside the pane rather than the pane itself,
+   so the column stays comfortable while the panel still uses the window. */
+.md-body>*{max-width:78ch}
+
+.action-status{margin-top:10px;padding:8px 10px;border-radius:9px;background:var(--accent-soft);font-size:11px;line-height:1.45;color:var(--dim);word-break:break-word;min-height:33px}
+.action-status b{display:block;color:var(--text);font-weight:500}
+.action-status.err b{color:var(--err)}
+.action-status.ok b{color:var(--ok)}
+
+#history-list{max-height:220px;overflow-y:auto;resize:vertical;display:flex;flex-direction:column;gap:2px}
+.hist-row{display:flex;gap:8px;align-items:baseline;padding:5px 8px;border-radius:7px;cursor:pointer;font-size:12px}
+.hist-row:hover{background:var(--accent-soft)}
+.hist-time{color:var(--dim);flex-shrink:0;font-size:11px}
+.hist-kind{flex-shrink:0;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--ok)}
+.hist-kind.shell{color:var(--err)}
+.hist-kind.claude{color:#7c3aed}
+.hist-kind.image{color:#0369a1}
+.hist-kind.draft{color:var(--dim)}
+.hist-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+
+#toast{position:fixed;bottom:20px;right:20px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 16px;font-size:13px;display:none;z-index:300;max-width:300px;box-shadow:0 4px 16px rgba(28,25,23,.1)}
+#toast.error{border-color:var(--err);color:var(--err)}
+#toast.ok{border-color:var(--ok);color:var(--ok)}
+
+#auth-overlay{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:100}
+#auth-box{background:var(--card);padding:28px;border-radius:16px;text-align:center;border:1px solid var(--border);box-shadow:var(--shadow)}
+#auth-box h2{margin-bottom:16px;font-size:17px;font-weight:600}
+#auth-box input{width:240px;padding:10px 12px;border-radius:9px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:14px;margin-bottom:12px;font-family:inherit}
+#auth-box input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;margin-right:6px;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+.wrap{max-width:860px}
+.note{font-size:12px;color:var(--dim);line-height:1.5}
+table.status{border-collapse:collapse;width:100%;font-size:12px;margin-top:10px}
+table.status th,table.status td{border:1px solid var(--border);padding:6px 9px;text-align:left;vertical-align:top}
+table.status th{color:var(--dim);font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:.8px}
+.tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:2px 6px;border-radius:5px;white-space:nowrap}
+.tag.ok{background:var(--ok-soft);color:var(--ok)}
+.tag.by{background:var(--accent-soft);color:var(--dim)}
+.frame{margin:0 auto}
+</style>
+</head>
+<body>
+<button class="theme-toggle" onclick="var d=document.documentElement.dataset.theme==='dark';document.documentElement.dataset.theme=d?'':'dark';try{localStorage.setItem('tg_theme',d?'light':'dark')}catch(e){};this.textContent=d?'&#127769;':'&#9728;'">&#127769;</button>
+<div class="wrap">
+  <h1>Refine view &mdash; design handoff</h1>
+  <p class="note" style="text-align:center">Static mockup for <code>web/refine.html</code> (v0.19.0). Nothing here is wired &mdash;
+  it is the reference the real page was hand-written from, the same way <code>panel-compact.html</code> produced <code>index.html</code>.
+  Toggle the theme top-right to check both palettes.</p>
+
+  <div class="panel">
+    <h3>Decisions &amp; status</h3>
+    <table class="status">
+      <tr><th>Decision</th><th>Status</th><th>Why</th></tr>
+        <tr><td>Single column, max-width 640px</td><td><span class="tag ok">built</span></td><td>No rails, no media-query layout switch — nothing here needs the dashboard's three-column machinery.</td></tr>
+        <tr><td>Controls above the field</td><td><span class="tag ok">built</span></td><td>Thumb reaches mic and Improve without scrolling past a tall textarea.</td></tr>
+        <tr><td>Copy below the field</td><td><span class="tag ok">built</span></td><td>Terminal action, read the result first — and far from the mic, where a mis-tap costs a recording.</td></tr>
+        <tr><td>Markdown preview, default ON</td><td><span class="tag ok">built</span></td><td>Own key <code>tg_md_refine</code>; the dashboard keeps <code>tg_md</code> OFF. This field is a document, that one is terminal input.</td></tr>
+        <tr><td>Split edit/preview &ge;760px</td><td><span class="tag ok">built</span></td><td>Grid pair on wide screens, stacked on a phone.</td></tr>
+        <tr><td>No Type / presets / Blocks</td><td><span class="tag by">by design</span></td><td>Every one of them is a <code>/api/type</code> path. Text leaves this view only through Copy.</td></tr>
+        <tr><td>History shared with dashboard</td><td><span class="tag ok">built</span></td><td>One <code>tg_history</code> — same operator, same day's thinking. All kinds refill the one field here.</td></tr>
+        <tr><td>Scoped token, 12h</td><td><span class="tag ok">built</span></td><td>Server rejects this page's credential on every system route. Not a UI promise.</td></tr>
+    </table>
+  </div>
+
+  <div class="frame">
+  <div class="panel">
+    <h3>Type</h3>
+      <div class="type-controls">
+        <button class="btn btn-soft" id="human-btn" onclick="toggleHumanize()" title="Clean up the transcript via LLM before it lands in the field">AI: ON</button>
+        <button class="btn btn-soft" id="mic-btn" onclick="toggleMic()" title="Voice to text"></button>
+      </div>
+      <div class="type-controls">
+        <button class="btn btn-soft" id="twin-btn" onclick="toggleTwin()" title="Inject the HAE operator profile into Improve so the result sounds like you">Twin: OFF</button>
+        <select id="imp-style" onchange="impStyleChanged()" title="Improve style">
+          <option value="structured" selected>Structured</option>
+          <option value="detailed">Detailed</option>
+          <option value="concise">Concise</option>
+          <option value="translate">&rarr; EN</option>
+        </select>
+        <button class="btn btn-soft" id="imp-btn" onclick="doImprove()" title="Rewrite the text below with AI — the original is saved to History first">&#10024; Improve</button>
+        <button class="btn btn-soft" id="md-btn" onclick="toggleMd()" title="Render the text below as markdown (headers, tables, code)">MD: ON</button>
+      </div>
+    <div class="split md-on">
+      <div class="input-row">
+        <textarea id="type-input">## Goal
+Split the Mini App so text refinement stops sharing a page with remote control.
+
+## Constraints
+- No typing to the PC from this view
+- Markdown must render **and** stay editable
+
+| Surface | Reaches |
+|---|---|
+| Dashboard | everything |
+| Refine | stt / improve |</textarea>
+      </div>
+      <div class="md-body"><h2>Goal</h2><p>Split the Mini App so text refinement stops sharing a page with remote control.</p>
+        <h2>Constraints</h2><ul><li>No typing to the PC from this view</li><li>Markdown must render <b>and</b> stay editable</li></ul>
+        <table><tr><th>Surface</th><th>Reaches</th></tr><tr><td>Dashboard</td><td>everything</td></tr><tr><td>Refine</td><td>stt · improve</td></tr></table></div>
+    </div>
+    <div class="out-row">
+      <button class="btn btn-primary" id="copy-btn">&#128203; Copy</button>
+      <button class="btn btn-soft btn-sm" id="clear-btn">Clear</button>
+    </div>
+    <p class="hint">Nothing is typed to your PC. Text leaves this view only via Copy.</p>
+  </div>
+
+  <div class="panel" style="margin-top:12px">
+    <h3>History <button class="btn btn-sm btn-soft" style="float:right;margin-top:-4px">Clear</button></h3>
+    <div id="history-list">
+      <div class="hist-row"><span class="hist-time">09:14</span><span class="hist-kind draft">draft</span><span class="hist-text">ну короче надо разделить мини аппу на две части...</span></div>
+      <div class="hist-row"><span class="hist-time">09:12</span><span class="hist-kind">type</span><span class="hist-text">Split the Mini App so refinement stops sharing a page</span></div>
+      <div class="hist-row"><span class="hist-time">08:57</span><span class="hist-kind shell">shell</span><span class="hist-text">git status</span></div>
+    </div>
+  </div>
+  </div>
+</div>
+</body>
+</html>

@@ -125,6 +125,9 @@ h1{font-size:17px;font-weight:600;text-align:center;padding:6px 0 2px;letter-spa
 
 /* Attachment chips (pasted images / big text blocks awaiting send) */
 #attach-row{display:flex;flex-wrap:wrap;gap:6px}
+/* Drag a file over the Type field and it says so — a drop with no feedback is
+   indistinguishable from a drop the page ignored. */
+#type-input.drop-on{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
 #attach-row:not(:empty){margin-bottom:8px}
 .attach-chip{display:inline-flex;align-items:center;gap:6px;background:var(--accent-soft);border:1px solid var(--border);border-radius:9px;padding:4px 8px;font-size:12px;max-width:260px}
 .attach-chip img{height:30px;border-radius:5px;display:block}
@@ -140,6 +143,7 @@ h1{font-size:17px;font-weight:600;text-align:center;padding:6px 0 2px;letter-spa
 .hist-kind.shell{color:var(--err)}
 .hist-kind.claude{color:#7c3aed}
 .hist-kind.image{color:#0369a1}
+.hist-kind.file{color:#b45309}
 .hist-kind.draft{color:var(--dim)}
 .hist-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 
@@ -151,7 +155,7 @@ h1{font-size:17px;font-weight:600;text-align:center;padding:6px 0 2px;letter-spa
 
 /* Screen panel: label + buttons on one row */
 .screen-head{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:8px}
-#screen-area{background:#fafbfc;border:1px dashed #d5d9e0;border-radius:10px;min-height:var(--screen-h);display:flex;align-items:center;justify-content:center;overflow:hidden;margin-top:10px;position:relative}
+#screen-area{background:var(--card);border:1px dashed var(--border);border-radius:10px;min-height:var(--screen-h);display:flex;align-items:center;justify-content:center;overflow:hidden;margin-top:10px;position:relative}
 #screen-area img{max-width:100%;height:auto;display:block;border-radius:9px}
 #screen-area .placeholder{color:var(--dim);font-size:13px}
 
@@ -161,13 +165,29 @@ h1{font-size:17px;font-weight:600;text-align:center;padding:6px 0 2px;letter-spa
 .screen-wrap{position:relative}
 .scroll-pad{position:absolute;right:10px;top:50%;transform:translateY(-50%);
   display:flex;flex-direction:column;gap:8px;z-index:5;pointer-events:none}
-.scroll-pad button{pointer-events:auto;width:40px;height:40px;border:none;border-radius:50%;
-  background:rgba(20,19,17,.42);color:#fff;font-size:15px;line-height:1;cursor:pointer;
+/* Every colour here is a LITERAL, not a theme var: these pills float over the
+   screenshot, and the page theme tells you nothing about whether the pixels behind
+   them are a black terminal or a white document. The v0.20.0 idle state was
+   rgba(20,19,17,.42) with no edge — over a dark editor that is a smudge, and the
+   only rule that raised the contrast was :hover, which never fires on a phone. So
+   the operator saw "nothing at all" and lost remote scrolling entirely.
+   The RING is what carries a dark pill over a dark editor; the dark fill is what
+   carries it over a white document. Both, always, on every backdrop. */
+.scroll-pad button{pointer-events:auto;width:40px;height:40px;border-radius:50%;
+  background:rgba(20,19,17,.78);color:#fff;font-size:17px;font-weight:600;line-height:1;cursor:pointer;
+  border:1px solid rgba(255,255,255,.55);box-shadow:0 2px 8px rgba(0,0,0,.45);
   backdrop-filter:blur(3px);transition:background .12s,transform .12s;touch-action:none;
   -webkit-user-select:none;user-select:none}
-.scroll-pad button:hover{background:rgba(20,19,17,.62)}
-.scroll-pad button:active,.scroll-pad button.on{background:var(--accent);transform:scale(.94)}
+.scroll-pad button:hover{background:rgba(20,19,17,.92)}
+/* NOT var(--accent): in night theme that is #ece9e4 while color stays #fff, so the
+   held state of a hold-to-scroll was white on white — no feedback at all. --ok is
+   what btn-ok and #lb-auto.on already use for "this is running". */
+.scroll-pad button:active,.scroll-pad button.on{background:var(--ok);border-color:#fff;transform:scale(.94)}
 #lb-scroll{position:fixed;right:14px;top:50%;transform:translateY(-50%);z-index:201}
+/* Zoom column mirrors the scroll column on the opposite edge — same pills, so the
+   two read as one control scheme. Left, because the right edge is already taken. */
+#lb-zoom{position:fixed;left:14px;top:50%;transform:translateY(-50%);z-index:201}
+#lb-zoom button{font-size:20px;font-weight:500}
 
 select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:9px;background:var(--card);color:var(--text);font-size:13px;font-family:inherit;cursor:pointer}
 .hint{font-size:11px;color:var(--dim);margin-top:8px;line-height:1.4}
@@ -226,24 +246,37 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 /* Lightbox */
 #lightbox{position:fixed;inset:0;background:rgba(15,14,12,.93);display:none;z-index:200;overflow:hidden;touch-action:none;user-select:none}
 #lightbox img{position:absolute;left:0;top:0;transform-origin:0 0;max-width:none;cursor:grab;-webkit-user-drag:none}
+/* Close is the only thing pinned to the corner — it must sit in the same place
+   no matter how the rest of the bar reflows. The view controls (layout / auto /
+   interval) moved down into the bottom bar's right zone, Click into the left one. */
 #lb-controls{position:fixed;top:14px;right:14px;z-index:201;display:flex;gap:8px;align-items:center}
-#lb-controls button,#lb-keys button{height:38px;padding:0 14px;border-radius:19px;border:none;background:rgba(255,255,255,.12);color:#fff;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer;transition:background .15s;backdrop-filter:blur(4px)}
-#lb-controls button:hover,#lb-keys button:hover{background:rgba(255,255,255,.24)}
+#lb-controls button,#lb-keys button,#lb-view-row button{height:38px;padding:0 14px;border-radius:19px;border:none;background:rgba(255,255,255,.12);color:#fff;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer;transition:background .15s;backdrop-filter:blur(4px)}
+#lb-controls button:hover,#lb-keys button:hover,#lb-view-row button:hover{background:rgba(255,255,255,.24)}
 /* Quick keys inside the zoomed viewer — same set as the bottom bar, so Claude
    Code question prompts are answerable without leaving the screenshot */
-#lb-bottom{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:201;display:flex;flex-direction:column;align-items:center;gap:8px;max-width:calc(100vw - 28px)}
-#lb-keys{position:relative;z-index:201;display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+/* One bottom bar, three zones: project flow left, keys centred, view controls
+   right. The keys row is the only flexible zone (`flex:1 1 auto`), so it absorbs
+   the slack and its buttons sit between the two side groups; the side zones stay
+   at content width. Wraps to stacked rows when the three no longer fit. */
+#lb-bottom{position:fixed;bottom:14px;left:14px;right:14px;z-index:201;display:flex;align-items:flex-end;justify-content:space-between;gap:8px;flex-wrap:wrap}
+#lb-keys{position:relative;z-index:201;display:flex;gap:8px;flex-wrap:wrap;justify-content:center;flex:1 1 auto}
 #lb-keys button{min-width:38px;padding:0 12px}
 /* Green pills mirror the dashboard (Enter / Sh+Tab), which is what leaves the
    new plain Tab pill visually distinct from Sh+Tab inside the viewer. */
 #lb-keys button.lb-ok{background:rgba(22,163,74,.55)}
 #lb-keys button.lb-ok:hover{background:rgba(22,163,74,.75)}
-#lb-keys .qk-input{height:38px;border-radius:19px;border:none;background:rgba(255,255,255,.12);color:#fff;font-size:13px;backdrop-filter:blur(4px)}
+/* Type field is the only thing in the bar that gets longer with the window: it
+   holds an answer, the pills hold one word each. flex-basis 260px + grow means it
+   eats the slack the centre zone has left after the pills. */
+#lb-keys .qk-input{height:38px;border-radius:19px;border:none;background:rgba(255,255,255,.12);color:#fff;font-size:13px;backdrop-filter:blur(4px);flex:1 1 260px;width:auto;min-width:150px;padding:0 14px}
 #lb-keys .qk-input::placeholder{color:rgba(255,255,255,.55)}
 #lb-keys .qk-input,#lb-proj-row select{touch-action:auto;user-select:text}
 /* Project row: pick a project, open/focus its VS Code window, start Claude Code —
    the whole "get a session running" flow without leaving the zoomed screenshot. */
-#lb-proj-row{position:relative;z-index:201;display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+#lb-proj-row{position:relative;z-index:201;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-start;flex:0 1 auto}
+/* Right zone: keyboard layout, auto-refresh toggle, interval. Click mode lives in
+   the left zone instead — it arms taps on the picture, not the refresh loop. */
+#lb-view-row{position:relative;z-index:201;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;flex:0 1 auto}
 #lb-proj-row button{height:38px;padding:0 14px;border-radius:19px;border:none;background:rgba(255,255,255,.12);color:#fff;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer;transition:background .15s;backdrop-filter:blur(4px)}
 #lb-proj-row button:hover{background:rgba(255,255,255,.24)}
 #lb-proj-row select{height:38px;max-width:190px;padding:0 12px;border-radius:19px;border:none;background:rgba(255,255,255,.12);color:#fff;font-family:inherit;font-size:13px}
@@ -259,15 +292,38 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 /* ===== Quick keys bar (fixed bottom) — answer Claude Code question prompts
    (arrows/enter to move the selector, Sh+Tab for mode, 1/2 for numbered answers)
    from anywhere on the page, with a trail of recently tapped keys ===== */
-#quick-keys{position:fixed;left:0;right:0;bottom:0;z-index:90;display:flex;align-items:center;justify-content:center;gap:10px;padding:7px 10px;background:var(--card);border-top:1px solid var(--border);box-shadow:0 -2px 10px rgba(28,25,23,.06)}
+#quick-keys{position:fixed;left:0;right:0;bottom:0;z-index:90;display:flex;align-items:center;justify-content:center;flex-wrap:nowrap;gap:10px;padding:7px 10px;background:var(--card);border-top:1px solid var(--border);box-shadow:0 -2px 10px rgba(28,25,23,.06)}
 .qk-btns{display:flex;gap:6px;flex-shrink:0}
 .qk-trail{font-size:11px;color:var(--dim);min-width:0;max-width:38%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;direction:rtl;text-align:left}
 .qk-trail bdi{direction:ltr}
 /* Freeform answer field: replaces the fixed 1/2 digit buttons — any answer, not
    just the two that happened to have a button. Enter sends text + Enter. */
+/* Layout pill. Fixed width so a RU -> EN switch cannot reflow the whole key row
+   under the operator's thumb mid-tap. */
+.btn-lay{min-width:42px;font-weight:600;letter-spacing:.4px}
 .qk-input{width:120px;min-width:80px;padding:6px 10px;border:1px solid var(--border);border-radius:9px;background:var(--card);color:var(--text);font-family:inherit;font-size:12px}
 .qk-input:focus{outline:none;border-color:var(--accent)}
 body{padding-bottom:62px}
+/* ===== The bar folds, like .panel.acc — caret from a pseudo-element, one key in
+   the same acc_ namespace. The handle sits at the far left, the one slot the phone
+   block already empties (.qk-trail{display:none}): screen edge, thumb-natural, and
+   nothing else there to mis-hit. Thin but full height, and the negative margin
+   stretches the target to x=0. ===== */
+#qk-toggle{flex-shrink:0;width:26px;padding:0 0 0 8px;margin-left:-8px;align-self:stretch;
+  border:none;background:none;color:var(--dim);font-size:11px;line-height:1;cursor:pointer}
+#qk-toggle:hover{background:var(--accent-soft)}
+#qk-toggle::after{content:'▾'}          /* open: tap to lower it */
+body.qk-hidden #qk-toggle::after{content:'▴'}   /* folded: tap to raise it */
+/* Collapsed is a sliver, not a disappearance — the handle stays at the exact pixel
+   the thumb just left, so the way back is where the way out was. */
+body.qk-hidden #quick-keys>:not(#qk-toggle){display:none}
+body.qk-hidden #quick-keys{justify-content:flex-start;padding:1px 8px;box-shadow:none}
+/* Clearance follows the bar. A body CLASS, not a --qk-h custom property: a variable
+   would mean rewriting both `62px` literals into var(), and 62 is the expanded
+   height in two places a test pins byte-for-byte. A class beats the shorthand on
+   specificity (0,1,1 vs 0,0,1), so this one rule also overrides the 560px block. */
+body.qk-hidden{padding-bottom:26px}
+body.qk-hidden #toast{bottom:28px}
 
 #toast{position:fixed;bottom:64px;right:20px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 16px;font-size:13px;display:none;z-index:300;max-width:300px;box-shadow:0 4px 16px rgba(28,25,23,.1)}
 #toast.error{border-color:var(--err);color:var(--err)}
@@ -305,28 +361,77 @@ body{padding-bottom:62px}
   .qk-trail{display:none}
   #quick-keys .btn-claude{display:none}
   .qk-input{width:84px}
+  /* Four arrows + …/Enter/Sh+Tab/Tab are wider than a 360px phone even squared
+     off, and nothing here is droppable. So the KEYS scroll horizontally while the
+     field stays pinned on the right — before this the overflow simply pushed the
+     field off-screen, silently. #qk-type is a SIBLING of this row, not its last
+     child, or "pinned" is a comment rather than a fact. */
+  .qk-arrow{min-width:30px;padding:6px 0}
+  .qk-btns{flex-shrink:1;gap:5px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .qk-btns::-webkit-scrollbar{display:none}
+  #qk-type{flex-shrink:0}
+  /* 40px is a mouse target. These two are hold-to-repeat controls worked with a
+     thumb over a live picture, so they GROW here while everything else shrinks —
+     44px is the touch floor, and 10px of gap keeps two adjacent discs from being
+     one mis-tap away from scrolling the wrong way. */
+  .scroll-pad button{width:44px;height:44px;font-size:19px}
+  .scroll-pad{right:8px;gap:10px}
+  /* ===== Phone compaction. Horizontal is the scarce axis — every overflowing row
+     on this page scrolls or wraps sideways, never down. So INLINE padding and gaps
+     shrink and the tappable HEIGHT of every control is held: no vertical padding
+     here goes below 6px, and #mic-btn keeps its 46px. ===== */
+  .status-bar{gap:3px 10px;font-size:11px}
+  .cc-metrics{padding:9px 10px;margin-bottom:10px}
+  .panel{padding:11px}
+  .panel.tight{padding:9px}
+  .panel h3{margin-bottom:8px}
+  .btn{padding:8px 10px}
+  .btn-sm{padding:6px 8px}
+  .chip-row{gap:5px}
+  .chip-row .btn{padding:8px 9px}
+  .mob-tools{gap:6px}
+  .btn-grid,.btn-row,.type-controls,.input-row,.screen-head{gap:5px}
+  /* 88px was a desktop rhythm; here it starves #mic-btn, which is flex:1 and the
+     biggest touch target on the page. */
+  .type-controls .btn:not(#mic-btn):not(#imp-btn){width:auto}
+  #quick-keys{gap:6px;padding:6px 8px}
 }
 
-/* Zoomed viewer on a phone (or a short landscape window): both control rows sit
+/* Zoomed viewer on a phone (or a short landscape window): the control rows sit
    ON TOP of the picture, so every pixel they take is picture lost. At 38px pills
-   with 8px gaps the two rows wrapped into four and ate half the screen. Compact
-   to 32px, one row each — buttons keep their size, the select and the freeform
+   with 8px gaps the rows wrapped into four and ate half the screen. Compact to
+   32px, one row per zone — buttons keep their size, the select and the freeform
    field absorb whatever width is left. */
 @media(max-width:620px),(max-height:520px){
-  #lb-bottom{bottom:8px;gap:6px;max-width:calc(100vw - 16px);width:calc(100vw - 16px)}
-  #lb-proj-row,#lb-keys{gap:6px;flex-wrap:nowrap;width:100%}
+  #lb-bottom{bottom:8px;left:8px;right:8px;gap:6px}
+  /* Three zones side by side do not fit 360px: each takes a full row and keeps
+     its own alignment (project left, keys centred, view controls right). */
+  #lb-view-row{gap:6px;flex-wrap:nowrap;width:100%;flex:1 1 100%}
+  /* Left zone (2 selects + 4 pills) and centre zone (6 pills + the field) do not
+     fit one 360px line. They wrap instead of overflowing — #lightbox is
+     overflow:hidden, so an overflowing row does not scroll, it loses its last
+     button off-screen. */
+  #lb-proj-row,#lb-keys{gap:6px;flex-wrap:wrap;width:100%;flex:1 1 100%}
   #lb-controls{top:8px;right:8px;gap:6px}
-  #lb-controls button,#lb-keys button,#lb-proj-row button,
+  #lb-controls button,#lb-keys button,#lb-proj-row button,#lb-view-row button,
   #lb-keys .qk-input,#lb-proj-row select{height:32px;font-size:12px;padding:0 9px;border-radius:16px}
-  #lb-controls button,#lb-keys button,#lb-proj-row button{flex:0 0 auto}
+  #lb-controls button,#lb-keys button,#lb-proj-row button,#lb-view-row button{flex:0 0 auto}
   #lb-keys button{min-width:32px;padding:0 8px}
   #lb-close{width:32px;font-size:18px;padding:0}
   #lb-int{min-width:40px}
   /* min-width:0 or a flex item refuses to shrink below its content width and the
      row overflows the viewport instead of fitting. */
-  #lb-proj-row select{flex:1 1 auto;min-width:0;max-width:none;padding:0 8px}
-  #lb-keys .qk-input{flex:1 1 auto;min-width:0;width:auto}
+  #lb-proj-row select{flex:1 1 40%;min-width:0;max-width:none;padding:0 8px}
+  /* full row of its own on a phone — a share of the key row would leave ~40px */
+  #lb-keys .qk-input{flex:1 1 100%;min-width:0;width:auto;padding:0 10px}
   #lb-proj-row .lb-lbl{display:none}   /* 🖥 alone still reads as "focus window" */
+  /* Edges match the compacted #lb-bottom. Deliberately NOT shrunk to 32px like the
+     pills above: the 38->32 rule exists because ROWS of them ate the picture, while
+     a two-button column on the extreme edge costs almost nothing — and these are the
+     controls this whole change exists to make easier to find. They inherit the ring
+     and the 44px touch size from .scroll-pad. */
+  #lb-scroll{right:8px}
+  #lb-zoom{left:8px}
 }
 
 /* Loading */
@@ -376,7 +481,7 @@ body{padding-bottom:62px}
   <div class="rail">
     <div class="panel tight acc" id="win-panel">
       <h3 onclick="togglePanel('win-panel')">Windows — current: <b id="win-current">…</b></h3>
-      <select id="win-select"><option value="">— select window —</option></select>
+      <select id="win-select" onchange="renderTarget()"><option value="">— select window —</option></select>
       <div class="btn-row">
         <button class="btn btn-sm btn-soft" onclick="loadWindows()">&#10227; Refresh</button>
         <button class="btn btn-sm btn-primary" onclick="doFocusSel()">Focus</button>
@@ -438,8 +543,12 @@ body{padding-bottom:62px}
       <div class="type-controls">
         <button class="btn btn-soft" id="human-btn" onclick="toggleHumanize()" title="Clean up transcript via LLM">AI: OFF</button>
         <button class="btn btn-soft" id="mic-btn" onclick="toggleMic()" title="Voice to text"></button>
+        <button class="btn btn-soft" id="attach-btn" onclick="pickFiles()" title="Attach a file — saved on the PC, its path is typed (Claude Code reads the file)">&#128206;</button>
         <button class="btn btn-primary" onclick="doType()">Type</button>
       </div>
+      <!-- One picker for every 📎 on the page (panel + viewer): two inputs would
+           mean two change handlers and two ways for the list to go stale. -->
+      <input type="file" id="file-input" multiple hidden>
       <div class="type-controls">
         <button class="btn btn-soft" id="twin-btn" onclick="toggleTwin()" title="Inject HAE twin persona + principles into Improve">Twin: OFF</button>
         <select id="imp-style" onchange="impStyleChanged()" title="Improve style">
@@ -451,6 +560,7 @@ body{padding-bottom:62px}
         <button class="btn btn-soft" id="imp-btn" onclick="doImprove()" title="Rewrite the text below with AI — original saved to History, nothing is sent">&#10024; Improve</button>
         <button class="btn btn-soft" id="md-btn" onclick="toggleMd()" title="Render the text below as markdown (headers, tables, code)">MD: OFF</button>
         <button class="btn btn-soft" id="blocks-btn" onclick="toggleBlocks()" title="Fold big pasted text into a block chip instead of filling the field">Blocks: ON</button>
+        <button class="btn btn-soft" id="tgt-btn" onclick="toggleTarget()" title="Raise the window picked in the Windows panel before typing, instead of trusting whatever is foreground">Target: active</button>
       </div>
       <div class="input-row">
         <textarea id="type-input" rows="2" placeholder="Text to type... (Enter = send, Shift+Enter = new row, paste image = send to PC)"></textarea>
@@ -550,45 +660,62 @@ body{padding-bottom:62px}
 
 <!-- Quick keys: fixed bottom bar for Claude Code question prompts -->
 <div id="quick-keys">
+  <button id="qk-toggle" onclick="toggleQuickKeys()" title="Hide the quick-keys bar"></button>
   <div class="qk-trail" id="qk-trail"><span class="hint">no keys tapped yet</span></div>
   <div class="qk-btns">
-    <button class="btn btn-sm" onclick="doKey('left')" title="Arrow left">&larr;</button>
-    <button class="btn btn-sm" onclick="doKey('right')" title="Arrow right">&rarr;</button>
+    <button class="btn btn-sm btn-lay" id="lay-btn" onclick="doLayout()"
+            title="Keyboard layout of the focused window — tap to switch">&hellip;</button>
+    <button class="btn btn-sm qk-arrow" onclick="doKey('up')" title="Arrow up — previous option">&uarr;</button>
+    <button class="btn btn-sm qk-arrow" onclick="doKey('down')" title="Arrow down — next option">&darr;</button>
+    <button class="btn btn-sm qk-arrow" onclick="doKey('left')" title="Arrow left">&larr;</button>
+    <button class="btn btn-sm qk-arrow" onclick="doKey('right')" title="Arrow right">&rarr;</button>
     <button class="btn btn-sm btn-ok-soft" onclick="doKey('enter')">Enter</button>
     <button class="btn btn-sm btn-ok-soft" onclick="doKey('shift+tab')" title="Cycle Claude Code mode">Sh+Tab</button>
     <button class="btn btn-sm" onclick="doKey('tab')" title="Tab — next field / accept completion (NOT Sh+Tab)">Tab</button>
     <button class="btn btn-sm btn-claude" onclick="doClaudeCode()" title="Start Claude Code in the VS Code terminal">Claude</button>
-    <input id="qk-type" class="qk-input" placeholder="type&hellip; &#9166;" title="Type text + Enter into the focused window">
   </div>
+  <!-- Outside .qk-btns on purpose: in there it was the last child of the row that
+       scrolls at <=560px, so the answer field scrolled away with the keys — the
+       opposite of what the comment beside that rule has always claimed. -->
+  <input id="qk-type" class="qk-input" placeholder="type&hellip; &#9166;" title="Type text + Enter into the focused window">
 </div>
 </div>
 
 <!-- Lightbox viewer -->
 <div id="lightbox">
   <div id="lb-controls">
-    <button id="lb-auto" onclick="lbToggleAuto()">Auto: OFF</button>
-    <button id="lb-int" onclick="lbCycleInt()" title="Auto-refresh interval">3s</button>
-    <button id="lb-click" onclick="lbToggleClick()">Click: OFF</button>
     <button id="lb-close" onclick="closeLightbox()">&times;</button>
   </div>
   <div class="scroll-pad" id="lb-scroll">
     <button data-scroll="up" title="Scroll up (hold to keep scrolling)">▲</button>
     <button data-scroll="down" title="Scroll down (hold to keep scrolling)">▼</button>
   </div>
+  <div class="scroll-pad" id="lb-zoom">
+    <button data-zoom="in" title="Zoom in (hold to keep zooming)">+</button>
+    <button data-zoom="out" title="Zoom out (hold to keep zooming)">&minus;</button>
+  </div>
   <div id="lb-bottom">
     <div id="lb-proj-row">
+      <select id="lb-win"><option value="">&mdash; select window &mdash;</option></select>
+      <button onclick="doFocusWin('lb-win')" title="Focus the selected window">&#128421;<span class="lb-lbl"> Focus</span></button>
       <select id="lb-proj"><option value="">&mdash; select project &mdash;</option></select>
-      <button onclick="doFocusProj('lb-proj')" title="Focus this project's VS Code window">&#128421;<span class="lb-lbl"> Focus</span></button>
       <button onclick="doCodeSel('lb-proj')" title="Open this project in a new VS Code window">Open</button>
       <button id="lb-claude" onclick="doClaudeCode()" title="Start Claude Code in the VS Code terminal">Claude</button>
+      <button id="lb-int" onclick="lbCycleInt()" title="Auto-refresh interval">3s</button>
     </div>
     <div id="lb-keys">
+      <button id="lb-click" onclick="lbToggleClick()">Click: OFF</button>
       <button onclick="doKey('left')" title="Arrow left">&larr;</button>
       <button onclick="doKey('right')" title="Arrow right">&rarr;</button>
       <button class="lb-ok" onclick="doKey('enter')">Enter</button>
       <button class="lb-ok" onclick="doKey('shift+tab')" title="Cycle Claude Code mode">Sh+Tab</button>
       <button onclick="doKey('tab')" title="Tab — next field / accept completion (NOT Sh+Tab)">Tab</button>
+      <button onclick="pickFiles(true)" title="Attach a file — saved on the PC, its path is typed">&#128206;</button>
       <input id="lb-type" class="qk-input" placeholder="type&hellip; &#9166;" title="Type text + Enter into the focused window">
+    </div>
+    <div id="lb-view-row">
+      <button id="lb-lay" onclick="doLayout()" title="Keyboard layout — tap to switch">&hellip;</button>
+      <button id="lb-auto" onclick="lbToggleAuto()">Auto: OFF</button>
     </div>
   </div>
   <img id="lb-img" alt="preview">
@@ -596,7 +723,7 @@ body{padding-bottom:62px}
 
 <div id="toast"></div>
 
-<script src="/static/common.js?v=0.20.0"></script>
+<script src="/static/common.js?v=0.21.0"></script>
 <script>
 let autoTimer = null, autoOn = false;
 let lastRect = null, clickMode = false, lastCapture = 'window';  // window capture is the entry default
@@ -674,6 +801,20 @@ function togglePanel(id){
     document.getElementById(id).classList.add('collapsed');
 });
 
+/* The bottom bar folds with the same idiom and the same acc_ namespace, so a later
+   "fold everything" walks one prefix. The class goes on <body>, not on #quick-keys:
+   the two things that must follow the fold — body's bottom clearance and #toast —
+   are not descendants of the bar. */
+function toggleQuickKeys(){
+  const hidden = document.body.classList.toggle('qk-hidden');
+  localStorage.setItem('acc_quick-keys', hidden ? '1' : '0');
+}
+/* Default EXPANDED (absent key = open, like the panels). Shipping a bar hidden on
+   first load, in the release that fixes "I cannot see the arrows", would manufacture
+   the same bug one control over. */
+if (localStorage.getItem('acc_quick-keys') === '1')
+  document.body.classList.add('qk-hidden');
+
 
 /* Telegram BackButton: while the viewer is open, hardware/HW back must close the
    viewer, not the whole Mini App. */
@@ -696,7 +837,7 @@ async function checkAuth() {
       document.getElementById('auth-overlay').style.display = 'none';
       document.getElementById('main').style.display = 'block';
       updateStatus(r);
-      loadWindows(); loadFolders(); loadCCMetrics(); loadSchedules();
+      loadWindows(); loadFolders(); loadCCMetrics(); loadSchedules(); loadLayout();
       setInterval(refreshStatus, 30000);
       // Screen live from the start: capture + Auto refresh (3s default), Click stays OFF
       if (!autoOn) autoRefresh();
@@ -843,10 +984,13 @@ function _frameOpts() {
   const lbOpen = _lbBox().style.display === 'block';
   let w;
   if (choice === 'fit') {
+    // Only the adaptive setting is overridden in the viewer: 'Fit' there means
+    // the panel-sized thumbnail, which is useless to zoom into. An explicit
+    // 1280/1920/Full is an instruction, and silently promoting it to 1920 is
+    // why the selector looked dead while the viewer was open.
     w = lbOpen ? 1920 : Math.min(_fitW || _fitBaseW(), _fitBaseW());
   } else {
     w = choice;                                  // 0 = native
-    if (lbOpen && w && w < 1920) w = 1920;
   }
   return {max_w: w, quality: _RES_QUALITY[choice] || 70};
 }
@@ -922,8 +1066,15 @@ async function capture(kind) {
     const url = URL.createObjectURL(blob);
     const im = new Image();
     im.alt = 'screen';
-    im.onload = () => {
+    im.onload = async () => {
       im.onload = null;             // stale-closure guard: must never re-fire on src swaps
+      if (seq !== _capSeq) { URL.revokeObjectURL(url); return; }
+      // 'load' means the bytes arrived, NOT that the bitmap is decoded. Swapping an
+      // undecoded <img> in makes the browser paint one empty frame first — the old
+      // frame is gone, the new one is not ready, and #screen-area's own background
+      // shows through: the white flash on every refresh. decode() resolves only
+      // when the bitmap is paintable, so the swap is old-frame → new-frame.
+      try { if (im.decode) await im.decode(); } catch(e) {}
       if (seq !== _capSeq) { URL.revokeObjectURL(url); return; }
       if (rect.length === 4) lastRect = rect;
       lastCapture = kind;
@@ -1005,15 +1156,20 @@ function _autoSchedule() {
     if (!autoOn) return;
     // Backgrounded tab/webview: keep the loop alive but stop pulling frames.
     // A dashboard left open in a background tab was pulling >1GB/day through
-    // the tunnel and competing with the phone for it.
-    if (document.hidden) { _autoSchedule(); return; }
-    await requestCapture();
-    _autoSchedule();
+    // the tunnel and competing with the phone for it. Say so — a silent stop
+    // is indistinguishable from "Auto is broken", and some webviews report
+    // hidden while the operator is looking straight at them.
+    if (document.hidden) { setStatus('Auto paused — view hidden', false); _autoSchedule(); return; }
+    // finally, ALWAYS: an exception out of requestCapture used to kill the chain
+    // for good — Auto stayed lit green and nothing ever refreshed again.
+    try { await requestCapture(); } finally { _autoSchedule(); }
   }, _autoInterval());
 }
 
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && autoOn) { _autoSchedule(); requestCapture(); }
+  if (document.hidden) return;
+  loadLayout();          // the operator may have switched it at the PC meanwhile
+  if (autoOn) { _autoSchedule(); requestCapture(); }
 });
 
 function autoRefresh() {
@@ -1101,6 +1257,32 @@ function bindScrollPads() {
 }
 bindScrollPads();
 
+/* Zoom pad: same hold-to-repeat feel as the scroll arrows, but purely local — no
+   server round trip, so the repeat is a plain timer instead of a request chain.
+   Anchored on the viewport centre, which is what the eye is on; wheel/pinch keep
+   anchoring on the cursor/fingers. */
+const ZOOM_STEP = 1.18, ZOOM_REPEAT_MS = 110;
+let _zoomHeld = null;
+function _zoomOnce(dir) {
+  _lbZoomAt(innerWidth / 2, innerHeight / 2, dir === 'in' ? ZOOM_STEP : 1 / ZOOM_STEP);
+}
+function bindZoomPad() {
+  document.querySelectorAll('#lb-zoom button[data-zoom]').forEach(b => {
+    if (b._bound) return;
+    b._bound = true;
+    const stop = () => { b.classList.remove('on'); clearInterval(_zoomHeld); _zoomHeld = null; };
+    b.addEventListener('pointerdown', e => {
+      e.preventDefault(); e.stopPropagation();   // never reaches the lightbox pan handler
+      b.classList.add('on');
+      _zoomOnce(b.dataset.zoom);
+      clearInterval(_zoomHeld);
+      _zoomHeld = setInterval(() => _zoomOnce(b.dataset.zoom), ZOOM_REPEAT_MS);
+    });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, stop));
+  });
+}
+bindZoomPad();
+
 /* Click-on-image: Click mode ON -> remote click at rect-mapped coords; OFF -> zoomable lightbox.
    rect from the server (pyautogui coordinate space) handles window captures with offsets. */
 function toggleClickMode() {
@@ -1173,17 +1355,32 @@ function openLightbox(src) {
   // Project row is filled by loadFolders(); if the viewer opened before that
   // landed it would show an empty list, so pull once here.
   if (document.getElementById('lb-proj').options.length < 2) loadFolders();
+  loadWindows();     // windows change constantly; a stale list focuses a dead title
   // The viewer wants ≥1920 to be worth zooming into; the frame we just showed
   // was sized for the small panel. Pull a sharp one right away.
   _lastHash = '';
   requestCapture();
 }
 
+/* Esc belongs to the viewer while the viewer is open: it is the one key every
+   operator tries first, and unhandled it goes to the browser/webview instead
+   (leaving fullscreen, closing a picker) while the overlay just sits there. */
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape' && e.key !== 'Esc') return;
+  if (_lbBox().style.display !== 'block') return;   // dashboard: leave Esc alone
+  e.preventDefault();
+  e.stopPropagation();
+  closeLightbox();
+});
+
 function closeLightbox() {
   _lbBox().style.display = 'none';
   _lb.ptrs.clear();
   _lb.multi = false; _lb.onBackdrop = false;
   clearTimeout(_lb.closeTimer);
+  clearInterval(_zoomHeld); _zoomHeld = null;   // a hold closed by the back button
+                                                // never sends pointerup: it would
+                                                // keep zooming a hidden image
   _tgBack(false, closeLightbox);
 }
 
@@ -1352,8 +1549,15 @@ async function _lbClickAt(cx, cy, double) {
 }
 
 /* ===== Windows / Projects ===== */
-function _fillSelect(selId, items, placeholder, selected) {
+/* sticky = the operator's pick outranks `selected` on a refill. Windows are like
+   that: loadWindows() runs again after every focus, and re-selecting the ACTIVE
+   window each time reset the choice under the finger — the next tap on Focus then
+   re-focused the window already in front, which reads as a dead button. Projects
+   are NOT: there `selected` is the server's current project, which is real state. */
+function _fillSelect(selId, items, placeholder, selected, sticky) {
   const sel = document.getElementById(selId);
+  const keep = sel.value;
+  if (sticky && keep && items.includes(keep)) selected = keep;
   sel.innerHTML = '';
   const p = document.createElement('option');
   p.value = '';
@@ -1374,7 +1578,9 @@ async function loadWindows() {
     if (r.ok) {
       _activeWin = r.active || '';
       _winList = r.windows || [];      // recents are validated against this
-      _fillSelect('win-select', r.windows, '— select window —', _activeWin);
+      _fillSelect('win-select', r.windows, '— select window —', _activeWin, true);
+      _fillSelect('lb-win', r.windows, '— select window —', _activeWin, true);   // viewer copy
+      renderTarget();                  // label carries the chosen window's name
       const cur = r.active || '?';
       document.getElementById('win-current').textContent =
         cur.length > 40 ? cur.slice(0, 40) + '…' : cur;
@@ -1387,11 +1593,19 @@ async function _focusTitle(title) {
   try {
     const r = await api('POST', '/api/focus', {title});
     toast(r.msg || r.error, !r.ok);
-    if (r.ok) { bumpRecent('win', title); loadWindows(); }
+    if (r.ok) { bumpRecent('win', title); loadWindows(); loadLayout(); }
     // Window is gone for good — retire the chip instead of leaving a dead one.
     // "found but activation blocked" is NOT gone, so it stays.
     else if (r.gone) { dropRecent('win', title); loadWindows(); }
   } catch(e) { toast(e.message, true); }
+}
+
+/* Viewer focus: the left zone picks a WINDOW, so this focuses that title directly
+   (doFocusProj derives a title from a project — kept, the dashboard still uses it). */
+async function doFocusWin(selId) {
+  const title = (document.getElementById(selId) || {}).value || '';
+  if (!title) { toast('Select window first', true); return; }
+  await _focusTitle(title);
 }
 
 async function doFocusSel() {
@@ -1577,7 +1791,8 @@ async function doFocusProj(selId) {
 /* Recently-tapped-keys trail in the bottom quick-keys bar. Hooked centrally in
    doKey so every key press (bar, Keys rail, mob chips) shows up; newest last. */
 const _qkTrail = [];
-const _QK_LABELS = {left: '←', right: '→', enter: 'Enter', 'shift+tab': 'Sh+Tab',
+const _QK_LABELS = {left: '←', right: '→', up: '↑', down: '↓',
+                    enter: 'Enter', 'shift+tab': 'Sh+Tab',
                     escape: 'Esc', backspace: 'Bksp', space: 'Space', tab: 'Tab'};
 function _qkPush(label) {
   _qkTrail.push(label);
@@ -1627,6 +1842,50 @@ async function doKey(key, repeat, interval) {
     if (r.ok) toast(`Pressed: ${key}` + (repeat > 1 ? ` x${repeat}` : ''));
     else toast(r.error, true);
   } catch(e) { toast(e.message, true); }
+  loadLayout();     // a key may have been the layout shortcut itself
+}
+
+/* ===== Keyboard layout of the focused window =====
+   Not decoration. What lands in a remote terminal is whatever the TARGET
+   window's layout produces, and from a phone that is invisible: you type a
+   command, Cyrillic arrives, and the terminal answers with an error you then
+   have to read off a screenshot. The pill shows the layout of the window that
+   will receive the next keystroke; a tap cycles it.
+
+   Deliberately no timer. A background poll through the reverse-SSH tunnel is
+   what the v0.16.3 / v0.16.4 traffic work was about; this refreshes at the
+   moments the answer can actually have changed — page load, tab becoming
+   visible, after a focus, and after every key or text the bot sends. */
+let _layName = '', _layLoading = false;
+
+function renderLayout() {
+  const txt = _layLoading ? '…' : (_layName || '?');
+  ['lay-btn', 'lb-lay'].forEach(id => {
+    const b = document.getElementById(id);
+    if (b) b.textContent = txt;
+  });
+}
+
+async function loadLayout() {
+  _layLoading = !_layName; renderLayout();
+  try {
+    const r = await api('GET', '/api/layout');
+    if (r.ok) _layName = r.name || '';
+  } catch(e) { /* an unreachable bot is already reported by whatever else ran */ }
+  _layLoading = false; renderLayout();
+}
+
+async function doLayout() {
+  _layLoading = true; renderLayout();
+  try {
+    const r = await api('POST', '/api/layout', {});
+    _layName = r.name || _layName;
+    // The layout is per window, and a window may refuse the request — say which
+    // window, or a silent no-op looks like the button is dead.
+    if (r.ok) toast('Layout: ' + r.name + (r.window ? ' — ' + r.window : ''));
+    else toast(r.msg || r.error || 'Layout switch failed', true);
+  } catch(e) { toast(e.message, true); }
+  _layLoading = false; renderLayout();
 }
 
 async function doClick(x, y, double) {
@@ -1676,6 +1935,10 @@ function renderAttachments() {
       img.src = a.url;
       chip.appendChild(img);
       chip.appendChild(document.createTextNode(`image ${Math.round(a.blob.size / 1024)}KB`));
+    } else if (a.kind === 'file') {
+      chip.appendChild(document.createTextNode(
+        `\u{1F4CE} ${a.file.name} · ${Math.max(1, Math.round(a.file.size / 1024))}KB`));
+      chip.title = a.file.name;
     } else {
       chip.appendChild(document.createTextNode(`\u{1F4C4} ${a.rows} rows · ${a.text.length} chars`));
       chip.title = a.text.slice(0, 400);
@@ -1697,6 +1960,54 @@ function addImageAttachment(blob) {
   attachments.push({kind: 'image', blob, url: URL.createObjectURL(blob)});
   renderAttachments();
   setStatus(`Image loaded (${Math.round(blob.size / 1024)}KB) — will send with Type`, false);
+}
+
+/* A file is NOT pushed through the clipboard as text: it is saved on the PC and
+   its path is typed, so Claude Code reads the whole file. That is the only way a
+   40KB markdown arrives intact — as text it is slow, hits bracketed paste, and
+   gets chopped into blocks. */
+function addFileAttachment(file) {
+  attachments.push({kind: 'file', file});
+  renderAttachments();
+  setStatus(`File attached: ${file.name} (${Math.max(1, Math.round(file.size / 1024))}KB)`
+            + ' — sends with Type', false);
+}
+
+function pickFiles(direct) {
+  const inp = document.getElementById('file-input');
+  inp.value = '';                 // same file twice in a row must still fire change
+  inp._direct = !!direct;         // viewer: upload immediately, no chip list
+  inp.click();
+}
+
+document.getElementById('file-input').addEventListener('change', async e => {
+  const files = [...e.target.files];
+  const direct = e.target._direct;
+  e.target._direct = false;
+  if (!files.length) return;
+  if (!direct) { files.forEach(addFileAttachment); return; }
+  for (const f of files) await uploadFile(f);
+});
+
+/* Upload one file; the server saves it and types the path (X-Type-Path: 0 would
+   only save). Raw body + URL-encoded name in a header: api() speaks JSON, and a
+   raw UTF-8 header value arrives mangled. */
+async function uploadFile(file, typePath) {
+  const headers = {'Content-Type': 'application/octet-stream',
+                   'X-Filename': encodeURIComponent(file.name),
+                   'X-Type-Path': typePath === false ? '0' : '1'};
+  if (TG) headers['X-Telegram-Init-Data'] = TG.initData;
+  else headers['Authorization'] = 'Bearer ' + TOKEN;
+  const r = await fetch(BASE + '/api/upload', {method: 'POST', headers, body: file});
+  let j = {};
+  try { j = await r.json(); } catch(e) {}
+  if (!r.ok || !j.ok) {
+    toast(j.error || ('Upload failed: HTTP ' + r.status), true);
+    return null;
+  }
+  addHistory('file', file.name);
+  toast(j.msg || file.name);
+  return j;
 }
 
 function addTextAttachment(text) {
@@ -1725,6 +2036,14 @@ document.getElementById('type-input').addEventListener('paste', e => {
       return;
     }
   }
+  // Copying a file in the OS file manager puts a File (not an image) on the
+  // clipboard — attach it instead of pasting its name as text.
+  const fs = [...(e.clipboardData.files || [])];
+  if (fs.length) {
+    e.preventDefault();
+    fs.forEach(addFileAttachment);
+    return;
+  }
   const text = e.clipboardData.getData('text/plain');
   if (_blockPaste && text && (text.length > TEXT_BLOCK_CHARS || text.split('\n').length > TEXT_BLOCK_LINES)) {
     e.preventDefault();
@@ -1732,6 +2051,23 @@ document.getElementById('type-input').addEventListener('paste', e => {
   }
   // small text (or Blocks: OFF) — native paste into the field
 });
+
+/* Drag & drop onto the Type field — the desktop way in; dragover must be
+   cancelled or the browser navigates to the dropped file instead. */
+{
+  const dz = document.getElementById('type-input');
+  ['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, e => {
+    e.preventDefault();
+    dz.classList.add('drop-on');
+  }));
+  ['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, () => dz.classList.remove('drop-on')));
+  dz.addEventListener('drop', e => {
+    const fs = [...((e.dataTransfer && e.dataTransfer.files) || [])];
+    if (!fs.length) return;      // plain text drop: let the field handle it
+    e.preventDefault();
+    fs.forEach(addFileAttachment);
+  });
+}
 
 /* Alt+V anywhere: clipboard image -> attachment chip */
 document.addEventListener('keydown', async e => {
@@ -1750,14 +2086,59 @@ document.addEventListener('keydown', async e => {
 });
 
 /* Send: images first (PC clipboard + Ctrl+V each), then text blocks + typed text */
+let _typeTarget = '';   // window that received the last typed text, for the toast
+
+/* Target: which window the text is aimed at.
+   OFF = whatever is foreground on the PC, which is only right while nothing else
+   takes focus — Claude Desktop takes it on its own, and the message is then eaten
+   by an app that was never the target. ON = the window picked in the Windows
+   panel, raised server-side inside the same request as the paste, because a
+   separate /api/focus call leaves a gap something else can take foreground in. */
+let _typeToWin = localStorage.getItem('tg_type_target') === '1';
+
+function _targetWin() { return (document.getElementById('win-select') || {}).value || ''; }
+
+function renderTarget() {
+  const b = document.getElementById('tgt-btn');
+  if (!b) return;
+  const w = _targetWin();
+  b.textContent = 'Target: ' + (!_typeToWin ? 'active'
+    : (w ? (w.length > 18 ? w.slice(0, 18) + '…' : w) : 'pick a window'));
+  b.classList.toggle('btn-ok-soft', _typeToWin && !!w);
+  b.classList.toggle('btn-red-soft', _typeToWin && !w);
+}
+
+function toggleTarget() {
+  _typeToWin = !_typeToWin;
+  localStorage.setItem('tg_type_target', _typeToWin ? '1' : '0');
+  renderTarget();
+  if (_typeToWin && !_targetWin()) toast('Pick a window in the Windows panel', true);
+}
+
 async function doType() {
   const input = document.getElementById('type-input');
   const typed = input.value.trim();
   const imgs = attachments.filter(a => a.kind === 'image');
+  const files = attachments.filter(a => a.kind === 'file');
   const blocks = attachments.filter(a => a.kind === 'text');
   const text = blocks.map(b => b.text).concat(typed ? [typed] : []).join('\n');
-  if (!text && !imgs.length) return;
+  if (!text && !imgs.length && !files.length) return;
+  const want = _typeToWin ? _targetWin() : '';
+  if (_typeToWin && !want) { toast('Pick a window in the Windows panel', true); return; }
+  // Raising a VS Code window is not enough: the caret stays in the editor, where
+  // ctrl+shift+v is the markdown-preview binding, so the paste never happens and
+  // the text is gone with a 200 OK. A terminal window has no such inner control —
+  // only VS Code needs the extra hop into its integrated terminal.
+  const wantTerm = /visual studio code/i.test(want);
   try {
+    // Files before images before text: every one of them types a path with no
+    // Enter, and the text write reuses the clipboard, so it has to come last.
+    for (let i = 0; i < files.length; i++) {
+      setStatus(`Uploading ${files[i].file.name} (${i + 1}/${files.length})...`, false);
+      if (!await uploadFile(files[i].file)) return;
+      // let the typed path land before the next write touches the clipboard
+      await new Promise(res => setTimeout(res, IMG_INGEST_MS));
+    }
     for (let i = 0; i < imgs.length; i++) {
       setStatus(`Sending image ${i + 1}/${imgs.length}...`, false);
       // Server saves a temp PNG and types its PATH into the terminal (Claude Code
@@ -1769,18 +2150,32 @@ async function doType() {
       await new Promise(res => setTimeout(res, IMG_INGEST_MS));
     }
     if (text) {
-      const r = await api('POST', '/api/type', {text, enter: true}, 120000);
+      const r = await api('POST', '/api/type',
+                          {text, enter: true, window: want, terminal: wantTerm}, 120000);
       if (!r.ok) { toast(r.error, true); return; }
       addHistory('type', text);
+      // The window that really got it. With Target OFF nothing picks one — the
+      // foreground window does — so naming it is the only way a message eaten by
+      // an app that grabbed focus is distinguishable from one that arrived.
+      _typeTarget = r.window || '';
+      if (want && r.on_target === false) {
+        toast(`Typed into "${_typeTarget}" — NOT "${want}" (${r.focus_msg || 'focus lost'})`, true);
+        input.value = ''; autoGrow(input); if (_mdOn) _mdRenderNow();
+        return;
+      }
     }
-    toast('Sent: ' + (imgs.length ? `${imgs.length} image(s)` : '') +
-          (imgs.length && text ? ' + ' : '') + (text ? text.slice(0, 50) : ''));
+    const parts = [];
+    if (files.length) parts.push(`${files.length} file(s)`);
+    if (imgs.length) parts.push(`${imgs.length} image(s)`);
+    if (text) parts.push(text.slice(0, 50));
+    toast('Sent to ' + (_typeTarget || 'active window') + ': ' + parts.join(' + '));
     input.value = '';
     autoGrow(input);
     if (_mdOn) _mdRenderNow();     // clear the stale preview too
     attachments.forEach(a => a.url && URL.revokeObjectURL(a.url));
     attachments.length = 0;
     renderAttachments();
+    loadLayout();
   } catch(e) { toast(e.message, true); }
 }
 
@@ -1966,7 +2361,7 @@ async function doRestart() {
         if (s.ok) {
           clearInterval(timer);
           updateStatus(s);
-          loadWindows(); loadFolders();
+          loadWindows(); loadFolders(); loadLayout();
           toast('Bot online — v' + s.version + ', up ' + s.uptime);
         }
       } catch(e) {} // still down, keep polling

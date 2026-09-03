@@ -1,6 +1,7 @@
 """Extra web API endpoints: window focus, project folders, Claude CLI, scheduling."""
 import asyncio
 import logging
+import os
 import subprocess
 import time
 
@@ -128,14 +129,59 @@ async def api_paste(request):
 
         if data.get("paste", True):
             from handlers.input import _type_text
-            # quote if the path has spaces; trailing space separates it from the next token
-            typed = f'"{path}" ' if " " in path else f"{path} "
-            await asyncio.to_thread(_type_text, typed)
+            from utils.uploads import path_token
+            await asyncio.to_thread(_type_text, path_token(path))
         logger.debug("web /api/paste: %d bytes -> %s (typed path=%s)",
                      len(raw), path, data.get("paste", True))
         return _json({"ok": True, "path": path, "msg": f"Image path typed ({len(raw) // 1024}KB)"})
     except Exception as e:
         logger.error("web /api/paste error: %s", e)
+        return _err(str(e), 500)
+
+
+async def api_upload(request):
+    """POST raw file bytes + X-Filename → save on the PC and type the PATH.
+
+    Same trick as /api/paste, generalised: a terminal cannot take a pasted
+    document, but Claude Code reads a file whose path is in the prompt. So a 40KB
+    markdown arrives whole and instantly instead of being pushed through the
+    clipboard as text — which is slow, hits bracketed paste, and truncates.
+
+    Raw body, not multipart: api() speaks JSON, so a binary needs its own fetch
+    either way, and /api/stt already proved the shape. The name rides in a header
+    URL-encoded — a raw UTF-8 header value is mangled by the time it lands here.
+
+    X-Type-Path: 0 saves the file and returns the path without typing anything.
+    Plain _check_auth on purpose: typing into a focused window is remote control,
+    which the refine-scoped token must never reach.
+    """
+    from urllib.parse import unquote
+
+    from handlers.web import _check_auth, _err, _json
+    if not _check_auth(request):
+        return _err("Unauthorized", 401)
+    try:
+        from utils.uploads import MAX_UPLOAD, path_token, save_upload
+        data = await request.read()
+        if not data:
+            return _err("Empty upload")
+        if len(data) > MAX_UPLOAD:
+            return _err(f"File too large ({MAX_UPLOAD // (1024 * 1024)}MB limit)", 413)
+        name = unquote(request.headers.get("X-Filename", "") or "")
+        path = await asyncio.to_thread(save_upload, data, name)
+        typed = request.headers.get("X-Type-Path", "1") != "0"
+        if typed:
+            from handlers.input import _type_text
+            await asyncio.to_thread(_type_text, path_token(path))
+        kb = max(1, len(data) // 1024)
+        logger.info("web /api/upload: %r %dKB -> %s (typed=%s)",
+                    name, kb, path, typed)
+        return _json({"ok": True, "path": path, "name": os.path.basename(path),
+                      "size": len(data),
+                      "msg": f"{os.path.basename(path)} ({kb}KB) — path typed"
+                             if typed else f"{os.path.basename(path)} saved"})
+    except Exception as e:
+        logger.error("web /api/upload error: %s", e)
         return _err(str(e), 500)
 
 
@@ -312,7 +358,35 @@ async def api_unschedule(request):
         return _err(str(e), 500)
 
 
+async def api_layout(request):
+    """GET: layout of the foreground window. POST: switch it.
+
+    The layout belongs to the window that will receive the typing, not to the
+    bot, so both read and write target the foreground window. POST with no
+    `lang` cycles to the next installed one — one tap on a phone.
+    """
+    from handlers.web import _check_auth, _err, _json
+    if not _check_auth(request):
+        return _err("Unauthorized", 401)
+    try:
+        from utils import layout
+        if request.method == "GET":
+            return _json({"ok": True, **await asyncio.to_thread(layout.current)})
+        data = await request.json() if request.can_read_body else {}
+        lang = data.get("lang")
+        ok, msg = await asyncio.to_thread(layout.switch,
+                                          int(lang) if lang not in (None, "") else None)
+        # The new state ships with the verdict: a UI that re-reads it in a second
+        # request can show a layout that already changed again.
+        return _json({"ok": ok, "msg": msg, **await asyncio.to_thread(layout.current)})
+    except Exception as e:
+        logger.error("web /api/layout error: %s", e)
+        return _err(str(e), 500)
+
+
 def register_extra_routes(app):
+    app.router.add_get("/api/layout", api_layout)
+    app.router.add_post("/api/layout", api_layout)
     app.router.add_get("/api/ccmetrics", api_ccmetrics)
     app.router.add_post("/api/schedule", api_schedule)
     app.router.add_get("/api/schedules", api_schedules)
@@ -324,6 +398,7 @@ def register_extra_routes(app):
     app.router.add_get("/api/project", api_project)
     app.router.add_post("/api/project", api_project)
     app.router.add_post("/api/paste", api_paste)
+    app.router.add_post("/api/upload", api_upload)
     app.router.add_post("/api/stt", api_stt)
     app.router.add_post("/api/improve", api_improve)
     app.router.add_post("/api/claude", api_claude)
