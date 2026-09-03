@@ -8,10 +8,12 @@ from telegram import Update
 from telegram.ext import ContextTypes
 from config import (
     TYPE_ENTER_DELAY, TYPE_PASTE_HOTKEY, TYPE_TERMINAL_HINTS,
-    TYPE_TERMINAL_PASTE_HOTKEY,
+    TYPE_TERMINAL_PASTE_HOTKEY, TYPE_TERMINAL_PROCS,
 )
 from utils.auth import auth_required, rate_limit
-from utils.window import focus_window, get_active_window_title
+from utils.window import (
+    focus_window, get_active_window_process, get_active_window_title,
+)
 
 logger = logging.getLogger("bot.input")
 _input_lock = threading.Lock()
@@ -63,7 +65,54 @@ def _stuck_modifiers() -> list[str]:
     return held
 
 
-def paste_hotkey_for(title: str) -> tuple[str, ...]:
+# Virtual-key codes, so a keystroke never depends on the active layout.
+# pyautogui maps a character to a key with VkKeyScanW, which asks the CURRENT
+# keyboard layout: under Russian (0x419) VkKeyScanW('v') is -1 and pyautogui
+# silently sends nothing. ctrl+shift+v then delivers Ctrl and Shift and no V, so
+# the paste never happens; ctrl+shift+p never opens the command palette; and
+# pyautogui.write drops every latin letter while digits and '-' still arrive
+# (measured 2026-08-31: "echo TGBOT-MARKER-42" reached a console as "--42").
+# A VK code is the same number in every layout, so this table is the fix.
+_VK = {
+    "ctrl": 0x11, "control": 0x11, "shift": 0x10, "alt": 0x12, "menu": 0x12,
+    "win": 0x5B, "winleft": 0x5B, "winright": 0x5C,
+    "enter": 0x0D, "return": 0x0D, "tab": 0x09, "esc": 0x1B, "escape": 0x1B,
+    "space": 0x20, "backspace": 0x08, "delete": 0x2E, "del": 0x2E, "insert": 0x2D,
+    "home": 0x24, "end": 0x23, "pageup": 0x21, "pagedown": 0x22,
+    "up": 0x26, "down": 0x28, "left": 0x25, "right": 0x27,
+}
+_VK.update({c: 0x41 + i for i, c in enumerate("abcdefghijklmnopqrstuvwxyz")})
+_VK.update({str(d): 0x30 + d for d in range(10)})
+_VK.update({f"f{i}": 0x6F + i for i in range(1, 13)})
+# Keys on the extended part of the keyboard need the flag, or Windows delivers
+# the numpad twin instead (an arrow becomes a digit under NumLock).
+_VK_EXTENDED = {0x2E, 0x2D, 0x24, 0x23, 0x21, 0x22, 0x26, 0x28, 0x25, 0x27}
+_KEYEVENTF_EXTENDEDKEY, _KEYEVENTF_KEYUP = 0x0001, 0x0002
+
+
+def press_keys(*names: str) -> bool:
+    """Press a key or combo by virtual-key code. True if it was sent that way.
+
+    Falls back to pyautogui for anything not in the table — better a
+    layout-dependent keystroke than none.
+    """
+    codes = [_VK.get(str(n).strip().lower()) for n in names]
+    if not codes or any(c is None for c in codes):
+        logger.debug("no VK for %s, falling back to pyautogui", names)
+        if len(names) > 1:
+            pyautogui.hotkey(*names)
+        else:
+            pyautogui.press(names[0])
+        return False
+    for c in codes:
+        _u32.keybd_event(c, 0, _KEYEVENTF_EXTENDEDKEY if c in _VK_EXTENDED else 0, 0)
+    for c in reversed(codes):
+        flags = _KEYEVENTF_KEYUP | (_KEYEVENTF_EXTENDEDKEY if c in _VK_EXTENDED else 0)
+        _u32.keybd_event(c, 0, flags, 0)
+    return True
+
+
+def paste_hotkey_for(title: str, proc: str = "") -> tuple[str, ...]:
     """Which paste keystroke this window actually honours.
 
     Claude Code binds Ctrl+V to "paste image from clipboard", so inside a terminal
@@ -71,15 +120,30 @@ def paste_hotkey_for(title: str) -> tuple[str, ...]:
     palette opens on Ctrl+Shift+P), the clipboard holds the text, and the prompt
     stays empty. Ctrl+Shift+V is the terminal's own paste and works there. Plain
     apps (Notepad, browsers) get Ctrl+V, since Ctrl+Shift+V means nothing to them.
+
+    The verdict comes from the owning PROCESS first. A terminal retitles itself to
+    the program inside it, so Claude Code in Windows Terminal is called
+    '✳ Claude Code' and matches no title hint — which is how a paste into the
+    one target this bot exists for went back to being a silent no-op. Titles stay
+    as a fallback for when the process name is unavailable.
     """
-    low = (title or "").lower()
-    terminal = any(hint in low for hint in TYPE_TERMINAL_HINTS)
-    combo = TYPE_TERMINAL_PASTE_HOTKEY if terminal else TYPE_PASTE_HOTKEY
+    if (proc or "").lower() in TYPE_TERMINAL_PROCS:
+        combo = TYPE_TERMINAL_PASTE_HOTKEY
+    else:
+        low = (title or "").lower()
+        terminal = any(hint in low for hint in TYPE_TERMINAL_HINTS)
+        combo = TYPE_TERMINAL_PASTE_HOTKEY if terminal else TYPE_PASTE_HOTKEY
     return tuple(part.strip() for part in combo.split("+") if part.strip())
 
 
-def _type_text(text: str):
-    """Type text via clipboard paste — instant, reliable, supports any language."""
+def _type_text(text: str, paste_keys: tuple[str, ...] | None = None) -> tuple[str, str]:
+    """Type text via clipboard paste — instant, reliable, supports any language.
+
+    Returns (title, process) of the window that actually received it. The caller
+    aimed at nothing: whatever is foreground gets the text, and on a busy desktop
+    that is not always what the operator was looking at. Reporting the real target
+    is what turns a lost message into a visible one.
+    """
     with _input_lock:
         held = _stuck_modifiers()
         if held:
@@ -87,15 +151,22 @@ def _type_text(text: str):
             for key in held:
                 pyautogui.keyUp(key)
         title = get_active_window_title()
-        keys = paste_hotkey_for(title)
-        logger.debug("Typing %d chars into '%s' via %s",
-                     len(text), title, "+".join(keys))
+        proc = get_active_window_process()
+        # paste_keys overrides the window rule for a control that is neither: the
+        # VS Code command palette lives in a window titled "Visual Studio Code", so
+        # the rule hands it ctrl+shift+v — which the quick input does not honour.
+        # The command name then never arrives and the palette hop silently no-ops.
+        keys = paste_keys or paste_hotkey_for(title, proc)
+        logger.debug("Typing %d chars into '%s' [%s] via %s",
+                     len(text), title, proc or "?", "+".join(keys))
         _set_clipboard(text)
-        pyautogui.hotkey(*keys)
+        press_keys(*keys)
         time.sleep(0.1)
+        return title, proc
 
 
-def type_and_enter(text: str, enter: bool = True):
+def type_and_enter(text: str, enter: bool = True,
+                   paste_keys: tuple[str, ...] | None = None) -> tuple[str, str]:
     """Paste text, then submit it. The ONLY place these two are sequenced.
 
     The wait between them is the whole point: Claude Code (and any TUI doing
@@ -103,10 +174,11 @@ def type_and_enter(text: str, enter: bool = True):
     still being assembled, turning submit into a newline. The result is text
     stranded in the input box while every caller reports "Typed: ...".
     """
-    _type_text(text)
+    target = _type_text(text, paste_keys)
     if enter:
         time.sleep(TYPE_ENTER_DELAY)
-        pyautogui.press("enter")
+        press_keys("enter")
+    return target
 
 @auth_required
 @rate_limit(1.0)
@@ -151,10 +223,7 @@ async def key_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         def _do_keys():
             with _input_lock:
                 for _ in range(repeat):
-                    if len(parts) > 1:
-                        pyautogui.hotkey(*parts)
-                    else:
-                        pyautogui.press(parts[0])
+                    press_keys(*parts)
         await asyncio.to_thread(_do_keys)
         label = f"Pressed: {key_str}" + (f" x{repeat}" if repeat > 1 else "")
         await update.message.reply_text(label)

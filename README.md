@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.20.0
+# TG-IDE-Bot v0.21.0
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -52,7 +52,7 @@ phone → https://bot.magerash.com:8443 → Caddy (VPS) → 127.0.0.1:18080 (VPS
 a raw IP. The address behind it changed once already (`45.150.33.106` → filtered
 by RF DPI → `213.165.40.182`), so a migration is a Cloudflare edit plus a tunnel
 restart, with no code change. Details:
-[`materials/documentation/vps-architecture.md`](materials/documentation/vps-architecture.md).
+[`docs/documentation/README-vps.md`](docs/documentation/README-vps.md) (the file itself is gitignored).
 ssh resolves per connection, so a DNS change only takes effect after the ssh
 process is restarted.
 
@@ -115,6 +115,16 @@ curl -k -o /dev/null -w "%{http_code}\n" https://bot.magerash.com:8443/ # Caddy 
 
 ## Changelog
 
+### v0.21.0 2026-09-03
+- **Documentation is in git for the first time.** `materials/` (31 files, 160KB of feature chunks) was gitignored, so none of it reached a clone. Moved to **`docs/`** and adopted onto the `llm-wiki-kit` template — preflight, update regulation, code map, roadmap, and a decisions ledger recovered from 20 versions of changelog. `CLAUDE.md` goes 527 → 97 lines and imports the new tracked `AGENTS.md`
+- The VPS/VPN topology file stays **gitignored on purpose** — this repo is public and that file maps the machine the bot types into. See `docs/documentation/README-vps.md`
+- **📎 Attachments** — send a document to the bot or upload from the Mini App; its **path** is typed into the terminal, so Claude Code reads the file itself. Whole file, instantly, at any size — instead of a wall of clipboard text
+- **⌨ A Russian keyboard layout no longer eats every keystroke.** `pyautogui` resolves characters through the *active* layout, where `VkKeyScanW('v')` returns `-1` and the key is never sent. Typing now goes out as virtual-key codes; the layout is readable and switchable from the bottom bar
+- **Terminal detection by process, not window title** — a terminal wears the name of whatever runs inside it, so `WindowsTerminal.exe` showing `✳ Claude Code` matched no hint and the v0.17.1 silent paste no-op came back on an untested surface
+- **📱 The scroll arrows were never missing — they were invisible.** A dark 42%-opaque pill with no border on a dark VS Code screenshot, with `:hover` (which never fires on touch) as the only contrast state. Now a light hairline ring, a stronger fill, and 44px targets on a phone. Two unreported bugs fixed alongside: the held state was **white on white** in night theme, and the answer field scrolled away with the keys
+- **The bottom bar folds** — a caret at the far left, same accordion idiom as the Windows/Projects panels, ~36px of screen returned. Phone compaction shrinks inline padding and gaps while holding every touch target's height
+- Tests 74 → **94**, with the new assertions mutation-tested; both wiki checkers now gate each commit
+
 ### v0.20.0 2026-08-25
 - **Typing lands in the terminal now.** v0.19.1 diagnosed it: window focus raises the *window*, the inner keyboard focus stays put, and after `code -n` that is the editor — where `ctrl+shift+v` is an editor binding and the paste vanishes while the bot reports `Typed:`. `POST /api/type` accepts `terminal: true` and moves the caret into the VS Code integrated terminal first
 - `utils/vscode.py` holds the command-palette sequence, once. The scheduler's private copy was deleted and it imports the shared helper; a test fails if a second copy appears. The outcome is echoed back (`terminal`, `terminal_msg`) and a non-VS-Code foreground is a loud toast, not a silent success — the text is still typed either way
@@ -135,7 +145,7 @@ curl -k -o /dev/null -w "%{http_code}\n" https://bot.magerash.com:8443/ # Caddy 
 ### v0.19.0 2026-08-24
 - **Split-view Mini App**: text refinement now has its own page, **`/refine`** — mic → speech-to-text, AI cleanup, ✨ Improve, Twin, markdown preview and a **📋 Copy** button, with no screen, keys, shell, git or restart anywhere on it. Text leaves that view through the clipboard only; there is deliberately no Type button, because typing into a focused window is remote control and Copy is not
 - **The split is enforced on the server, not just hidden in the UI.** The refine page runs on a 12h scope-limited token minted by `POST /api/scope`; only `/api/status`, `/api/stt` and `/api/improve` accept it, and all 24 system endpoints answer 401. Two tests keep it that way, so "this view can't type to your PC" cannot quietly regress the next time a button is added
-- Where the boundary really is: inside Telegram, `initData` is readable by any script on the page, so this defends against the page's own code and narrows the browser flow — it is not a sandbox against the operator. Written up in `materials/chunks/features/refinement-view.md`
+- Where the boundary really is: inside Telegram, `initData` is readable by any script on the page, so this defends against the page's own code and narrows the browser flow — it is not a sandbox against the operator. Written up in `docs/chunks/features/refinement-view.md`
 - **Reach it** from the `✨ Refine` link in the dashboard header, or the `🖥 Dashboard` / `✨ Refine` buttons now on the first row of `/panel` (private chats only — Telegram rejects Mini App buttons in groups and fails the whole message)
 - **`web/common.js`**: ~460 lines shared by both pages (`api()`, toasts, theme, History, markdown, the mic→WAV→Whisper stack, Improve) extracted out of `index.html`, which drops 2332 → 1889 lines. One copy of each hard-won bug fix instead of two
 - **Security fix in the markdown preview** (shared by both views): HTML-escaping now covers quotes, and link targets are restricted to `http(s)`/`mailto`/relative — a `[x](javascript:…)` link previously rendered as a live link that would run script with the page's credentials

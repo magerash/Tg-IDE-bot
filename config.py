@@ -1,5 +1,6 @@
 import os
 import logging
+import tempfile
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -7,7 +8,7 @@ load_dotenv()
 # Bot settings
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0"))
-VERSION = "0.20.0"
+VERSION = "0.21.0"
 
 # Web dashboard / Mini App
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
@@ -86,17 +87,39 @@ TYPE_ENTER_DELAY = float(os.getenv("TYPE_ENTER_DELAY", "0.45"))
 # terminal running it a text Ctrl+V is a silent no-op — the keystroke arrives, the
 # clipboard is right, and nothing appears. Ctrl+Shift+V is the terminal paste and
 # works in every VS Code session tested, so terminal-ish targets get that one.
+# A raised window is not instantly the one receiving keys — the same settle the
+# scheduler needs (SCHEDULE_FOCUS_SETTLE), for the same reason: paste too early
+# and the keystroke goes to the window that is still foreground.
+TYPE_FOCUS_SETTLE = float(os.getenv("TYPE_FOCUS_SETTLE", "0.6"))
 TYPE_PASTE_HOTKEY = os.getenv("TYPE_PASTE_HOTKEY", "ctrl+v")
 TYPE_TERMINAL_PASTE_HOTKEY = os.getenv("TYPE_TERMINAL_PASTE_HOTKEY", "ctrl+shift+v")
-# Window titles that mean "a terminal is on the other end" (lowercase substrings)
+# Window titles that mean "a terminal is on the other end" (lowercase substrings).
+# A FALLBACK only: a terminal retitles itself to whatever runs inside it, so
+# Claude Code in Windows Terminal reads as "Claude Code" and matches nothing here.
 TYPE_TERMINAL_HINTS = [
     h.strip().lower()
     for h in os.getenv(
         "TYPE_TERMINAL_HINTS",
         "visual studio code,windows terminal,powershell,command prompt,cmd.exe,"
-        "conemu,cmder,mintty,git bash,wsl,alacritty,wezterm,kitty,tabby",
+        "conemu,cmder,mintty,git bash,wsl,alacritty,wezterm,kitty,tabby,"
+        "claude code",
     ).split(",")
     if h.strip()
+]
+# Processes that ARE a terminal, whatever the window is called. This is the real
+# test: the title belongs to the program running inside, the executable does not
+# change. WindowsTerminal.exe showing '✳ Claude Code' is how a text paste
+# silently became a no-op again after v0.17.1 fixed it for VS Code.
+TYPE_TERMINAL_PROCS = [
+    p.strip().lower()
+    for p in os.getenv(
+        "TYPE_TERMINAL_PROCS",
+        "windowsterminal.exe,code.exe,code - insiders.exe,cursor.exe,windsurf.exe,"
+        "powershell.exe,pwsh.exe,cmd.exe,conhost.exe,openconsole.exe,conemu64.exe,"
+        "conemu.exe,mintty.exe,wsl.exe,wt.exe,alacritty.exe,wezterm-gui.exe,"
+        "kitty.exe,tabby.exe,hyper.exe",
+    ).split(",")
+    if p.strip()
 ]
 
 # File delivery
@@ -108,6 +131,13 @@ BUILD_CMD = "cmd /c gradlew.bat assembleDebug"
 PROJECT_DIR = r"C:\Projects\My habits"
 GIT_DIR = os.getenv("GIT_DIR", PROJECT_DIR)
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB (Telegram limit)
+
+# Attachments coming FROM the phone (Mini App upload + Telegram document).
+# Saved here, and the PATH is typed — Claude Code reads the file itself.
+UPLOAD_DIR = os.getenv("UPLOAD_DIR", os.path.join(tempfile.gettempdir(), "tgbot_upload"))
+# Web cap. create_web_app() allows 30MB of request body, so this stays under it.
+# Telegram's own Bot API download limit is 20MB and is not ours to raise.
+UPLOAD_MAX_MB = int(os.getenv("UPLOAD_MAX_MB", "25"))
 
 # Logging setup
 logging.basicConfig(

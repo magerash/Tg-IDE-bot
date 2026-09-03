@@ -13,7 +13,7 @@ import time
 from aiohttp import web
 
 from config import (
-    ALLOWED_USER_ID, BOT_TOKEN, MAX_FILE_SIZE,
+    ALLOWED_USER_ID, BOT_TOKEN, MAX_FILE_SIZE, TYPE_FOCUS_SETTLE,
     VERSION, WEB_SCREEN_MAX_W, WEB_SCREEN_QUALITY, WEB_TOKEN, WEBAPP_URL,
 )
 from handlers.files import _find_apks
@@ -208,15 +208,15 @@ async def api_key(request):
             return _err("Missing 'key'")
 
         import time
-        import pyautogui
+        from handlers.input import press_keys
         parts = key_str.split("+")
 
         def _do():
             for i in range(repeat):
-                if len(parts) > 1:
-                    pyautogui.hotkey(*parts)
-                else:
-                    pyautogui.press(parts[0])
+                # press_keys, not pyautogui: pyautogui resolves a character
+                # through the ACTIVE layout, and under Russian every latin key
+                # resolves to -1 and is silently dropped.
+                press_keys(*parts)
                 if interval and i < repeat - 1:
                     time.sleep(interval)
 
@@ -234,27 +234,53 @@ async def api_type(request):
         data = await request.json()
         text = data.get("text", "")
         enter = data.get("enter", True)
-        # terminal=True: move the caret into the VS Code integrated terminal first.
+        # terminal: move the caret into the VS Code integrated terminal first.
         # Window focus alone raises the window and leaves the caret in the editor,
-        # where ctrl+shift+v is an editor binding and the paste disappears.
-        terminal = bool(data.get("terminal"))
+        # where ctrl+shift+v is `markdown.showPreview`, not paste — the keystroke
+        # fires, the clipboard is right, and the message is gone with a 200 OK.
+        # Absent = auto-ON, because nothing in this product wants text pasted into
+        # a source file, and focus_terminal_if_active() is a no-op unless VS Code
+        # is actually foreground. Only an explicit `false` opts out.
+        terminal = data.get("terminal")
+        terminal = True if terminal is None else bool(terminal)
         # new_terminal: open a FRESH terminal first. Reusing the active one hands
         # the text to whatever runs in it — if that is already Claude Code, `claude`
         # becomes a chat message to that session instead of starting one.
         new_terminal = bool(data.get("new_terminal"))
+        # window: raise this window before typing. Without it the text goes to
+        # whatever is foreground, and an app that grabs focus on its own (Claude
+        # Desktop does) eats messages aimed at a terminal. Focusing here rather
+        # than in a separate /api/focus call keeps the two in one round trip —
+        # a gap between them is a gap something else can take the foreground in.
+        window = (data.get("window") or "").strip()
         if not text:
             return _err("Missing 'text'")
 
         from handlers.input import type_and_enter
         from utils.vscode import focus_terminal_if_active
+        from utils.window import focus_window_exact
 
         def _do():
+            focus_ok, focus_msg = (True, "")
+            if window:
+                focus_ok, focus_msg = focus_window_exact(window)
+                if focus_ok:
+                    time.sleep(TYPE_FOCUS_SETTLE)  # a raised window is not yet the one taking keys
             focused, msg = focus_terminal_if_active(new_terminal) if terminal else (False, "")
-            type_and_enter(text, bool(enter))
-            return focused, msg
+            title, proc = type_and_enter(text, bool(enter))
+            return focused, msg, title, proc, focus_ok, focus_msg
 
-        focused, msg = await asyncio.to_thread(_do)
-        out = {"ok": True, "typed": text}
+        focused, msg, title, proc, focus_ok, focus_msg = await asyncio.to_thread(_do)
+        # The window that really got the text. Nothing here picks a target — the
+        # foreground window does — and on a busy desktop an app that grabs focus
+        # (Claude Desktop does) silently eats the message while the answer stays a
+        # cheerful "Typed:". Naming the target is what makes that visible.
+        out = {"ok": True, "typed": text, "window": title, "proc": proc}
+        if window:
+            # Asked for a window and got another one = the message went somewhere
+            # else. Say which, loudly, instead of a cheerful "Typed:".
+            out["focus"], out["focus_msg"] = focus_ok, focus_msg
+            out["on_target"] = focus_ok and title == window
         if terminal:
             # Reported, never swallowed — a caller that types into the wrong control
             # must be able to say so instead of answering a cheerful "Typed:".

@@ -344,6 +344,23 @@ def test_lightbox_survives_pan_gestures():
     assert "addEventListener('pointercancel'" in html, "stolen gesture leaves a stale pointer"
 
 
+def test_frame_swap_waits_for_decode():
+    """A white flash appeared on every screen refresh.
+
+    img 'load' fires when the bytes are in, not when the bitmap is decoded.
+    capture() replaced #screen-area's child with that still-undecoded <img>, so
+    the browser painted one frame with the old image gone and the new one not
+    ready — the panel background showed through. The swap must happen after
+    decode(), and that background must be a theme var, not a hardcoded white."""
+    html = _html()
+    body = html.split("im.onload = async")[1].split("im.onerror")[0]
+    assert "await im.decode()" in body, "frame swapped in before the bitmap is decodable"
+    assert body.index("await im.decode()") < body.index("area.replaceChildren(im)"),         "decode must be awaited BEFORE the swap, or the flash is back"
+    assert "im.onload = async ()" in html, "onload handler cannot await decode"
+    css = html.split("#screen-area{")[1].split("}")[0]
+    assert "background:var(" in css, "screen area paints a hardcoded color behind the frame"
+
+
 def test_scroll_requires_auth_and_clamps():
     """/api/scroll drives a real mouse wheel — it must never answer unauthenticated,
     and a stuck 'hold' must not be able to fling a page by 10000 notches."""
@@ -386,13 +403,31 @@ def test_scroll_moves_the_cursor_before_the_wheel(monkeypatch):
 
 def test_scroll_arrows_wired_in_ui():
     """Arrows sit ON the live view (right edge). They must live outside
-    #screen-area — capture() replaces that element's children every frame."""
+    #screen-area — capture() replaces that element's children every frame.
+    And they must be VISIBLE: rendering is not the same as being findable."""
     html = _html()
     assert 'class="screen-wrap"' in html, "scroll pad lost its stable container"
     assert html.count('data-scroll="up"') == 2, "expected arrows on the view and in the lightbox"
     assert "bindScrollPads()" in html
     assert "SCROLL_REPEAT_MS" in html and "setInterval" not in html.split("_scrollHold")[1][:400], \
         "hold-repeat must chain from completion, not fire on a fixed interval"
+    # The bug that prompted this: the pad was rgba(20,19,17,.42) with no edge, and
+    # :hover — the only rule that raised the contrast — never fires on a phone. Over
+    # a dark editor screenshot the operator saw "nothing at all" and lost remote
+    # scrolling entirely. The ring is what carries a dark pill on a dark backdrop.
+    pad = re.search(r"\.scroll-pad button\{([^}]*)\}", html).group(1)
+    assert "border:1px" in pad and "box-shadow" in pad, \
+        "a translucent pill with no edge is invisible over a dark editor"
+    # The FIRST max-width:560px block on the page is the one-liner .cc-meters rule;
+    # matching that one swallows the rest of the stylesheet. The real phone block is
+    # the one with a newline straight after the brace.
+    phone = re.search(r"@media\(max-width:560px\)\{\n.*?\n\}", html, re.S).group(0)
+    assert re.search(r"\.scroll-pad button\{[^}]*width:44px", phone), \
+        "hold-to-repeat targets must be 44px on touch, not the 40px a mouse gets"
+    # In night theme --accent is #ece9e4 while color stays #fff, so the held state of
+    # a hold-to-scroll was white on white — no feedback at all.
+    act = re.search(r"\.scroll-pad button:active[^{]*\{([^}]*)\}", html).group(1)
+    assert "var(--accent)" not in act, "held state is invisible in night theme"
 
 
 def test_enter_waits_for_the_paste_to_land(monkeypatch):
@@ -410,10 +445,17 @@ def test_enter_waits_for_the_paste_to_land(monkeypatch):
     events = []
     monkeypatch.setattr(tg_input, "_set_clipboard", lambda t: events.append(("clip", t)))
     monkeypatch.setattr(tg_input, "_stuck_modifiers", lambda: [])
-    monkeypatch.setattr(pyautogui, "hotkey", lambda *k: events.append(("hotkey", "+".join(k))))
-    monkeypatch.setattr(pyautogui, "press", lambda k: events.append(("press", k)))
+    # press_keys, not pyautogui: keys go out as virtual-key codes now, because
+    # pyautogui resolves a character through the ACTIVE keyboard layout and drops
+    # every latin key under Russian (see test_keys_do_not_depend_on_the_layout).
+    monkeypatch.setattr(tg_input, "press_keys",
+                        lambda *k: events.append(("hotkey", "+".join(k)) if len(k) > 1
+                                                 else ("press", k[0])))
     monkeypatch.setattr(tg_input.time, "sleep", lambda s: events.append(("sleep", s)))
     monkeypatch.setattr(tg_input, "get_active_window_title", lambda: "win", raising=False)
+    # ...and the process too, or the paste key is chosen from whatever real window
+    # happens to be foreground on the machine running the tests.
+    monkeypatch.setattr(tg_input, "get_active_window_process", lambda: "", raising=False)
 
     tg_input.type_and_enter("hello")
     assert ("hotkey", "ctrl+v") in events
@@ -474,6 +516,143 @@ def test_paste_hotkey_follows_the_target_window():
 
     for title in ("Untitled - Notepad", "Telegram", "", "Findar — Vivaldi"):
         assert paste_hotkey_for(title) == ("ctrl", "v"), title
+
+
+def test_layout_is_visible_and_switchable(monkeypatch):
+    """The layout of the TARGET window, shown and switchable from the phone.
+
+    It is not cosmetic: what lands in a remote terminal is whatever that window's
+    layout produces, and from a phone a Cyrillic command is invisible until the
+    screenshot comes back with an error. The layout is per window, so both the
+    read and the switch must target the foreground window, never the bot's own
+    thread — ActivateKeyboardLayout would change nothing the operator can see.
+    """
+    import utils.layout as lay
+
+    state = {"lang": 0x419}
+    monkeypatch.setattr(lay, "list_layouts",
+                        lambda: [{"lang": 0x419, "name": "RU", "hkl": 1},
+                                 {"lang": 0x409, "name": "EN", "hkl": 2}])
+    monkeypatch.setattr(lay, "current",
+                        lambda: {"lang": state["lang"],
+                                 "name": "RU" if state["lang"] == 0x419 else "EN",
+                                 "window": "✳ Claude Code",
+                                 "layouts": lay.list_layouts()})
+
+    def _switch(lang=None):
+        langs = [0x419, 0x409]
+        state["lang"] = lang if lang else langs[(langs.index(state["lang"]) + 1) % 2]
+        return True, "EN" if state["lang"] == 0x409 else "RU"
+
+    monkeypatch.setattr(lay, "switch", _switch)
+
+    async def go():
+        async with await _client() as c:
+            assert (await c.get("/api/layout")).status == 401, "layout leaks the window title"
+            r = await (await c.get("/api/layout", headers=AUTH)).json()
+            assert r["name"] == "RU" and r["window"] == "✳ Claude Code"
+            # No lang = cycle, which is the one-tap case on a phone.
+            r = await (await c.post("/api/layout", json={}, headers=AUTH)).json()
+            assert r["ok"] and r["name"] == "EN"
+            # The new state ships WITH the verdict: a second request to read it
+            # back could already show a third value.
+            r = await (await c.post("/api/layout", json={"lang": 0x419},
+                                    headers=AUTH)).json()
+            assert r["name"] == "RU"
+
+    _run(go())
+
+    # A real switch must be verified, not assumed — PostMessage cannot fail loudly
+    # and a window that ignores it would leave the pill lying about what is active.
+    import pathlib
+    src = pathlib.Path(ROOT, "utils", "layout.py").read_text(encoding="utf-8")
+    assert "WM_INPUTLANGCHANGEREQUEST" in src, "faking Alt+Shift depends on user settings"
+    assert "GetForegroundWindow" in src, "layout must be read from the target window"
+    assert "did not switch" in src, "an ignored request must be reported, not assumed"
+
+    html = _html()
+    assert "doLayout()" in html and 'id="lay-btn"' in html
+    assert "loadLayout()" in html.split("visibilitychange")[1][:400],         "layout goes stale while the tab is hidden"
+    assert "setInterval" not in html.split("async function loadLayout")[1][:600],         "no background poll — that traffic is what v0.16.3 was about"
+
+
+def test_keys_do_not_depend_on_the_keyboard_layout():
+    """Every keystroke must go out as a virtual-key code, never as a character.
+
+    pyautogui maps a character to a key with VkKeyScanW, which asks the ACTIVE
+    layout. Under Russian (0x419) VkKeyScanW('v') is -1 and pyautogui sends
+    nothing at all: ctrl+shift+v delivers Ctrl and Shift with no V, so no paste
+    ever happens; ctrl+shift+p never opens the command palette; and write() drops
+    every latin letter. Measured 2026-08-31 against a live console — "echo
+    TGBOT-MARKER-42" arrived as "--42": digits and '-' exist in the Russian
+    layout, the letters do not. The bot went mute the moment the operator
+    switched layout, on every surface at once, which is why it read as "the last
+    change broke sending".
+    """
+    import pathlib
+    from handlers.input import _VK, press_keys
+
+    # The keys this bot actually sends must all be in the table — a miss silently
+    # falls back to the layout-dependent path that caused the outage.
+    for k in ("ctrl", "shift", "alt", "v", "p", "enter", "tab", "esc", "backspace",
+              "up", "down", "left", "right", "1", "2", "3"):
+        assert k in _VK, k
+    assert _VK["v"] == 0x56 and _VK["p"] == 0x50, "VK codes are layout-invariant constants"
+
+    sent = []
+    import handlers.input as hin
+    real = hin._u32.keybd_event
+    try:
+        hin._u32.keybd_event = lambda vk, sc, fl, ex: sent.append((vk, fl))
+        assert press_keys("ctrl", "shift", "v") is True
+    finally:
+        hin._u32.keybd_event = real
+    # down in order, up in reverse — a modifier released early turns the paste
+    # into a bare V typed into whatever has focus.
+    assert [vk for vk, fl in sent] == [0x11, 0x10, 0x56, 0x56, 0x10, 0x11], sent
+    assert [fl & 0x2 for vk, fl in sent] == [0, 0, 0, 2, 2, 2], sent
+
+    # No caller may go back to the character path.
+    for mod in ("handlers/input.py", "handlers/web.py", "handlers/panel.py",
+                "utils/vscode.py"):
+        src = pathlib.Path(ROOT, mod).read_text(encoding="utf-8")
+        body = chr(10).join(l for l in src.splitlines()
+                         if not l.strip().startswith("#") and "fallback" not in l)
+        assert "pyautogui.hotkey(" not in body or mod == "handlers/input.py", mod
+        assert "pyautogui.press(" not in body or mod == "handlers/input.py", mod
+
+
+def test_terminal_is_decided_by_process_not_title():
+    """A terminal wears the name of whatever runs inside it.
+
+    Claude Code retitles Windows Terminal to '✳ Claude Code', which matches no
+    title hint, so the title-only rule sent Ctrl+V — the exact key Claude Code
+    swallows as "paste image". Messages typed from the browser vanished with a
+    cheerful "Typed:". The owning executable never changes, so it decides; the
+    title stays a fallback for when the process cannot be read.
+    """
+    from handlers.input import paste_hotkey_for
+    from utils.window import get_active_window_process
+
+    # The window that broke it — no hint in the title, terminal by process.
+    assert paste_hotkey_for("✳ Claude Code", "WindowsTerminal.exe") == ("ctrl", "shift", "v")
+    assert paste_hotkey_for("claude", "pwsh.exe") == ("ctrl", "shift", "v")
+
+    # A GUI app named like the CLI must NOT be treated as a terminal: Ctrl+Shift+V
+    # means nothing to Claude Desktop and the paste would land nowhere.
+    assert paste_hotkey_for("Claude", "claude.exe") == ("ctrl", "v")
+    assert paste_hotkey_for("Untitled - Notepad", "notepad.exe") == ("ctrl", "v")
+
+    # No process name available -> old title behaviour, unchanged.
+    assert paste_hotkey_for("Tg-IDE-bot - Visual Studio Code", "") == ("ctrl", "shift", "v")
+    assert paste_hotkey_for("Telegram", "") == ("ctrl", "v")
+
+    # ...and the real key must actually be read from the live window, or the whole
+    # table above is decoration.
+    import pathlib
+    src = pathlib.Path(ROOT, "handlers", "input.py").read_text(encoding="utf-8")
+    assert "paste_hotkey_for(title, proc)" in src, "_type_text ignores the process"
+    assert callable(get_active_window_process)
 
 
 def test_every_typing_path_uses_the_sequencer():
@@ -636,6 +815,13 @@ def test_mobile_order_and_accordion():
     # collapsed state hides the body and persists
     assert ".panel.acc.collapsed>:not(h3){display:none}" in html
     assert "localStorage.setItem('acc_' + id" in html
+    # The bottom bar folds with the SAME idiom, not a second one invented for it:
+    # same acc_ namespace, and a caret from a pseudo-element rather than markup.
+    assert "localStorage.setItem('acc_quick-keys'" in html, "bar collapse invented its own key"
+    assert "body.qk-hidden #quick-keys>:not(#qk-toggle){display:none}" in html
+    assert "#qk-toggle::after{content:'▾'}" in html and \
+           "body.qk-hidden #qk-toggle::after{content:'▴'}" in html, \
+        "the caret must be a pseudo-element, like .panel.acc"
 
 
 def test_quick_keys_bar_at_bottom():
@@ -643,7 +829,11 @@ def test_quick_keys_bar_at_bottom():
     the freeform field), a recently-tapped trail with an empty state, and body
     clearance so the bar never covers the last panel."""
     html = _html()
-    bar = re.search(r'<div id="quick-keys">.*?</div>\s*</div>', html, re.S)
+    # Anchor on the column-0 </div> that really closes the bar. The old
+    # `</div>\s*</div>` pair stopped being the bar's own close once #qk-type moved
+    # out of .qk-btns — it matched the bar's close plus #main's, so the test kept
+    # passing while measuring a span seven characters too long.
+    bar = re.search(r'<div id="quick-keys">.*?^</div>', html, re.S | re.M)
     assert bar, "quick-keys bar missing"
     bar = bar.group(0)
     # same key set must exist inside the lightbox viewer too (#lb-keys)
@@ -666,6 +856,15 @@ def test_quick_keys_bar_at_bottom():
     # body keeps clearance for the bar at every breakpoint
     assert "body{padding-bottom:62px}" in html
     assert "body{padding:10px 10px 62px}" in html
+    # ...and the clearance FOLLOWS the bar when it folds, or a collapsed bar leaves a
+    # dead band of padding nobody can see. Both 62px literals above stay byte-for-byte
+    # (they are the expanded height); the collapsed value overrides by specificity.
+    assert 'id="qk-toggle"' in bar, "the bottom bar has no way to hide itself"
+    assert "body.qk-hidden{padding-bottom:26px}" in html
+    assert "body.qk-hidden #toast{bottom:28px}" in html, "toast floats over a collapsed bar"
+    # Collapsed is opt-in: the only route into it on load is an explicit stored '1'.
+    # A bar hidden on first load is a bar nobody finds — the very bug this release fixes.
+    assert "localStorage.getItem('acc_quick-keys') === '1'" in html
 
 
 def test_tab_and_freeform_field_replace_the_digit_buttons():
@@ -717,13 +916,127 @@ def test_lightbox_project_row_opens_and_focuses():
     assert row, "viewer project row missing"
     row = row.group(0)
     assert 'id="lb-proj"' in row
-    assert "doFocusProj('lb-proj')" in row and "doCodeSel('lb-proj')" in row
+    # the left zone picks a WINDOW first (focus) and a PROJECT second (open/claude)
+    assert 'id="lb-win"' in row and "doFocusWin('lb-win')" in row
+    assert "_fillSelect('lb-win'" in html, "viewer window select is never filled"
+    assert "doCodeSel('lb-proj')" in row
     assert "_fillSelect('lb-proj'" in html, "viewer select is never filled"
     # focus targets the VS Code window of that project (containment match server-side)
     assert "_focusTitle(folder + ' - Visual Studio Code')" in html
     # form controls in the overlay must be exempt from pan/pinch/backdrop-close
     assert "const _lbCtl = el => ['BUTTON', 'INPUT', 'SELECT', 'OPTION']" in html
     assert "e.target.tagName === 'BUTTON'" not in html, "gesture guard still button-only"
+
+
+def test_auto_loop_survives_a_failed_frame():
+    """The Auto chain is self-scheduling: one exception out of requestCapture used
+    to end it for good — the button stayed green and nothing refreshed again, which
+    is what 'Auto sometimes stops working' was. Rescheduling must be in a finally."""
+    html = _html()
+    body = html.split("function _autoSchedule()", 1)[1].split("document.addEventListener", 1)[0]
+    assert "finally { _autoSchedule(); }" in body, "a failed frame still kills the Auto chain"
+    # a skipped tick must say why; a silent stop reads as a broken Auto
+    assert "Auto paused" in body, "hidden-tab skip is silent"
+
+
+def test_explicit_resolution_is_not_overridden_by_the_viewer():
+    """Only 'Fit' is promoted to 1920 inside the lightbox (a panel-sized thumbnail
+    is useless to zoom into). An explicit 1280/1920/Full is an instruction — silently
+    raising it is why the resolution selector looked dead with the viewer open."""
+    html = _html()
+    fn = html.split("function _frameOpts()", 1)[1].split("function resChanged()", 1)[0]
+    assert "w = lbOpen ? 1920" in fn, "'Fit' no longer gets a sharp frame in the viewer"
+    assert "w < 1920" not in fn, "an explicit resolution choice is still overridden"
+
+
+def test_window_selects_keep_the_operators_pick():
+    """loadWindows() re-runs after every focus. Without `sticky` the refill re-selected
+    the ACTIVE window, so the pick vanished under the finger and the next Focus tap
+    re-focused the window already in front — a button that looks dead."""
+    html = _html()
+    assert "function _fillSelect(selId, items, placeholder, selected, sticky)" in html
+    assert "if (sticky && keep && items.includes(keep)) selected = keep;" in html
+    for sel in ("win-select", "lb-win"):
+        assert re.search(r"_fillSelect\('%s'[^)]*, true\)" % sel, html), f"{sel} is not sticky"
+    # ...and projects must NOT be sticky: there the server's current project is state
+    assert re.search(r"_fillSelect\('proj-select', r\.folders, '[^']*', r\.current\)", html)
+    # the viewer refreshes the list on open — windows change constantly
+    open_fn = html.split("function openLightbox(", 1)[1].split("function closeLightbox", 1)[0]
+    assert "loadWindows();" in open_fn, "viewer opens against a stale window list"
+
+
+def test_escape_closes_the_viewer():
+    """Esc is the first key anyone tries. Unhandled it goes to the browser/webview
+    (leaving fullscreen, closing a picker) while the overlay just sits there."""
+    html = _html()
+    h = html.split("document.addEventListener('keydown'", 1)[1].split("});", 1)[0]
+    assert "'Escape'" in h
+    assert "style.display !== 'block'" in h, "Esc is not scoped to an open viewer"
+    assert "e.preventDefault()" in h, "Esc still reaches the browser"
+    assert "closeLightbox()" in h
+
+
+def test_zoom_pad_mirrors_the_scroll_pad():
+    """Zoom column on the LEFT edge of the viewer, same pills as the scroll column
+    on the right. Local transform only — no server round trip — and the hold timer
+    must die with the viewer, or a back-button close leaves it zooming a hidden img."""
+    html = _html()
+    pad = re.search(r'<div class="scroll-pad" id="lb-zoom">(.*?)</div>', html, re.S)
+    assert pad, "no zoom pad in the viewer"
+    assert 'data-zoom="in"' in pad.group(1) and 'data-zoom="out"' in pad.group(1)
+    # inside #lightbox, or it shows while the viewer is closed
+    lb = html.split('<div id="lightbox">', 1)[1].split('<img id="lb-img"', 1)[0]
+    assert 'id="lb-zoom"' in lb
+    # opposite edge from #lb-scroll, same pill styling (.scroll-pad class)
+    assert re.search(r"#lb-zoom\{[^}]*left:14px", html), "zoom pad is not on the left edge"
+    assert re.search(r"#lb-scroll\{[^}]*right:14px", html), "scroll pad moved off the right edge"
+    # zoom is client-side: it must not call the scroll/click endpoints
+    js = html.split("const ZOOM_STEP", 1)[1].split("bindZoomPad();", 1)[0]
+    assert "_lbZoomAt" in js and "/api/" not in js, "zoom pad talks to the server"
+    # pan handler must never see the press, or a zoom hold drags the picture
+    assert "e.preventDefault(); e.stopPropagation();" in js
+    assert "clearInterval(_zoomHeld)" in html.split("function closeLightbox()", 1)[1][:400],         "hold timer survives a close"
+
+
+def test_viewer_controls_sit_in_three_zones():
+    """Zoomed viewer bottom bar is three zones — project flow left, keys centred,
+    view controls (layout / auto) right — and Close is the ONLY
+    thing left pinned to the top-right corner, so it never moves as rows reflow."""
+    html = _html()
+    ctl = re.search(r'<div id="lb-controls">(.*?)</div>', html, re.S).group(1)
+    assert "lb-close" in ctl
+    for stray in ("lb-lay", "lb-auto", "lb-int", "lb-click"):
+        assert stray not in ctl, f"{stray} still shares the corner with Close"
+    view = re.search(r'<div id="lb-view-row">(.*?)</div>', html, re.S).group(1)
+    for moved in ("lb-lay", "lb-auto"):
+        assert moved in view, f"{moved} lost its home"
+    # Click arms taps on the picture and is reached mid-gesture, so it leads the
+    # CENTRE key row (immediately left of the arrows), not the view pills.
+    keys = re.search(r'<div id="lb-keys">(.*?)</div>', html, re.S).group(1)
+    assert "lb-click" in keys and "lb-click" not in view
+    assert keys.index("lb-click") < keys.index("doKey('left')"), "Click is not left of the arrows"
+    # the seconds pill rides with the left zone's flow instead
+    proj = re.search(r'<div id="lb-proj-row">(.*?)</div>', html, re.S).group(1)
+    assert "lb-int" in proj and "lb-int" not in view
+    # ...and it must stay VISIBLE there: #lightbox is overflow:hidden, so a nowrap
+    # left zone (2 selects + 4 pills) pushes Click off-screen on a phone
+    css = html.split("@media(max-width:620px),(max-height:520px){", 1)[1].split(chr(10) + "}", 1)[0]
+    rules = re.findall(r"([^{}]+)\{([^}]*)\}", css)
+    for zone in ("#lb-proj-row", "#lb-keys"):
+        assert any(zone in sel.split("/*")[-1] and "flex-wrap:wrap" in b for sel, b in rules),             f"compact {zone} still nowrap — its last pill is clipped, not wrapped"
+    # the three zones live in the bottom bar in left -> centre -> right order
+    bottom = html.split('<div id="lb-bottom">', 1)[1].split('<img id="lb-img"', 1)[0]
+    pos = [bottom.find('id="%s"' % i) for i in ("lb-proj-row", "lb-keys", "lb-view-row")]
+    assert all(p >= 0 for p in pos), pos
+    assert pos == sorted(pos), "zones are not in left -> centre -> right DOM order"
+    assert re.search(r"#lb-bottom\{[^}]*justify-content:space-between", html)
+    for sel, just in (("#lb-proj-row", "flex-start"),
+                      ("#lb-keys", "center"),
+                      ("#lb-view-row", "flex-end")):
+        body = re.search(re.escape(sel) + r"\{([^}]*)\}", html).group(1)
+        assert f"justify-content:{just}" in body, sel
+    # the moved buttons must still be styled — they used to inherit from #lb-controls
+    assert "#lb-view-row button{" in html or "#lb-view-row button," in html
 
 
 def test_viewer_controls_stay_compact_on_a_phone():
@@ -739,9 +1052,11 @@ def test_viewer_controls_stay_compact_on_a_phone():
     # a flex item without min-width:0 refuses to shrink and overflows the viewport
     for sel in ("#lb-proj-row select", "#lb-keys .qk-input"):
         # the selector appears twice (shared sizing + the shrink rule) — one of the
-        # bodies must carry both, or that control refuses to give up width
+        # bodies must carry both, or that control refuses to give up width.
+        # The basis differs (the two selects share a row, the field takes what is
+        # left), so only "grows and shrinks" is pinned, not the number.
         bodies = re.findall(re.escape(sel) + r"\{([^}]*)\}", css)
-        assert any("min-width:0" in b and "flex:1 1 auto" in b for b in bodies), sel
+        assert any("min-width:0" in b and "flex:1 1 " in b for b in bodies), sel
     assert "#lb-proj-row .lb-lbl{display:none}" in css, "Focus keeps its label on a phone"
     # ...which only saves width if the label is really wrapped in the markup
     assert '<span class="lb-lbl"> Focus</span>' in html
@@ -756,7 +1071,11 @@ def test_type_focuses_the_terminal_before_typing(monkeypatch):
     import utils.vscode as vsc
 
     calls = []
-    monkeypatch.setattr(hin, "type_and_enter", lambda t, e=True: calls.append(("type", t, e)))
+    def _fake_type(t, e=True):
+        calls.append(("type", t, e))
+        return ("✳ Claude Code", "windowsterminal.exe")   # real target, echoed back
+
+    monkeypatch.setattr(hin, "type_and_enter", _fake_type)
     monkeypatch.setattr(vsc, "focus_vscode_terminal", lambda: calls.append(("focus",)))
 
     async def go(active, terminal):
@@ -781,6 +1100,110 @@ def test_type_focuses_the_terminal_before_typing(monkeypatch):
     # Default path is unchanged — no flag, no palette detour.
     data = _run(go("Tg-IDE-bot - Visual Studio Code", False))
     assert calls == [("type", "claude", True)] and "terminal" not in data
+
+    # The window that really got the text is always reported. Nothing in this path
+    # picks a target — the foreground window does — so a message swallowed by an
+    # app that grabbed focus must be tellable from one that arrived.
+    assert data["window"] == "✳ Claude Code" and data["proc"] == "windowsterminal.exe"
+
+
+def test_vscode_editor_never_eats_the_message(monkeypatch):
+    """Raising a VS Code window is not delivery.
+
+    Measured 2026-08-31: two browser messages logged as `Typing 17 chars into
+    'Tg-IDE-bot - Visual Studio Code' [code.exe] via ctrl+shift+v`, 200 OK, and
+    neither arrived — the caret was in the editor, where ctrl+shift+v is
+    `markdown.showPreview`, not paste. So the terminal hop is ON unless a caller
+    explicitly opts out, and the dashboard asks for it whenever it aims at VS Code.
+    """
+    import handlers.input as hin
+    import utils.vscode as vsc
+
+    calls = []
+    monkeypatch.setattr(hin, "type_and_enter",
+                        lambda t, e=True: (calls.append(("type", t)), ("w", "p"))[1])
+    monkeypatch.setattr(vsc, "focus_vscode_terminal", lambda: calls.append(("focus",)))
+
+    async def go(payload, active="Tg-IDE-bot - Visual Studio Code"):
+        calls.clear()
+        monkeypatch.setattr(vsc, "get_active_window_title", lambda: active)
+        async with await _client() as c:
+            r = await c.post("/api/type", json=payload, headers=AUTH)
+            assert r.status == 200
+            return await r.json()
+
+    # No flag at all — the old default typed blind into the editor. Now it does not.
+    data = _run(go({"text": "hi"}))
+    assert calls == [("focus",), ("type", "hi")], calls
+    assert data["terminal"] is True
+
+    # Not VS Code: no palette detour, nothing changes for a plain terminal or app.
+    _run(go({"text": "hi"}, active="✳ Claude Code"))
+    assert calls == [("type", "hi")], calls
+
+    # An explicit false is still honoured — /api/paste-style callers opt out.
+    data = _run(go({"text": "hi", "terminal": False}))
+    assert calls == [("type", "hi")] and "terminal" not in data
+
+    # ...and the dashboard has to ASK for it when it aims at a VS Code window,
+    # or Target would raise the right window and still feed the editor.
+    html = _html()
+    body = html.split("async function doType()")[1].split("function _toLocalInput")[0]
+    assert "/visual studio code/i.test(want)" in body, "target ignores the editor trap"
+    assert "terminal: wantTerm" in body, "terminal hop never reaches the request"
+
+
+def test_type_raises_the_target_window_first(monkeypatch):
+    """`window` must be raised BEFORE the paste, in this one request.
+
+    Nothing else in the type path picks a target: the foreground window gets the
+    text. Measured 2026-08-31 on the live box — focus_window_exact('✳ Claude
+    Code') returned ok=True and 700ms later the foreground was 'Claude' (Claude
+    Desktop grabs it on its own). Focusing from a separate /api/focus call leaves
+    exactly that gap, so the raise happens here, and a raise that did not stick is
+    reported (`on_target: False`) instead of a cheerful "Typed:".
+    """
+    import handlers.input as hin
+    import handlers.web as hw
+
+    calls = []
+    landed = {"title": "✳ Claude Code"}
+
+    def _fake_type(t, e=True):
+        calls.append(("type", t, e))
+        return (landed["title"], "windowsterminal.exe")
+
+    monkeypatch.setattr(hin, "type_and_enter", _fake_type)
+    monkeypatch.setattr(hw, "TYPE_FOCUS_SETTLE", 0)   # no real sleep in a test
+
+    async def go(payload, focus=(True, "Focused")):
+        calls.clear()
+        import utils.window as uw
+        monkeypatch.setattr(uw, "focus_window_exact",
+                            lambda t: (calls.append(("focus", t)), focus)[1])
+        async with await _client() as c:
+            r = await c.post("/api/type", json=payload, headers=AUTH)
+            assert r.status == 200
+            return await r.json()
+
+    data = _run(go({"text": "hi", "window": "✳ Claude Code"}))
+    assert calls == [("focus", "✳ Claude Code"), ("type", "hi", True)], calls
+    assert data["on_target"] is True and data["focus"] is True
+
+    # Raised, then something else took the foreground: the text went elsewhere and
+    # the answer has to say so — this is the whole failure being fixed.
+    landed["title"] = "Claude"
+    data = _run(go({"text": "hi", "window": "✳ Claude Code"}))
+    assert data["on_target"] is False and data["window"] == "Claude"
+
+    # A window that no longer exists must not silently type into the wrong one.
+    landed["title"] = "Claude"
+    data = _run(go({"text": "hi", "window": "gone"}, focus=(False, "Window gone")))
+    assert data["focus"] is False and data["on_target"] is False
+
+    # No window asked for -> no focus call at all, old behaviour untouched.
+    data = _run(go({"text": "hi"}))
+    assert calls == [("type", "hi", True)] and "on_target" not in data
 
 
 def test_terminal_focus_lives_in_one_place():
@@ -872,6 +1295,152 @@ def test_all_handlers_import():
     import handlers.web_extra  # noqa: F401
     import handlers.windows  # noqa: F401
     import utils.webauth  # noqa: F401
+
+
+# --- file attachments ---------------------------------------------------------
+
+def _src(*parts):
+    """Read a source file of the project (path relative to the repo root)."""
+    with open(os.path.join(ROOT, *parts), encoding="utf-8") as f:
+        return f.read()
+
+
+def test_safe_name_cannot_escape_the_upload_dir():
+    """The name arrives from a phone in an HTTP header — attacker-shaped input.
+    It must come out a bare file name, never a path and never empty."""
+    from utils.uploads import safe_name
+    assert safe_name(r"..\..\autoexec.bat") == "autoexec.bat"
+    assert safe_name("/etc/passwd") == "passwd"
+    assert safe_name("../../../x.md") == "x.md"
+    assert not re.search(r'[\/:*?"<>|]', safe_name('a:b*c?"d<e>f|g.md'))
+    assert safe_name("..") and ".." not in safe_name("..")
+    assert safe_name("") and safe_name(None)
+    assert safe_name("  .hidden.md ") == "hidden.md"      # leading dot/space stripped
+    assert safe_name("отчёт.md") == "отчёт.md"            # Cyrillic survives
+    long_name = safe_name("x" * 400 + ".md")
+    assert len(long_name) <= 120 and long_name.endswith(".md")
+
+
+def test_save_upload_never_overwrites():
+    """The same report.md twice is two files: the first may already be open in
+    the session that asked for it."""
+    import shutil
+
+    import config
+    from utils import uploads
+    tmp = os.path.join(ROOT, "tests", "_tmp_uploads")
+    old = uploads.UPLOAD_DIR
+    config.UPLOAD_DIR = uploads.UPLOAD_DIR = tmp
+    try:
+        a = uploads.save_upload(b"first", "report.md")
+        b = uploads.save_upload(b"second", "report.md")
+        assert a != b
+        with open(a, "rb") as f:
+            assert f.read() == b"first", "first upload was clobbered"
+        assert b.endswith(".md"), "collision suffix must go before the extension"
+    finally:
+        config.UPLOAD_DIR = uploads.UPLOAD_DIR = old
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_path_token_lives_in_one_place():
+    """Quoting + the trailing space are one rule. A second copy is how one entry
+    point silently starts typing an unquoted path that splits in two."""
+    from utils.uploads import path_token
+    assert path_token(r"C:\tmp\a.md") == "C:" + chr(92) + "tmp" + chr(92) + "a.md "
+    quoted = path_token(r"C:\my files\a.md")
+    assert quoted.startswith('"') and quoted.endswith('" ')
+    src = _src("handlers", "web_extra.py")
+    assert '"{path}" ' not in src, "web_extra grew its own copy of the quoting rule"
+    assert src.count("path_token(path)") == 2, "paste and upload must share one helper"
+
+
+def test_upload_endpoint_guards():
+    async def go():
+        async with await _client() as c:
+            r = await c.post("/api/upload", data=b"x")
+            assert r.status == 401, "upload is not behind auth"
+            r = await c.post("/api/upload", headers=AUTH, data=b"")
+            assert (await r.json())["ok"] is False, "empty body must be a 4xx, not a 500"
+            from utils.uploads import MAX_UPLOAD
+            r = await c.post("/api/upload", headers=AUTH, data=b"x" * (MAX_UPLOAD + 1))
+            assert r.status == 413, r.status
+    _run(go())
+
+
+def test_upload_is_not_reachable_by_a_refine_token():
+    """Typing a path into a focused window is remote control; /refine has none."""
+    src = _src("handlers", "web_extra.py")
+    body = src.split("async def api_upload(request):", 1)[1].split("\nasync def ", 1)[0]
+    assert "_check_auth(request)" in body
+    assert "_check_auth_refine" not in body
+
+
+def test_client_attaches_files_before_text():
+    """A file types a PATH with no Enter and the text write reuses the clipboard,
+    so files must go first and the typed path needs time to land."""
+    html = _html()
+    assert 'id="file-input"' in html and 'id="attach-btn"' in html
+    assert html.count('type="file"') == 1, "two pickers = two ways for the list to go stale"
+    assert "pickFiles(true)" in html, "no attach button inside the viewer"
+    fn = html.split("async function doType()", 1)[1].split("\n}", 1)[0]
+    assert fn.index("uploadFile(files[i].file)") < fn.index("/api/paste"), \
+        "files are sent after images"
+    assert fn.index("/api/paste") < fn.index("/api/type"), "attachments sent after the text"
+    up = html.split("async function uploadFile(", 1)[1].split("\n}", 1)[0]
+    assert "encodeURIComponent(file.name)" in up, "a non-ASCII name will not survive"
+    assert "e.dataTransfer.files" in html and "clipboardData.files" in html
+
+
+def test_telegram_document_entry_point():
+    """Sending the file straight to the chat is the shortest path from a phone."""
+    bot_src = _src("bot.py")
+    assert "filters.Document.ALL, document_handler" in bot_src
+    assert 'pattern="^f:"' in bot_src
+    src = _src("handlers", "upload.py")
+    # Enter is sequenced in exactly one place — a local Enter lands inside the paste
+    assert "type_and_enter" in src and "press_keys" not in src
+    assert "TG_DOWNLOAD_LIMIT" in src, "20MB Bot API download limit is not handled"
+
+
+def test_quick_keys_bar_has_vertical_arrows():
+    """Claude Code moves its option selector UP and DOWN, so the bar you answer a
+    question from needs those two keys — ←/→ alone cannot pick an option. Only the
+    bottom bar: the viewer row is deliberately left as it is."""
+    html = _html()
+    bar = re.search(r'<div id="quick-keys">.*?</div>\s*</div>', html, re.S).group(0)
+    for key in ("doKey('up')", "doKey('down')"):
+        assert bar.count(key) == 1, f"bottom bar lacks exactly one {key}"
+    # order is part of the agreed row: the vertical pair leads the arrow cluster
+    assert bar.index("doKey('up')") < bar.index("doKey('down')") < bar.index("doKey('left')")
+    # the trail is fed from doKey, so an unmapped key shows up as raw 'up'
+    labels = html.split("const _QK_LABELS = ", 1)[1].split("};", 1)[0]
+    assert "up: '↑'" in labels and "down: '↓'" in labels
+    # the viewer row stays a decision, not a forgotten place
+    lb = re.search(r'<div id="lb-keys">.*?</div>', html, re.S).group(0)
+    assert "doKey('up')" not in lb
+    # A 360px phone cannot fit …/4 arrows/Enter/Sh+Tab/Tab + the field, and none of
+    # them is droppable — the keys scroll instead, and the row must NOT wrap: the
+    # 62px clearance is fixed, so a second line would cover the last panel.
+    # anchor on a rule unique to the bar block: the first 560px block on the page
+    # is a one-liner, and splitting on it swallows the rest of the stylesheet.
+    css = html.split(".qk-input{width:84px}", 1)[1].split(chr(10) + "}", 1)[0]
+    btns = re.search(r"\.qk-btns\{([^}]*)\}", css).group(1)
+    assert "overflow-x:auto" in btns, "narrow bar still overflows the viewport silently"
+    assert "flex-wrap" not in btns, "a wrapped bar sits on top of the last panel"
+    assert ".qk-arrow{" in css, "arrows are not compacted on a phone"
+    # The answer field is a SIBLING of the scrolling key row, never its last child:
+    # inside .qk-btns it scrolled off with the keys, which is the exact opposite of
+    # what the comment beside that rule claimed for two versions.
+    qk_btns_markup = re.search(r'<div class="qk-btns">.*?</div>', bar, re.S).group(0)
+    assert 'id="qk-type"' not in qk_btns_markup, "the answer field scrolls away with the keys"
+    assert 'id="qk-type"' in bar, "the answer field left the bar entirely"
+    # Compaction is a RULE, not a pile of numbers: horizontal is the scarce axis, so
+    # inline padding and gaps shrink while tappable height is held. Any two-value
+    # padding here dropping below 6px vertical is shrinking a touch target on the one
+    # device where that is unaffordable.
+    for v in re.findall(r"padding:(\d+)px \d+px", css):
+        assert int(v) >= 6, f"phone block shrinks a touch target vertically ({v}px)"
 
 
 if __name__ == "__main__":

@@ -1,0 +1,27 @@
+Tg-IDE-bot — Python 3.14, python-telegram-bot v20 (polling) + aiohttp on :8080, mss /
+pyautogui / pygetwindow for the machine, pytest for the proof. Windows-only by design.
+
+The rules of this repo are in AGENTS.md at the root. Read it. Do not copy it here.
+
+Canonical knowledge is the wiki in docs/. Read docs/README.md before working: preflight,
+update regulation, document map, concept index.
+
+Before touching a feature, read its file in docs/chunks/features/ — that is where the
+failure history lives, and skipping it is how a fixed bug comes back.
+
+Set your row in docs/ROADMAP.md to ▶ before the first edit; ✅ or ⏸ (with what remains and
+where it is) when you stop.
+
+Never commit or push unless the operator says "Current branch" or "New branch". Version and
+changelog wait for "Let's finish".
+
+After changes, follow the "Update regulation" in docs/README.md, then:
+    python -m pytest tests/ -q
+    python tools/wiki/check-links.py && python tools/wiki/wiki-doctor.py
+
+Cite ids (D-nnn, A-nnn, B-n) instead of restating what they say.
+
+---
+This file is a legacy shim. Current Cursor versions read AGENTS.md natively, so if your
+whole team is on a recent build you can delete it. It is shipped because a stale editor
+silently reading nothing is worse than one duplicated pointer.
