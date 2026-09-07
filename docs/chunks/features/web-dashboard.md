@@ -191,6 +191,119 @@ every keystroke").
   changed. A background poll through the reverse-SSH tunnel is exactly what
   v0.16.3/v0.16.4 were about.
 
+## Touch gestures on the screenshot (row 11) — what a finger means
+
+Both surfaces — the live view (`#screen-area img`) and the zoomed viewer (`#lightbox`) — read
+the same gestures, with one set of constants (`TAP_MOVE_PX` 8, `RIGHT_TAP_MS` 400,
+`DRAG_HOLD_MS` 350) so the two cannot drift apart under a thumb.
+
+| Gesture | Sends | Notes |
+|---|---|---|
+| tap | left click | `DOUBLE_TAP_MS` (400ms) tap-delay, so a second tap can upgrade it — paid by every single click |
+| tap ×2 | double click | one request with `double:true`, never two clicks — within `DOUBLE_TAP_MS` |
+| **two-finger tap** | **right click** | `D-017` — both surfaces, anchored at the midpoint of where the fingers *landed* |
+| **press-hold, release in place** | **right click** | `D-020` — both surfaces; the gesture people arrive expecting |
+| **press-hold, then move >16px** | **drag** | viewer only; the same hold, resolved by what the finger does next |
+| one-finger move | pan | unchanged, and it is why drag needs the hold |
+| two-finger pinch | zoom | unchanged |
+| double-tap (Click off) | fit ↔ 3× zoom | unchanged — which is why the double tap could not become the right click |
+
+All of it is gated on **Click mode being armed**. With Click off, a tap opens the viewer and
+nothing reaches the PC.
+
+### Why the two-finger tap needed a change and not just a handler
+
+It was suppressed twice, both times on purpose:
+
+1. `_lb.multi` is set on the second `pointerdown`, and `pointerup` returned early on it — that
+   guard exists so the tail of a pinch cannot be read as a tap and close the viewer.
+2. The two-pointer branch of `pointermove` set `_lb.moved = true` on the **first pixel** of
+   movement. Two fingers landing together always jitter, so every two-finger gesture was
+   "moved" before it began.
+
+Both stay, narrowed. `multi` still stops the pinch tail; the new `_lb.peak` counts fingers;
+and movement now requires the pinch **span** to change by more than `TAP_MOVE_PX`. The right
+click is checked **before** the `multi` early-return, which is the whole fix in one line of
+ordering.
+
+`_lb.down` is a second map holding where each finger landed — `_lb.ptrs` is rewritten on every
+move, so by release time two fingers have drifted and their midpoint is not where the operator
+aimed.
+
+On the live view the browser still synthesises a click from the first finger after a
+two-finger tap, so `_imgSuppressClick` swallows it for 400ms. Without it a right click also
+sends a left one.
+
+### Drag, and why the view freezes while it is armed
+
+An immediate finger drag is the pan that reaches the rest of a zoomed screenshot and cannot be
+given up, so drag arms on a **hold**: `DRAG_HOLD_MS` with the finger still. Once armed,
+`pointermove` stops panning — moving the picture under the gesture would drop the drag
+somewhere the operator never pointed. `pointercancel` disarms it, because a gesture the OS
+steals (system swipe, incoming call, app switch) never sends `pointerup`, and a drag left
+armed would fire from a forgotten anchor on the next release.
+
+Telegram's own swipe-down-to-close would eat a vertical drag; `disableVerticalSwipes()` in
+`common.js` already handled that for panning and covers this too.
+
+### Control grouping on a phone (row 15, `D-021`)
+
+Both surfaces split into **what never folds** and **what does**:
+
+| Surface | Always out | Behind the caret |
+|---|---|---|
+| Viewer `#lb-bottom` | `#lb-quick` (Click · layout · 📎) + `#lb-entry` (field · caret) | `#lb-more`: `#lb-proj-row` (windows, projects, Claude, interval, **Auto**) and `#lb-keys` (← → Enter Sh+Tab Tab) |
+| Bar `#quick-keys` | `.qk-always` (layout · 📎) + `#qk-type` | `.qk-btns` and `.qk-trail` |
+
+- **`#lb-view-row` is gone.** It carried two pills across a full width while the row above it
+  wrapped; Auto moved beside the interval it sets, the layout pill moved to the always-on row.
+- **Click never folds** — it is the switch that makes a tap reach the PC (`D-017`, `D-020`).
+- **📎 is new on both surfaces.** `pickFiles(true)` was only in the viewer's key row and the
+  dashboard's Type panel, neither reachable while looking at a screenshot.
+- **Folding the bar no longer leaves a sliver.** The strip scrolls horizontally on a phone, so
+  it cost width, not height: folded, `.qk-input` stops being 84px and takes the bar. Clearance
+  is therefore state-independent — the two `62px` literals are the whole story and
+  `body.qk-hidden{padding-bottom:26px}` is gone.
+- **Desktop line-up** (measured, not guessed): `#lb-more` is a **row** on a wide screen and a
+  column only inside the compact breakpoint — as a column everywhere it produced two stacked
+  half-empty rows with different alignments. `#lb-proj-row` is `flex:1 1 auto`: its children
+  need 773px while its intrinsic base resolves to 705, so with zero grow it wrapped and dropped
+  `Auto` onto a line of its own while ~276px sat empty. `flex-wrap:wrap` stays as the
+  narrow-window fallback — `#lightbox` is `overflow:hidden`, so nowrap clips rather than moves.
+  `#lb-quick` and `#lb-entry` carry `order:1`/`order:2`: the DOM keeps what-folds first (a test
+  walks the nesting) while the last line reads pills → field → caret.
+- **One idiom, three users:** class on the container, `::after` caret, `acc_` localStorage key
+  — same as `.panel.acc` and the bar. The viewer defaults to folded only where the compact
+  breakpoint matches; a stored choice beats that.
+
+### Keys on the phone surfaces (row 15, `D-022`)
+
+| | bottom bar `.qk-btns` | viewer `#lb-keys` (inside the fold) |
+|---|---|---|
+| digits | **1 2** (new) | **1 2** (new) |
+| arrows | ↑ ↓ ← → | **↑ ↓** (new) ← → |
+| rest | Enter · Sh+Tab · Tab · Claude | Enter · Sh+Tab · Tab |
+
+`1`/`2` type digit+Enter through `doTypePreset`, the same helper the Keys rail uses, and `2`
+carries the green tint on all three surfaces. They sit **beside** the freeform field, never
+instead of it — the field answers anything, the buttons answer the common case without raising
+a keyboard over the screenshot.
+
+The floating pads (`.scroll-pad`: ▲▼ on both surfaces, +− in the viewer) went from
+`border-radius:50%` to `12px` — rounded squares. Contrast is unchanged and still owned by
+`D-016`: the light ring plus the dark fill is what carries them over an unknown backdrop.
+
+### API additions
+
+| Method | Path | Change |
+|---|---|---|
+| POST | `/api/click` | now takes `button` — `left` (default) / `right` / `middle`; an unknown name is a **400**, never a silent left click |
+| POST | `/api/drag` | **new** — `{x, y, to_x, to_y, button, steps}`, one request, button released in a `finally` (`D-018`) |
+
+Both answer with what actually happened (`{clicked, button, double}` / `{from, to, button,
+steps}`), and the toast names the button — a right click that went out as a left one is
+indistinguishable from a dead gesture unless the answer says which.
+
 ## Config (`config.py` / `.env`)
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -207,7 +320,8 @@ every keystroke").
 | POST | `/api/window` | Legacy base64 JSON window capture (same body/reply shape) |
 | POST | `/api/key` | Key press `{key, repeat}` |
 | POST | `/api/type` | Type text `{text, enter, terminal, new_terminal}` — `terminal:true` moves the caret into the VS Code integrated terminal first (`utils/vscode.focus_terminal_if_active`), `new_terminal:true` opens a fresh one instead of reusing the active terminal; reports `{terminal, terminal_msg}`, and a non-VS-Code foreground still types but says so |
-| POST | `/api/click` | Mouse click `{x, y}` |
+| POST | `/api/click` | Mouse click `{x, y, double, button}` — `button` left/right/middle, unknown = 400 (`D-017`) |
+| POST | `/api/drag` | Press → interpolated move → release, one request `{x, y, to_x, to_y, button, steps}` (`D-018`) |
 | POST | `/api/scroll` | Wheel scroll `{dir: up\|down, notches, x?, y?}` → `utils/mouse.scroll_at` |
 | POST | `/api/sh` | Shell command `{cmd, timeout}` |
 | POST | `/api/git` | Git command `{args}` |

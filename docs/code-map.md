@@ -67,7 +67,7 @@ place instead of three.
 | `utils/humanize.py` (113) | Groq chat with a model fallback chain and `<think>` stripping. `chat(system, text)` is the generic entry; `humanize()` a thin wrapper (`D-013`) |
 | `utils/improve.py` (119) | The ✨ Improve prompt: profile first, instructions last, deterministic language hint appended (`D-014`) |
 | `utils/stt.py` (46) | Groq Whisper |
-| `utils/mouse.py` (59) | Remote wheel. Windows routes the wheel by **cursor position**, so it parks the cursor, scrolls, and puts it back |
+| `utils/mouse.py` (149) | **Every mouse event** — `click_at` (button, double), `drag` (one request, released in a `finally`), `scroll_at`. Windows routes the wheel by **cursor position**, so it parks the cursor, scrolls, puts it back. Owns the settles that replaced `pyautogui.PAUSE` (`D-019`) |
 | `utils/tunnel.py` (60) | Watchdog — restarts the tunnel task when ssh dies |
 | `utils/singleton.py` (43) | Kills a stale instance holding `:8080`, in-process via psutil and waiting for real death (`D-002`) |
 | `utils/project.py` (54) | Current-project state, shared by every surface |
@@ -90,8 +90,9 @@ place instead of three.
 
 | Path | Purpose |
 |---|---|
-| `tests/test_web.py` (1397) | 71 of the 94. Beyond the API smoke tests it pins **invariants**: every handler checks auth, no path pairs `_type_text` with its own Enter, the terminal-focus sequence exists once, the client matcher mirrors the server's |
+| `tests/test_web.py` (1451) | 71 of the 100. Beyond the API smoke tests it pins **invariants**: every handler checks auth, no path pairs `_type_text` with its own Enter, the terminal-focus sequence exists once, the client matcher mirrors the server's |
 | `tests/test_refine.py` (390) | 23 — the scoped token, and that the system routes reject it |
+| `tests/test_input.py` (248) | 6 — the mouse buttons, drag, and the gesture rules that decide which button a finger meant. Split off when `test_web.py` passed its cap |
 | `tools/wiki/*.py` | The wiki's own instruments: `check-links.py`, `wiki-doctor.py`, `new-session.py`, and the three hooks wired in `.claude/settings.json` — preflight at session start, guard and commit gate before a shell call, caps after an edit |
 
 ---

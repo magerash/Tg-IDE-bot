@@ -60,6 +60,45 @@ nothing, `D-010`).
 Caddy. Real hostnames and addresses are in the gitignored topology file — see
 [documentation/README-vps.md](documentation/README-vps.md) and `B-1`.
 
+### Measured 2026-09-07, while researching row 10
+
+Numbers, and the reason each one is here rather than in the analysis document: they describe
+**the machine**, so the next session should not re-derive them from scratch — but they must
+still be re-measured before being compared against, per
+[verification.md](../.claude/rules/verification.md). Full method:
+[analysis/vnc-mode-research.md](analysis/vnc-mode-research.md).
+
+| | |
+|---|---|
+| Screen | 2048×1152, **single monitor** — so nothing multi-monitor in this project has ever been exercised |
+| `mss` full-screen grab | 27.8 / **33.7** / 45.5 ms (min/median/max) |
+| Frame 1280 WebP q70 | 51.5 KB · **82–91 ms** locally · **483–552 ms** through the tunnel |
+| Warm tunnel round trip | **~133 ms** for a 192-byte control call (TTFB minus TLS) |
+| WebP q70 `method=2` vs JPEG q70 | **44–47 % smaller**, ~50 ms more encode. `method=4` buys 3 % for 2.6× the time |
+| **`pyautogui.PAUSE`** | 0.1 s by default — measured 100.5 ms per call against 0.1 ms with it off. **Set to 0 since row 11** (`D-019`); the gaps it was hiding are now `MOUSE_*` in `config.py` |
+| Undeclared installed packages | `numpy` 2.4.4 and `websockets` 16.0 are importable but **not in `requirements.txt`** — a fresh clone does not have them |
+| WebSocket upgrade | Caddy forwards `Upgrade: websocket` to aiohttp (the origin answered, not the proxy). Not the same as a completed handshake — untested |
+
+### Seeing the UI without a phone — headless Edge, verified 2026-09-07
+
+There is no browser automation in this project and none is needed for a screenshot. Edge is on
+every Windows 11 box and renders a file:// page to PNG in one command:
+
+```bash
+"/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"   --headless=new --disable-gpu --hide-scrollbars --virtual-time-budget=2500   --window-size=1500,900 --screenshot=out.png "file:///C:/path/harness.html"
+```
+
+The page needs a harness: `common.js` inlined (no fetch over `file://`), `#auth-overlay`
+hidden and `#main` shown (`checkAuth()` does that after `/api/status`), and a data-URI image
+for `#lb-img`. Add `--dump-dom` with a `<pre>` filled by `getBoundingClientRect()` to get real
+widths instead of guessing at flex behaviour.
+
+**The trap:** `--window-size=390,844` does **not** give a 390px layout viewport — measured, the
+page laid out at **476px** and the screenshot merely cropped it, which reads as "the controls
+are clipped on a phone" when nothing is. For a true mobile viewport, load the harness in a
+`<iframe width="390">` inside a desktop-sized window; media queries and `position:fixed` then
+resolve against the frame.
+
 ## Failure modes that have actually happened
 
 One row every time something confuses somebody for more than ten minutes. The **symptom** is

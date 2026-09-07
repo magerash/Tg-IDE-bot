@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.21.0
+# TG-IDE-Bot v0.22.0
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -114,6 +114,15 @@ curl -k -o /dev/null -w "%{http_code}\n" https://bot.magerash.com:8443/ # Caddy 
 **Gotcha:** when matching processes by command line, exclude your own shell (`$_.ProcessId -ne $PID`) — a `Where-Object { $_.CommandLine -match 'start_tunnel_vps' }` filter matches the very command that contains that string, so the kill loop terminates your own session and inflates keeper counts by one.
 
 ## Changelog
+
+### v0.22.0 2026-09-08
+- **👆 Right click and drag from the phone.** Two ways in, because a hand reaches for both: a **two-finger tap**, and a **press-and-hold** — released in place it is a right click, moved first it is a drag. Both the live view and the zoomed viewer
+- A drag is **one request**, with the button released in a `finally`: a button held *between* HTTP requests is one the tunnel can strand, and a desktop left with the mouse down turns every movement into a selection
+- **⚡ Remote clicks got ~200ms faster.** `pyautogui` sleeps 0.1s after every call it owns (measured: 100.5ms vs 0.1ms). That blanket delay is off, and each gap it was silently paying for is now explicit — including one the wheel actually needed, which would otherwise have scrolled the window you were looking at *before*
+- **📱 Phone controls regrouped.** The text field, the layout pill, 📎 and Click stay out; windows, projects, Claude, the interval, Auto and the keys fold behind one caret. Folding the bottom bar now gives the answer field the whole width instead of leaving a 24px sliver
+- **📎 Attach** is on both phone surfaces, `1` `2` are back beside the freeform field (typing one character raises a keyboard over the screenshot you are answering about), and `↑ ↓` reached the viewer
+- **🔬 Researched first, rendered before shipping.** `docs/analysis/vnc-mode-research.md` measured what a "VNC mode" would actually cost — and rendering the UI headless caught three layout bugs no test did, including a caret that had been written into the CSS as a raw control byte
+- Tests **94 → 102**, every new assertion mutation-tested — 32 deliberate reverts, 32 failures
 
 ### v0.21.0 2026-09-03
 - **Documentation is in git for the first time.** `materials/` (31 files, 160KB of feature chunks) was gitignored, so none of it reached a clone. Moved to **`docs/`** and adopted onto the `llm-wiki-kit` template — preflight, update regulation, code map, roadmap, and a decisions ledger recovered from 20 versions of changelog. `CLAUDE.md` goes 527 → 97 lines and imports the new tracked `AGENTS.md`

@@ -406,6 +406,209 @@ invisible control, and a test now fails if it goes.
 
 ---
 
+## D-017 — Right click is a two-finger tap, and the double tap keeps both jobs it already had
+
+**2026-09-07** · row 11 · `web/index.html` · [chunk](sessions/04-route-a-right-click-drag/2026-09-07-route-a-right-click-drag.md)
+
+The operator asked for a right click and named the gesture: two fingers, the trackpad
+convention. It is also what Moonlight and the Microsoft RD client use in pointer mode. On the
+live view and in the zoomed viewer, two fingers down, neither moving past `TAP_MOVE_PX`,
+released inside `RIGHT_TAP_MS` (400ms), sends `button: "right"` anchored at the midpoint of
+where the fingers **landed** — not where they were at release, which has drifted.
+
+**The alternatives rejected.** *Double tap*, which the brief first asked for: it is spent
+twice already — on the remote double click (a 280ms tap-delay upgrade) and, in the viewer, on
+fit↔3× zoom. Taking it would have removed a verb to add a verb. *Long press*, which is the
+common default: on every client that ships it, it is the gesture users report as "the PC
+thinks the left button is held down"; it is also now the drag arming gesture here, where a
+held button is what is actually meant.
+
+**Why it did not already work.** `_lb.multi` was set on the second `pointerdown` and
+`pointerup` returned early on it — deliberately, so the tail of a pinch could not be read as a
+tap and close the viewer. And the two-pointer branch of `pointermove` set `moved = true` on the
+first pixel of movement, which two fingers landing together always produce. So the gesture was
+not missing, it was **suppressed twice over**. The fix splits the meaning: `multi` still stops
+a pinch closing the viewer, `peak` counts fingers, and movement now needs the pinch *span* to
+change by more than `TAP_MOVE_PX`. On the un-zoomed image the browser still synthesises a
+click from the first finger, so it is suppressed for 400ms — otherwise a right click also
+sends a left one.
+
+**Reverse:** delete the `peak === 2` branch in the viewer's `pointerup` and the pointer
+handlers in `bindImgClick`; nothing else depends on them.
+
+---
+
+## D-018 — A drag is one request, and the button is released in a `finally`
+
+**2026-09-07** · row 11 · `handlers/web.py`, `utils/mouse.py` · [chunk](sessions/04-route-a-right-click-drag/2026-09-07-route-a-right-click-drag.md)
+
+`POST /api/drag {x, y, to_x, to_y, button}` presses, interpolates the move in
+`MOUSE_DRAG_STEPS` steps and releases — all inside one request.
+
+**The alternative rejected:** `/api/mouse {down|up|move}`, which is what a real remote-control
+protocol does (RustDesk packs exactly that into one `MouseEvent.mask`). It is the right shape
+for a socket and the wrong shape for this transport. A button held *between* HTTP requests is
+a button the tunnel can strand: lose the `up` — a dropped connection, a backgrounded webview,
+a phone that locks mid-gesture — and the operator's desktop is left with the mouse down, where
+every movement is a selection, and nothing on the phone can tell them so. One request cannot
+be half-delivered, and `utils.mouse.drag` releases in a `finally` even when a move raises.
+
+The move is interpolated because a single jump from A to B drags nothing: controls recognise a
+drag from the stream of `WM_MOUSEMOVE` between the press and the release. `MOUSE_DRAG_HOLD`
+sits between the press and the first move for the same reason — an app that sees both in one
+tick treats it as a click.
+
+**Reverse:** the endpoint is additive; removing it removes the gesture and nothing else.
+
+---
+
+## D-019 — pyautogui's blanket PAUSE is off, and every gap it hid is now named
+
+**2026-09-07** · row 11 · `handlers/input.py`, `utils/mouse.py`, `config.py` · [chunk](sessions/04-route-a-right-click-drag/2026-09-07-route-a-right-click-drag.md)
+
+`pyautogui.PAUSE` sleeps 0.1s after **every** call it owns — measured on this machine at
+100.5ms against 0.1ms with it off. `pyautogui.click(x, y)` is a move and a click, so every
+remote click spent ~200ms asleep before an event was sent, `scroll_at` ~300ms, and a drag would
+have spent ~400ms — on top of a ~133ms warm tunnel round trip. It is now `0`, set beside
+`FAILSAFE` in `handlers/input.py`, the module every entry point already imports.
+
+**What the blanket delay was paying for is now explicit** in `config.py` and spent in
+`utils/mouse.py`: `MOUSE_MOVE_SETTLE` before a button goes down (a window must process
+`WM_MOUSEMOVE` first, or the click lands on a control that has not registered the hover) and
+before the wheel (Windows routes it by cursor position at the moment of injection —
+**this one was a live regression the moment PAUSE went to zero**, and it is why `scroll_at`
+now sleeps explicitly). The keyboard paths never needed it: `press_keys` has always sent its
+virtual-key events back-to-back.
+
+Because a caller that reaches for `pyautogui.click` directly skips all of it, every mouse
+event now goes through `utils/mouse.py` and `test_every_click_path_uses_the_mouse_module`
+fails if a second path appears — the same shape as `D-005`'s sequencer rule and `D-008`'s
+single-copy rule, and for the same reason: the symptom of skipping it (a menu that opens on
+the second try) never points back at the cause.
+
+**Reverse:** one line, `pyautogui.PAUSE = 0.1`. The explicit settles are harmless if it comes
+back — they would simply be paid twice.
+
+---
+
+## D-020 — A hold is a right click, and the same hold becomes a drag only if the finger moves
+
+**2026-09-07** · row 11 · `web/index.html` · **supersedes the long-press rejection in `D-017`**
+· [chunk](sessions/04-route-a-right-click-drag/2026-09-07-route-a-right-click-drag.md)
+
+`D-017` chose the two-finger tap and rejected the long press, citing clients where it misfires
+as a held left button. The operator's correction is simply true: **holding is the right click
+people arrive expecting** — it is what Android does, what Microsoft's RD client does in
+direct-touch mode, and what a hand reaches for before it thinks. A gesture the user already
+knows beats a gesture that is defensible.
+
+The cited failure does not apply here and it is worth saying why: it describes clients that
+implement the hold by *holding the remote left button down* and hoping the target interprets
+it. This sends a discrete `button: "right"` click. Nothing is held anywhere.
+
+**The collision, and how it is resolved.** The hold was already taken — it arms the drag. One
+gesture cannot mean two things at the moment it is recognised, but it can mean two things
+depending on **what happens next**:
+
+| after the hold is recognised (350ms) | sends |
+|---|---|
+| released in place | right click at the anchor |
+| moved past `DRAG_MOVE_PX` (16px), then released | drag from anchor to release point |
+
+`DRAG_MOVE_PX` is deliberately coarser than `TAP_MOVE_PX` (8px): a finger resting on glass for
+350ms always drifts, and a right click that drifts into a 16px drag is how a context menu
+becomes a moved file. The status line names the fork the moment the hold lands
+(`Hold — release for right click, move to drag`), so the two outcomes are discoverable rather
+than remembered.
+
+**The live view keeps only half of it.** There is no drag there — a finger moving on that
+image scrolls the *page*, which cannot be given up — so the hold has exactly one meaning.
+Which also means the surfaces do not disagree: a hold released in place is a right click on
+both.
+
+**Two-finger tap stays** (`D-017`). It is faster, it needs no wait, and it is the trackpad
+gesture; the hold is the one that needs no explanation. Neither is a mode.
+
+**The OS gets there first unless it is stopped.** A long press on an `<img>` opens the
+platform's own "save image" sheet, which both answers the gesture and cancels the pointer
+sequence. `-webkit-touch-callout:none` plus a `contextmenu` preventDefault (only while Click
+is armed) is what leaves the hold to us.
+
+**Reverse:** drop the `!dragging` branch in the viewer's armed-hold release and the
+`holdTimer` in `bindImgClick`; the two-finger tap keeps working on its own.
+
+---
+
+## D-021 — Four controls never fold, everything else does, on both phone surfaces
+
+**2026-09-07** · row 15 · `web/index.html` · [chunk](sessions/05-mobile-control-grouping/2026-09-07-mobile-control-grouping.md)
+
+The zoomed viewer showed four full-width rows over the screenshot on a phone, one of them
+(`#lb-view-row`) carrying two pills — the layout and Auto — while the row above it wrapped for
+want of space. The bottom bar squeezed its freeform field to **84px** to keep nine keys and a
+trail on the same line. Both are the same mistake: everything was treated as equally worth a
+permanent pixel.
+
+**What stays out, on both surfaces:** the **text field**, the **layout pill**, the **attach
+clip**, and — in the viewer — **Click**. Those are what the operator touches between two typed
+answers. Click is on the list because it is the switch that makes a tap reach the PC at all
+(`D-017`, `D-020`); folding it away would hide the master switch for every gesture in the app.
+The clip is *added* to both surfaces here — it existed only in the viewer's key row and in the
+dashboard's Type panel, neither of which is reachable while looking at a screenshot.
+
+**What folds:** windows, projects, Claude, the interval, Auto, and the arrow/Enter/Tab strip.
+Auto moved in beside the interval it sets, which is what removes the one-pill row.
+
+**The fold is the third user of one idiom, not a third invention.** A class on the container,
+a caret from a `::after` pseudo-element, one key in the `acc_` localStorage namespace — the
+same as `.panel.acc` and the quick-keys bar. The viewer's default differs by screen rather than
+by preference: folded where the compact breakpoint matches (the rows cost picture there), open
+on a desktop viewer that has room; a stored choice beats both.
+
+**The bar's fold changed meaning, deliberately.** It used to hide everything and leave a ~24px
+sliver, with the body clearance shrinking to match. It now hides only the key strip and the
+trail. On a phone that strip scrolls horizontally, so it never cost height — it cost the
+**width** that left the field at 84px. Folded, the field takes the whole bar. The consequence
+is that clearance no longer depends on the state, and the two `62px` literals are again the
+whole story; the `body.qk-hidden{padding-bottom:26px}` override is gone and a test fails if it
+returns.
+
+**The alternative rejected:** keeping the sliver and adding a *second* always-on strip above
+it. That is two bars where the phone has room for one, and it would have put the field further
+from the thumb than the keys it exists to replace.
+
+**Reverse:** delete `#lb-more`/`#lb-quick`/`#lb-entry` and put the rows back in `#lb-bottom`;
+move `#lay-btn` back inside `.qk-btns`. Nothing else depends on the grouping.
+
+---
+
+## D-022 — The digits come back beside the freeform field, not instead of it
+
+**2026-09-07** · row 15 · `web/index.html` · **partially supersedes v0.20.0's removal of the
+digit buttons** · [chunk](sessions/05-mobile-control-grouping/2026-09-07-mobile-control-grouping.md)
+
+v0.20.0 replaced the fixed `1` / `2` buttons with one freeform field, on the argument that the
+two taps those buttons covered still worked by typing them while everything they could not
+answer now worked too. True, and the field stays. What the argument missed is what typing
+costs on a phone: the on-screen keyboard opens over the screenshot you are answering *about*,
+for a single character.
+
+So `1` and `2` are back on both phone surfaces, beside the field rather than in place of it —
+one tap for the common case, the field for everything else. `2` is tinted green in all three
+places it now appears, because a control that means one thing should not change colour
+depending on which bar it is in.
+
+**Vertical arrows join them in the viewer.** They were bottom-bar-only, deliberately: four
+arrows cost width over the picture. That argument expired when `D-021` moved the viewer's key
+row inside the fold — the width is only spent while the group is open, and until now a phone
+answering a numbered prompt from the zoomed screenshot could not move Claude Code's selector
+at all.
+
+**Reverse:** delete the four buttons from `#lb-keys` and the two from `.qk-btns`; nothing
+depends on them.
+
+---
+
 ## Assumed
 
 ## A-001 — The phone's slow link is carrier policing of the sustained UDP flow ⚠️

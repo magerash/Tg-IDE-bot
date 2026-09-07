@@ -340,7 +340,11 @@ def test_lightbox_survives_pan_gestures():
     up = html.split("addEventListener('pointerup'")[1].split("addEventListener(")[0]
     assert "e.target.id === 'lightbox'" not in up, \
         "pointerup reads a pointer-capture-retargeted target again"
-    assert "_lb.moved || _lb.multi" in html, "pinch tail can still close the viewer"
+    # The guard itself, not a literal: `moved` became a local snapshot when the
+    # two-finger tap was added (the ptrs map is already emptying at pointerup), so
+    # what matters is that BOTH flags still gate the fall-through to close.
+    assert re.search(r"if \(_?(?:lb\.)?moved \|\| _lb\.multi\) return;", up), \
+        "pinch tail can still close the viewer"
     assert "addEventListener('pointercancel'" in html, "stolen gesture leaves a stale pointer"
 
 
@@ -818,7 +822,20 @@ def test_mobile_order_and_accordion():
     # The bottom bar folds with the SAME idiom, not a second one invented for it:
     # same acc_ namespace, and a caret from a pseudo-element rather than markup.
     assert "localStorage.setItem('acc_quick-keys'" in html, "bar collapse invented its own key"
-    assert "body.qk-hidden #quick-keys>:not(#qk-toggle){display:none}" in html
+    assert "body.qk-hidden #quick-keys>.qk-btns" in html
+    # ...and the viewer's own fold is the THIRD user of the same idiom, not a
+    # third invention: acc_ key, pseudo-element caret, a class on the container.
+    assert "localStorage.setItem('acc_lb-more'" in html, "viewer fold invented its own key"
+    assert "#lb-bottom.folded #lb-more{display:none}" in html
+    assert "#lb-bottom.folded #lb-toggle::after" in html, "viewer caret is not a pseudo-element"
+    # The glyph itself, both states. This shipped once as a mangled escape — the CSS
+    # read content:'BE' (an octal escape eaten on the way into the file), which
+    # renders as a control character and a stray "BE". Nothing else caught it: the
+    # rule existed, the selector was right, and only a screenshot showed the caret
+    # was garbage. Literals, like #qk-toggle's, so there is nothing to mangle.
+    for glyph in ("#lb-toggle::after{content:'▾'}",
+                  "#lb-bottom.folded #lb-toggle::after{content:'▴'}"):
+        assert glyph.replace("▾", chr(0x25BE)).replace("▴", chr(0x25B4)) in html, glyph
     assert "#qk-toggle::after{content:'▾'}" in html and \
            "body.qk-hidden #qk-toggle::after{content:'▴'}" in html, \
         "the caret must be a pseudo-element, like .panel.acc"
@@ -860,8 +877,19 @@ def test_quick_keys_bar_at_bottom():
     # dead band of padding nobody can see. Both 62px literals above stay byte-for-byte
     # (they are the expanded height); the collapsed value overrides by specificity.
     assert 'id="qk-toggle"' in bar, "the bottom bar has no way to hide itself"
-    assert "body.qk-hidden{padding-bottom:26px}" in html
-    assert "body.qk-hidden #toast{bottom:28px}" in html, "toast floats over a collapsed bar"
+    # Folding now hides the KEY STRIP and the trail, not the bar. The field, the
+    # layout pill and the clip stay out — they are what the bar is for between two
+    # answers, and on a phone the strip costs width, not height: folded, .qk-input
+    # stops being 84px. So the clearance no longer changes with the state, and the
+    # two 62px literals above are the whole story.
+    assert "body.qk-hidden #quick-keys>.qk-btns" in html, "folding hides the wrong thing"
+    assert "body.qk-hidden{padding-bottom:" not in html,         "a state-dependent clearance is back, but the bar is one row either way"
+    for keep in ('id="qk-type"', 'id="lay-btn"', 'id="qk-attach"'):
+        assert keep in bar, f"{keep} left the bar"
+    assert re.search(r"body\.qk-hidden #quick-keys>\.qk-btns[^{]*\{display:none\}", html)
+    always = re.search(r'<div class="qk-always">(.*?)</div>', bar, re.S)
+    assert always and "lay-btn" in always.group(1) and "qk-attach" in always.group(1),         "the always-on controls are not grouped, so folding cannot spare them"
+    assert "lay-btn" not in bar.split('<div class="qk-btns">')[1].split("</div>")[0],         "the layout pill is back inside the strip that folds away"
     # Collapsed is opt-in: the only route into it on load is an explicit stored '1'.
     # A bar hidden on first load is a bar nobody finds — the very bug this release fixes.
     assert "localStorage.getItem('acc_quick-keys') === '1'" in html
@@ -870,8 +898,10 @@ def test_quick_keys_bar_at_bottom():
 def test_tab_and_freeform_field_replace_the_digit_buttons():
     """Tab-then-Enter needs its own key: Sh+Tab cycles Claude Code's mode, Tab
     accepts/advances, and a bar that carries only Sh+Tab cannot do the workflow.
-    The two fixed digit buttons are gone in favour of one field that types any
-    answer + Enter — but the Keys rail keeps 1/2/3 for one-tap replies."""
+
+    The freeform field is what answers ANYTHING (v0.20.0 introduced it by removing
+    the fixed digit buttons); 1 and 2 came back beside it later, because the common
+    case should not cost a keyboard over the screenshot. Both, not either."""
     html = _html()
     assert "qkDigit(" not in html, "dead digit helper left behind"
     for fid in ("qk-type", "lb-type"):
@@ -998,45 +1028,80 @@ def test_zoom_pad_mirrors_the_scroll_pad():
     assert "clearInterval(_zoomHeld)" in html.split("function closeLightbox()", 1)[1][:400],         "hold timer survives a close"
 
 
-def test_viewer_controls_sit_in_three_zones():
-    """Zoomed viewer bottom bar is three zones — project flow left, keys centred,
-    view controls (layout / auto) right — and Close is the ONLY
-    thing left pinned to the top-right corner, so it never moves as rows reflow."""
+def test_viewer_controls_split_into_folding_and_always_on():
+    """The viewer's rows float OVER the screenshot, so each one is picture lost.
+    They are now two groups: #lb-more (windows, projects, keys) folds behind a
+    caret, and Click / layout / attach / the field never do — those four are what
+    the viewer is for between two typed answers, and Click in particular is the
+    switch that makes a tap reach the PC at all.
+
+    Close is still the ONLY thing pinned to the top-right corner, so it never
+    moves as rows reflow."""
     html = _html()
     ctl = re.search(r'<div id="lb-controls">(.*?)</div>', html, re.S).group(1)
     assert "lb-close" in ctl
     for stray in ("lb-lay", "lb-auto", "lb-int", "lb-click"):
         assert stray not in ctl, f"{stray} still shares the corner with Close"
-    view = re.search(r'<div id="lb-view-row">(.*?)</div>', html, re.S).group(1)
-    for moved in ("lb-lay", "lb-auto"):
-        assert moved in view, f"{moved} lost its home"
-    # Click arms taps on the picture and is reached mid-gesture, so it leads the
-    # CENTRE key row (immediately left of the arrows), not the view pills.
-    keys = re.search(r'<div id="lb-keys">(.*?)</div>', html, re.S).group(1)
-    assert "lb-click" in keys and "lb-click" not in view
-    assert keys.index("lb-click") < keys.index("doKey('left')"), "Click is not left of the arrows"
-    # the seconds pill rides with the left zone's flow instead
-    proj = re.search(r'<div id="lb-proj-row">(.*?)</div>', html, re.S).group(1)
-    assert "lb-int" in proj and "lb-int" not in view
-    # ...and it must stay VISIBLE there: #lightbox is overflow:hidden, so a nowrap
-    # left zone (2 selects + 4 pills) pushes Click off-screen on a phone
+
+    bottom = html.split('<div id="lb-bottom">', 1)[1].split('<img id="lb-img"', 1)[0]
+    more = bottom.split('<div id="lb-more">', 1)[1].split('<div id="lb-quick">', 1)[0]
+    quick = re.search(r'<div id="lb-quick">(.*?)</div>', bottom, re.S).group(1)
+    entry = re.search(r'<div id="lb-entry">(.*?)</div>', bottom, re.S).group(1)
+
+    # What folds away, and what cannot.
+    for hides in ("lb-proj-row", "lb-keys", "lb-win", "lb-proj", "lb-claude", "lb-int", "lb-auto"):
+        assert hides in more, f"{hides} is not in the folding group"
+    for keeps in ("lb-click", "lb-lay", "lb-attach"):
+        assert keeps in quick, f"{keeps} is not in the always-on row"
+        assert keeps not in more, f"{keeps} folds away — it is one of the four that must not"
+    assert "lb-type" in entry and "lb-type" not in more, "the field folds away with the keys"
+    assert "lb-toggle" in entry, "nothing unfolds the group"
+    assert "pickFiles(true)" in quick, "the clip does not attach anything"
+
+    # Auto sits with the interval it sets. It used to be alone with the layout pill
+    # in a full-width row of its own, which is the row this regrouping removes.
+    proj = re.search(r'<div id="lb-proj-row">(.*?)</div>', bottom, re.S).group(1)
+    assert "lb-auto" in proj and "lb-int" in proj
+    assert "lb-view-row" not in html, "the one-button row is back"
+
+    # DOM order stays "what folds first" — the nesting walk above depends on it —
+    # while the LAST line is ordered by `order`, pills then field then caret.
+    pos = [bottom.find('id="%s"' % i) for i in ("lb-more", "lb-quick", "lb-entry")]
+    assert all(p >= 0 for p in pos) and pos == sorted(pos), pos
+    # Measured 2026-09-07 at 1500px: the project zone's children need 773px while its
+    # intrinsic base resolved to 705, so with zero grow it wrapped and dropped Auto
+    # onto a ragged line of its own while ~276px of that row sat empty — the exact
+    # complaint this line-up answers. It must be allowed to grow into the slack.
+    proj = re.search(r"#lb-proj-row\{([^}]*)\}", html).group(1)
+    assert "flex:1 1 auto" in proj, "the project zone cannot grow, so it wraps while the row has room"
+    assert "flex-wrap:wrap" in proj, "nowrap would clip the last pill — #lightbox is overflow:hidden"
+    for sel, o in (("#lb-quick", "order:1"), ("#lb-entry", "order:2")):
+        assert o in re.search(re.escape(sel) + r"\{([^}]*)\}", html).group(1),             f"{sel} lost its place on the last line"
+
+    # The fold itself, and the same idiom as every other fold in this app.
+    assert "#lb-bottom.folded #lb-more{display:none}" in html
+    assert "acc_lb-more" in html, "the viewer fold is outside the acc_ namespace"
+    # Default: folded only where the rows actually cost picture. A desktop viewer
+    # has room for all of it, and a stored choice beats both.
+    fold = html.split("function _lbApplyFold()", 1)[1].split("}", 1)[0]
+    assert "matchMedia" in fold and "saved === null" in fold, \
+        "the default is not conditional on the screen it is on"
+
+    # ...and the compact rows must still WRAP, not clip: #lightbox is overflow:hidden,
+    # so an overflowing row loses its last button off-screen instead of scrolling.
     css = html.split("@media(max-width:620px),(max-height:520px){", 1)[1].split(chr(10) + "}", 1)[0]
     rules = re.findall(r"([^{}]+)\{([^}]*)\}", css)
     for zone in ("#lb-proj-row", "#lb-keys"):
-        assert any(zone in sel.split("/*")[-1] and "flex-wrap:wrap" in b for sel, b in rules),             f"compact {zone} still nowrap — its last pill is clipped, not wrapped"
-    # the three zones live in the bottom bar in left -> centre -> right order
-    bottom = html.split('<div id="lb-bottom">', 1)[1].split('<img id="lb-img"', 1)[0]
-    pos = [bottom.find('id="%s"' % i) for i in ("lb-proj-row", "lb-keys", "lb-view-row")]
-    assert all(p >= 0 for p in pos), pos
-    assert pos == sorted(pos), "zones are not in left -> centre -> right DOM order"
+        assert any(zone in sel.split("/*")[-1] and "flex-wrap:wrap" in b for sel, b in rules), \
+            f"compact {zone} still nowrap — its last pill is clipped, not wrapped"
     assert re.search(r"#lb-bottom\{[^}]*justify-content:space-between", html)
-    for sel, just in (("#lb-proj-row", "flex-start"),
-                      ("#lb-keys", "center"),
-                      ("#lb-view-row", "flex-end")):
+    # #lb-quick leads the LAST line now (the field follows it, the caret ends it), so
+    # it aligns left like the project zone rather than right like the row it replaced.
+    for sel, just in (("#lb-proj-row", "flex-start"), ("#lb-keys", "center"), ("#lb-quick", "flex-start")):
         body = re.search(re.escape(sel) + r"\{([^}]*)\}", html).group(1)
         assert f"justify-content:{just}" in body, sel
     # the moved buttons must still be styled — they used to inherit from #lb-controls
-    assert "#lb-view-row button{" in html or "#lb-view-row button," in html
+    assert "#lb-quick button" in html and "#lb-entry button{" in html or "#lb-entry button," in html
 
 
 def test_viewer_controls_stay_compact_on_a_phone():
@@ -1050,7 +1115,7 @@ def test_viewer_controls_stay_compact_on_a_phone():
     assert "height:32px" in css, "controls still desktop-height inside the viewer"
     assert "flex-wrap:nowrap" in css, "rows may still wrap into a wall of buttons"
     # a flex item without min-width:0 refuses to shrink and overflows the viewport
-    for sel in ("#lb-proj-row select", "#lb-keys .qk-input"):
+    for sel in ("#lb-proj-row select", "#lb-entry .qk-input"):
         # the selector appears twice (shared sizing + the shrink rule) — one of the
         # bodies must carry both, or that control refuses to give up width.
         # The basis differs (the two selects share a row, the field takes what is
@@ -1403,10 +1468,28 @@ def test_telegram_document_entry_point():
     assert "TG_DOWNLOAD_LIMIT" in src, "20MB Bot API download limit is not handled"
 
 
+def _nested_in(html, outer_id, inner_id):
+    """True when <div id=inner> is really INSIDE <div id=outer>.
+
+    A textual "appears between the two markers" check is not the same claim: one
+    stray </div> closes the outer element while leaving the inner one in the same
+    span, and the assertion keeps passing over markup that ships the control
+    outside the fold. So count the div balance instead. ("</div>" contains "/div",
+    never "<div", so the two counts do not overlap.)
+    """
+    seg = html[html.index('<div id="%s">' % outer_id):
+               html.index('<div id="%s">' % inner_id, html.index('<div id="%s">' % outer_id))]
+    return seg.count("<div") - seg.count("</div>") > 0
+
+
 def test_quick_keys_bar_has_vertical_arrows():
-    """Claude Code moves its option selector UP and DOWN, so the bar you answer a
-    question from needs those two keys — ←/→ alone cannot pick an option. Only the
-    bottom bar: the viewer row is deliberately left as it is."""
+    """Claude Code moves its option selector UP and DOWN, so any bar you answer a
+    question from needs those two keys — ←/→ alone cannot pick an option.
+
+    Both surfaces now, which reverses "bottom bar only": the viewer's key row moved
+    inside the fold (`D-021`), so the width four arrows cost is only paid while the
+    group is open, and a phone answering a prompt from the zoomed screenshot had no
+    way to move the selector at all."""
     html = _html()
     bar = re.search(r'<div id="quick-keys">.*?</div>\s*</div>', html, re.S).group(0)
     for key in ("doKey('up')", "doKey('down')"):
@@ -1416,9 +1499,25 @@ def test_quick_keys_bar_has_vertical_arrows():
     # the trail is fed from doKey, so an unmapped key shows up as raw 'up'
     labels = html.split("const _QK_LABELS = ", 1)[1].split("};", 1)[0]
     assert "up: '↑'" in labels and "down: '↓'" in labels
-    # the viewer row stays a decision, not a forgotten place
-    lb = re.search(r'<div id="lb-keys">.*?</div>', html, re.S).group(0)
-    assert "doKey('up')" not in lb
+    # the viewer carries the same pair, in the same order — two surfaces that
+    # answer the same prompt must not need two different habits
+    lb = html.split('<div id="lb-keys">', 1)[1].split('</div>', 1)[0]
+    for key in ("doKey('up')", "doKey('down')"):
+        assert lb.count(key) == 1, f"viewer lacks exactly one {key}"
+    assert lb.index("doKey('up')") < lb.index("doKey('down')") < lb.index("doKey('left')")
+    # ...and it is inside the folding group, so the extra width is only paid open
+    assert _nested_in(html, "lb-more", "lb-keys"), "the key row escaped the fold"
+    assert _nested_in(html, "lb-more", "lb-proj-row"), "the project row escaped the fold"
+    for stays in ("lb-quick", "lb-entry"):
+        assert not _nested_in(html, "lb-more", stays), f"{stays} folds away with the keys"
+    # One-tap numbered answers, on both. They do NOT replace the freeform field —
+    # that answers anything; these answer the common case without raising a
+    # keyboard over the screenshot to type a single character.
+    for where, chunk in (("bottom bar", bar), ("viewer", lb)):
+        for d in ("doTypePreset('1')", "doTypePreset('2')"):
+            assert chunk.count(d) == 1, f"{where} lacks exactly one {d}"
+    for fid in ("qk-type", "lb-type"):
+        assert f'id="{fid}"' in html, f"{fid} was dropped when the digits came back"
     # A 360px phone cannot fit …/4 arrows/Enter/Sh+Tab/Tab + the field, and none of
     # them is droppable — the keys scroll instead, and the row must NOT wrap: the
     # 62px clearance is fixed, so a second line would cover the last panel.

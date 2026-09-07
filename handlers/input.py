@@ -19,6 +19,17 @@ logger = logging.getLogger("bot.input")
 _input_lock = threading.Lock()
 
 pyautogui.FAILSAFE = False
+# PAUSE is a blanket sleep pyautogui takes after EVERY call it owns — 0.1s by
+# default, measured at 100.5ms against 0.1ms with it off. A click is moveTo+click,
+# so it spent ~200ms asleep before a single event was sent, and a drag ~400ms,
+# on top of a ~133ms tunnel round trip. Set here, next to FAILSAFE, because this
+# module is the one every entry point already imports. `D-019`
+#
+# What the blanket delay was silently paying for is now explicit in utils/mouse.py
+# (MOUSE_MOVE_SETTLE before a button, before the wheel). The key paths never
+# needed it: press_keys sends its virtual-key events back-to-back with no gap and
+# always has.
+pyautogui.PAUSE = 0
 
 # Fix 64-bit pointer truncation for clipboard Win32 calls
 _k32 = ctypes.windll.kernel32
@@ -250,19 +261,22 @@ async def type_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @auth_required
 @rate_limit(1.0)
 async def click_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/click x y — mouse click at coordinates."""
+    """/click x y [left|right|middle] — mouse click at coordinates."""
     if not context.args or len(context.args) < 2:
-        await update.message.reply_text("Usage: /click <x> <y>")
+        await update.message.reply_text("Usage: /click <x> <y> [left|right|middle]")
         return
     try:
         x, y = int(context.args[0]), int(context.args[1])
     except ValueError:
         await update.message.reply_text("Coordinates must be integers.")
         return
-    logger.debug("/click at (%d, %d)", x, y)
+    button = context.args[2] if len(context.args) > 2 else "left"
+    logger.debug("/click %s at (%d, %d)", button, x, y)
     try:
-        await asyncio.to_thread(pyautogui.click, x, y)
-        await update.message.reply_text(f"Clicked: ({x}, {y})")
+        # click_at, never pyautogui.click — see utils/mouse.py's docstring
+        from utils.mouse import click_at
+        await asyncio.to_thread(click_at, x, y, button)
+        await update.message.reply_text(f"Clicked ({button}): ({x}, {y})")
     except Exception as e:
         logger.error("/click error: %s", e)
         await update.message.reply_text(f"Click failed: {e}")

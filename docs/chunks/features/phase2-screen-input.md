@@ -189,6 +189,75 @@ Debugging it: `bot.input: Typing N chars into '<window>'` names the window that
 received the paste. `focus_window_exact` logs misses with the live window list —
 before v0.17.0 it logged only successes, so a chip matching nothing left no trace.
 
+## The mouse (row 11) — buttons, drag, and the delay that was hiding in pyautogui
+
+**Every mouse event goes through `utils/mouse.py`.** `click_at(x, y, button, double)`,
+`drag(x1, y1, x2, y2, button, steps)`, `scroll_at(notches, x, y)`. Nothing else may call
+`pyautogui.click` / `mouseDown` / `dragTo` — `test_every_click_path_uses_the_mouse_module`
+fails if it does, and the test strips comments first so a comment naming the banned call is
+still allowed to explain the rule.
+
+### `pyautogui.PAUSE = 0` — read this before adding any mouse code (`D-019`)
+
+pyautogui sleeps `PAUSE` (0.1s) after **every** call it owns. Measured on this machine:
+
+```
+moveRel(0,0) with PAUSE=0.1 : 100.5 ms
+moveRel(0,0) with PAUSE=0   :   0.1 ms
+```
+
+`pyautogui.click(x, y)` is a move plus a click, so a remote click spent **~200ms asleep**
+before an event was sent and `scroll_at` ~300ms — against a ~133ms warm tunnel round trip.
+It is now `0`, set beside `FAILSAFE` in `handlers/input.py`.
+
+**What the blanket delay was silently paying for**, now explicit in `config.py` and spent in
+`utils/mouse.py`:
+
+| Gap | Default | Why it exists |
+|---|---|---|
+| `MOUSE_MOVE_SETTLE` | 0.04 | the window must process `WM_MOUSEMOVE` before the button goes down, or the click lands on a control that has not registered the hover — menus and tooltips open on the *move* |
+| `MOUSE_CLICK_HOLD` | 0.02 | down→up; a button never observed down is how a handler decides no drag started |
+| `MOUSE_DOUBLE_GAP` | 0.06 | between the two pairs of a double click — clamped to 40% of the machine's real `GetDoubleClickTime` |
+| `MOUSE_DRAG_HOLD` | 0.12 | press and move in the same tick is a click, not a drag |
+| `MOUSE_DRAG_STEPS` / `_STEP_DELAY` | 12 / 0.012 | a single jump drags nothing — controls read a drag from the `WM_MOUSEMOVE` stream |
+
+**The regression turning PAUSE off would have caused, caught in the same change:** Windows
+routes the wheel by the **cursor position at the moment of injection**. `scroll_at` parks the
+cursor and then scrolls, and the gap between those two came free from PAUSE. Without an
+explicit settle the wheel is stamped with a position the cursor has not reached, and the
+scroll goes to the window the operator was looking at *before*. `scroll_at` now sleeps
+`MOUSE_MOVE_SETTLE` between them, and the test asserts the order.
+
+The keyboard paths needed nothing: `press_keys` has always sent its virtual-key events
+back-to-back with no gap.
+
+### Buttons and double click
+
+`click_at(x, y, button, double)` — `button` is `left` (default), `right` or `middle`. An
+**absent** button is left, because clients omit the field; a **wrong** one raises `ValueError`
+and `/api/click` answers 400. Never a silent left click: a right click quietly downgraded is a
+context menu that did not open, which looks exactly like a dead gesture.
+
+A double click is **not** an API call and **not** two requests. Windows merges two ordinary
+down/up pairs if they arrive inside `GetDoubleClickTime` — 500ms by default, and
+user-configurable, so `double_click_time()` reads the real value and the gap is clamped to 40%
+of it. Two HTTP requests through this tunnel cannot meet that deadline: one warm round trip is
+~133ms and the old pyautogui overhead was another ~200ms per click.
+
+### Drag — one request, released in a `finally` (`D-018`)
+
+`POST /api/drag {x, y, to_x, to_y, button, steps}` presses, interpolates, releases.
+
+The protocol-shaped alternative (`/api/mouse {down|up|move}`, which is what RustDesk's
+`MouseEvent.mask` encodes) is right for a socket and wrong for this transport. **A button held
+between HTTP requests is a button the tunnel can strand**: lose the `up` — dropped connection,
+backgrounded webview, phone locking mid-gesture — and the desktop is left with the mouse down,
+where every movement is a selection, and nothing on the phone can say so. One request cannot
+be half-delivered, and the release is in a `finally` so even a mid-drag exception lifts the
+button.
+
+`/click x y [left|right|middle]` in Telegram chat takes the button too.
+
 ## Lessons Learned
 - Enter pressed too soon after a paste is swallowed by the paste itself (v0.17.0)
 - `pyautogui.write()` garbles long text → use clipboard paste instead

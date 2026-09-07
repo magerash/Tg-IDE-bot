@@ -5,7 +5,6 @@ import platform
 import subprocess
 import time
 
-import pyautogui
 from telegram import InlineKeyboardButton as Btn, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
@@ -250,7 +249,8 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await asyncio.sleep(1.0)
 
         elif cmd == "click500":
-            pyautogui.click(250, 1000)
+            from utils.mouse import click_at      # never pyautogui.click directly
+            click_at(250, 1000)
             await query.answer("Clicked 250,1000")
 
         elif cmd == "key_bksp30":

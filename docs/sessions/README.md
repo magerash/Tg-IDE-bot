@@ -48,6 +48,9 @@ Newest first.
 
 | # | Session | Dates | What came out of it |
 |---|---|---|---|
+| 05 | [05 · mobile control grouping](05-mobile-control-grouping/README.md) | 2026-09-07 | mobile control grouping |
+| 04 | [04 · route a right click drag](04-route-a-right-click-drag/README.md) | 2026-09-07 | route a right click drag |
+| 03 | [03 · vnc mode research](03-vnc-mode-research/README.md) | 2026-09-07 | vnc mode research |
 | 02 | [02 · mobile compaction, visible scroll arrows, foldable bar](02-mobile-compaction-visible-scroll-arrows-foldable/README.md) | 2026-09-02 | mobile compaction, visible scroll arrows, foldable bar |
 | 01 | [bootstrap](01-bootstrap/README.md) | 2026-09-02 | this wiki, `docs/` in git, and 14 decisions recovered from 20 versions of changelog |
 

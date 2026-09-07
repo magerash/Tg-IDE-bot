@@ -37,6 +37,15 @@ route groups inside them are already separable — and it is [row 5](../../docs/
 on the board rather than a silent exception. The hook will say so on every edit, which is
 the point: a cap you have quietly stopped believing in is worse than no cap.
 
+`web/index.html` (2675) is over the 2400-line page budget since row 11 added the gesture
+machine (two-finger tap, press-hold drag) and row 15 regrouped the phone controls. The remedy is named and is **not** `common.js` —
+that file is shared with `/refine`, and anything touching a system endpoint stays out of it.
+It is that the **lightbox viewer is a separable page-specific file**: ~250 lines with its own
+pointer state, loaded only by `index.html`, which keeps the refine isolation test honest.
+That is [row 14](../../docs/ROADMAP.md), deliberately not done in the same session that added
+to the viewer's gesture code — refactoring code with a bug history immediately after
+extending it is how the bug comes back.
+
 ## Structure rules the caps exist to protect
 
 **Each handler owns one surface.** Telegram command handlers do not import web handlers, and

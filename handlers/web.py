@@ -292,18 +292,56 @@ async def api_type(request):
 
 
 async def api_click(request):
+    """Click at a point. `button` is left (default), right or middle.
+
+    Right click exists because a phone has no second button and a context menu is
+    half of what a desktop is for; the client sends it from a two-finger tap (`D-017`).
+    `double` stays server-side deliberately — Windows merges two down/up pairs
+    into a double click only inside GetDoubleClickTime (500ms), which two HTTP
+    requests through the tunnel (~133ms each, warm) cannot promise to hit.
+    """
     if not _check_auth(request):
         return _err("Unauthorized", 401)
     try:
         data = await request.json()
         x, y = int(data["x"]), int(data["y"])
         double = bool(data.get("double", False))
-        import pyautogui
-        fn = pyautogui.doubleClick if double else pyautogui.click
-        await asyncio.to_thread(fn, x, y)
-        return _json({"ok": True, "clicked": [x, y], "double": double})
+        button = data.get("button", "left")
+        from utils.mouse import click_at
+        res = await asyncio.to_thread(click_at, x, y, button, double)
+        return _json({"ok": True, **res})
+    except ValueError as e:                    # unknown button, non-numeric point
+        return _err(str(e))
     except Exception as e:
         logger.error("web /api/click error: %s", e)
+        return _err(str(e), 500)
+
+
+async def api_drag(request):
+    """Press at (x, y), move to (to_x, to_y), release — one request, always.
+
+    Not `/api/mouse {down|up}`: a button held across requests is a button the
+    tunnel can strand. Lose the `up` — a dropped connection, a backgrounded
+    webview, a phone that locks — and the operator's desktop is left with the
+    mouse down (`D-018`), where every move is a selection and nothing on the phone can say
+    so. One request cannot be half-completed; `utils/mouse.drag` releases in a
+    `finally` even when the move raises.
+    """
+    if not _check_auth(request):
+        return _err("Unauthorized", 401)
+    try:
+        data = await request.json()
+        x, y = int(data["x"]), int(data["y"])
+        to_x, to_y = int(data["to_x"]), int(data["to_y"])
+        from utils.mouse import drag
+        res = await asyncio.to_thread(
+            drag, x, y, to_x, to_y, data.get("button", "left"), int(data.get("steps", 0)),
+        )
+        return _json({"ok": True, **res})
+    except (KeyError, ValueError) as e:
+        return _err(f"drag needs x, y, to_x, to_y and a valid button: {e}")
+    except Exception as e:
+        logger.error("web /api/drag error: %s", e)
         return _err(str(e), 500)
 
 
@@ -543,6 +581,7 @@ def create_web_app():
     app.router.add_post("/api/key", api_key)
     app.router.add_post("/api/type", api_type)
     app.router.add_post("/api/click", api_click)
+    app.router.add_post("/api/drag", api_drag)
     app.router.add_post("/api/scroll", api_scroll)
     app.router.add_post("/api/sh", api_sh)
     app.router.add_post("/api/git", api_git)

@@ -156,7 +156,10 @@ h1{font-size:17px;font-weight:600;text-align:center;padding:6px 0 2px;letter-spa
 /* Screen panel: label + buttons on one row */
 .screen-head{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:8px}
 #screen-area{background:var(--card);border:1px dashed var(--border);border-radius:10px;min-height:var(--screen-h);display:flex;align-items:center;justify-content:center;overflow:hidden;margin-top:10px;position:relative}
-#screen-area img{max-width:100%;height:auto;display:block;border-radius:9px}
+#screen-area img{max-width:100%;height:auto;display:block;border-radius:9px;
+  /* Long press is a right click here, and the OS would otherwise answer it with
+     its own 'save image' sheet — which also cancels the pointer sequence. */
+  -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 #screen-area .placeholder{color:var(--dim);font-size:13px}
 
 /* Scroll arrows, RustDesk-style: floating column on the right edge of the view.
@@ -173,7 +176,7 @@ h1{font-size:17px;font-weight:600;text-align:center;padding:6px 0 2px;letter-spa
    the operator saw "nothing at all" and lost remote scrolling entirely.
    The RING is what carries a dark pill over a dark editor; the dark fill is what
    carries it over a white document. Both, always, on every backdrop. */
-.scroll-pad button{pointer-events:auto;width:40px;height:40px;border-radius:50%;
+.scroll-pad button{pointer-events:auto;width:40px;height:40px;border-radius:12px;
   background:rgba(20,19,17,.78);color:#fff;font-size:17px;font-weight:600;line-height:1;cursor:pointer;
   border:1px solid rgba(255,255,255,.55);box-shadow:0 2px 8px rgba(0,0,0,.45);
   backdrop-filter:blur(3px);transition:background .12s,transform .12s;touch-action:none;
@@ -250,8 +253,8 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
    no matter how the rest of the bar reflows. The view controls (layout / auto /
    interval) moved down into the bottom bar's right zone, Click into the left one. */
 #lb-controls{position:fixed;top:14px;right:14px;z-index:201;display:flex;gap:8px;align-items:center}
-#lb-controls button,#lb-keys button,#lb-view-row button{height:38px;padding:0 14px;border-radius:19px;border:none;background:rgba(255,255,255,.12);color:#fff;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer;transition:background .15s;backdrop-filter:blur(4px)}
-#lb-controls button:hover,#lb-keys button:hover,#lb-view-row button:hover{background:rgba(255,255,255,.24)}
+#lb-controls button,#lb-keys button,#lb-quick button,#lb-entry button{height:38px;padding:0 14px;border-radius:19px;border:none;background:rgba(255,255,255,.12);color:#fff;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer;transition:background .15s;backdrop-filter:blur(4px)}
+#lb-controls button:hover,#lb-keys button:hover,#lb-quick button:hover{background:rgba(255,255,255,.24)}
 /* Quick keys inside the zoomed viewer — same set as the bottom bar, so Claude
    Code question prompts are answerable without leaving the screenshot */
 /* One bottom bar, three zones: project flow left, keys centred, view controls
@@ -259,7 +262,13 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
    the slack and its buttons sit between the two side groups; the side zones stay
    at content width. Wraps to stacked rows when the three no longer fit. */
 #lb-bottom{position:fixed;bottom:14px;left:14px;right:14px;z-index:201;display:flex;align-items:flex-end;justify-content:space-between;gap:8px;flex-wrap:wrap}
-#lb-keys{position:relative;z-index:201;display:flex;gap:8px;flex-wrap:wrap;justify-content:center;flex:1 1 auto}
+/* A ROW on a wide screen: the project zone and the key zone sit side by side and
+   share the line, as they did before the fold grouped them. Forcing a column here
+   gave two half-empty rows with different alignments (project left, keys centred),
+   which is worse than what the fold was introduced to fix. `flex:1 1 auto` rather
+   than `100%` so the always-on groups can join the same line when there is room. */
+#lb-more{display:flex;flex-wrap:wrap;gap:8px;flex:1 1 100%;min-width:0;align-items:flex-end}
+#lb-keys{position:relative;z-index:201;display:flex;gap:8px;flex-wrap:wrap;justify-content:center;flex:0 1 auto}
 #lb-keys button{min-width:38px;padding:0 12px}
 /* Green pills mirror the dashboard (Enter / Sh+Tab), which is what leaves the
    new plain Tab pill visually distinct from Sh+Tab inside the viewer. */
@@ -268,15 +277,35 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 /* Type field is the only thing in the bar that gets longer with the window: it
    holds an answer, the pills hold one word each. flex-basis 260px + grow means it
    eats the slack the centre zone has left after the pills. */
-#lb-keys .qk-input{height:38px;border-radius:19px;border:none;background:rgba(255,255,255,.12);color:#fff;font-size:13px;backdrop-filter:blur(4px);flex:1 1 260px;width:auto;min-width:150px;padding:0 14px}
-#lb-keys .qk-input::placeholder{color:rgba(255,255,255,.55)}
-#lb-keys .qk-input,#lb-proj-row select{touch-action:auto;user-select:text}
+#lb-entry .qk-input{height:38px;border-radius:19px;border:none;background:rgba(255,255,255,.12);color:#fff;font-size:13px;backdrop-filter:blur(4px);flex:1 1 260px;width:auto;min-width:150px;padding:0 14px}
+#lb-entry .qk-input::placeholder{color:rgba(255,255,255,.55)}
+#lb-entry .qk-input,#lb-proj-row select{touch-action:auto;user-select:text}
 /* Project row: pick a project, open/focus its VS Code window, start Claude Code —
    the whole "get a session running" flow without leaving the zoomed screenshot. */
-#lb-proj-row{position:relative;z-index:201;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-start;flex:0 1 auto}
+/* `1 1 auto`, measured: its children need 773px and its intrinsic base resolved to
+   705, so with 0-grow it wrapped and dropped Auto onto a ragged line of its own
+   while 276px of the row sat empty. It grows into that slack instead. Wrap stays as
+   the narrow-window fallback — #lightbox is overflow:hidden, so nowrap would clip
+   the last pill rather than move it. */
+#lb-proj-row{position:relative;z-index:201;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-start;flex:1 1 auto}
 /* Right zone: keyboard layout, auto-refresh toggle, interval. Click mode lives in
    the left zone instead — it arms taps on the picture, not the refresh loop. */
-#lb-view-row{position:relative;z-index:201;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;flex:0 1 auto}
+/* The two rows that never fold. #lb-quick is the arming controls, #lb-entry the
+   field plus the chevron that owns everything else. */
+/* Line two, and `order` rather than DOM order: the DOM keeps what-folds first
+   (a test walks the nesting), while on screen the pills lead the field and the
+   caret ends the row. Sharing line one with #lb-more was what left the project
+   zone ~40px short and dropped Auto onto a ragged second line of its own. */
+#lb-quick{position:relative;z-index:201;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-start;flex:0 0 auto;order:1}
+#lb-entry{position:relative;z-index:201;display:flex;gap:8px;align-items:center;flex:1 1 240px;min-width:0;order:2}
+#lb-entry .qk-input{flex:1 1 auto;min-width:0}
+/* Caret from a pseudo-element and the acc_ localStorage namespace — the same fold
+   the dashboard panels and the quick-keys bar already use, so there is one gesture
+   for "there is more here" across the whole app. */
+#lb-toggle{flex:0 0 auto;width:38px;padding:0;font-size:12px}
+#lb-toggle::after{content:'▾'}
+#lb-bottom.folded #lb-toggle::after{content:'▴'}
+#lb-bottom.folded #lb-more{display:none}
 #lb-proj-row button{height:38px;padding:0 14px;border-radius:19px;border:none;background:rgba(255,255,255,.12);color:#fff;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer;transition:background .15s;backdrop-filter:blur(4px)}
 #lb-proj-row button:hover{background:rgba(255,255,255,.24)}
 #lb-proj-row select{height:38px;max-width:190px;padding:0 12px;border-radius:19px;border:none;background:rgba(255,255,255,.12);color:#fff;font-family:inherit;font-size:13px}
@@ -314,16 +343,18 @@ body{padding-bottom:62px}
 #qk-toggle:hover{background:var(--accent-soft)}
 #qk-toggle::after{content:'▾'}          /* open: tap to lower it */
 body.qk-hidden #qk-toggle::after{content:'▴'}   /* folded: tap to raise it */
-/* Collapsed is a sliver, not a disappearance — the handle stays at the exact pixel
-   the thumb just left, so the way back is where the way out was. */
-body.qk-hidden #quick-keys>:not(#qk-toggle){display:none}
-body.qk-hidden #quick-keys{justify-content:flex-start;padding:1px 8px;box-shadow:none}
-/* Clearance follows the bar. A body CLASS, not a --qk-h custom property: a variable
-   would mean rewriting both `62px` literals into var(), and 62 is the expanded
+/* Folding hides the KEY STRIP and the trail, never the field: on a phone the strip
+   scrolls horizontally, so it costs no height — it costs the width that leaves
+   .qk-input at 84px. Folded, the field gets the whole bar. Which is also why the
+   clearance below no longer changes with the state: the bar is one row either way. */
+body.qk-hidden #quick-keys>.qk-btns,body.qk-hidden #quick-keys>.qk-trail{display:none}
+.qk-always{display:flex;gap:6px;flex-shrink:0}
+/* Clearance is now state-independent — folded and open are both one row, so the two
+   `62px` literals below are the whole story. They stay literals rather than a
+   --qk-h custom property: 62 is the expanded
    height in two places a test pins byte-for-byte. A class beats the shorthand on
    specificity (0,1,1 vs 0,0,1), so this one rule also overrides the 560px block. */
-body.qk-hidden{padding-bottom:26px}
-body.qk-hidden #toast{bottom:28px}
+
 
 #toast{position:fixed;bottom:64px;right:20px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 16px;font-size:13px;display:none;z-index:300;max-width:300px;box-shadow:0 4px 16px rgba(28,25,23,.1)}
 #toast.error{border-color:var(--err);color:var(--err)}
@@ -361,6 +392,8 @@ body.qk-hidden #toast{bottom:28px}
   .qk-trail{display:none}
   #quick-keys .btn-claude{display:none}
   .qk-input{width:84px}
+  /* Folded, the strip is gone and there is nothing to compete with. */
+  body.qk-hidden .qk-input{width:auto;flex:1 1 auto;min-width:0}
   /* Four arrows + …/Enter/Sh+Tab/Tab are wider than a 360px phone even squared
      off, and nothing here is droppable. So the KEYS scroll horizontally while the
      field stays pinned on the right — before this the overflow simply pushed the
@@ -404,26 +437,29 @@ body.qk-hidden #toast{bottom:28px}
    field absorb whatever width is left. */
 @media(max-width:620px),(max-height:520px){
   #lb-bottom{bottom:8px;left:8px;right:8px;gap:6px}
-  /* Three zones side by side do not fit 360px: each takes a full row and keeps
-     its own alignment (project left, keys centred, view controls right). */
-  #lb-view-row{gap:6px;flex-wrap:nowrap;width:100%;flex:1 1 100%}
+  /* The always-on rows take a full row each and never wrap: three pills and a
+     field, sized to fit 360px by construction rather than by reflow. */
+  #lb-quick,#lb-entry{gap:6px;flex-wrap:nowrap;width:100%;flex:1 1 100%}
   /* Left zone (2 selects + 4 pills) and centre zone (6 pills + the field) do not
      fit one 360px line. They wrap instead of overflowing — #lightbox is
      overflow:hidden, so an overflowing row does not scroll, it loses its last
      button off-screen. */
+  /* Stacked here, and only here: 360px cannot put two zones on a line. */
+  #lb-more{flex-direction:column;gap:6px;flex:1 1 100%}
   #lb-proj-row,#lb-keys{gap:6px;flex-wrap:wrap;width:100%;flex:1 1 100%}
   #lb-controls{top:8px;right:8px;gap:6px}
-  #lb-controls button,#lb-keys button,#lb-proj-row button,#lb-view-row button,
-  #lb-keys .qk-input,#lb-proj-row select{height:32px;font-size:12px;padding:0 9px;border-radius:16px}
-  #lb-controls button,#lb-keys button,#lb-proj-row button,#lb-view-row button{flex:0 0 auto}
+  #lb-controls button,#lb-keys button,#lb-proj-row button,#lb-quick button,#lb-entry button,
+  #lb-entry .qk-input,#lb-proj-row select{height:32px;font-size:12px;padding:0 9px;border-radius:16px}
+  #lb-controls button,#lb-keys button,#lb-proj-row button,#lb-quick button{flex:0 0 auto}
   #lb-keys button{min-width:32px;padding:0 8px}
   #lb-close{width:32px;font-size:18px;padding:0}
   #lb-int{min-width:40px}
   /* min-width:0 or a flex item refuses to shrink below its content width and the
      row overflows the viewport instead of fitting. */
   #lb-proj-row select{flex:1 1 40%;min-width:0;max-width:none;padding:0 8px}
-  /* full row of its own on a phone — a share of the key row would leave ~40px */
-  #lb-keys .qk-input{flex:1 1 100%;min-width:0;width:auto;padding:0 10px}
+  /* The field owns its row and, folded, the whole bar: it was sharing a scrolling
+     key strip and getting ~40px of it. */
+  #lb-entry .qk-input{flex:1 1 auto;min-width:0;width:auto;padding:0 10px}
   #lb-proj-row .lb-lbl{display:none}   /* 🖥 alone still reads as "focus window" */
   /* Edges match the compacted #lb-bottom. Deliberately NOT shrunk to 32px like the
      pills above: the 38->32 rule exists because ROWS of them ate the picture, while
@@ -663,8 +699,8 @@ body.qk-hidden #toast{bottom:28px}
   <button id="qk-toggle" onclick="toggleQuickKeys()" title="Hide the quick-keys bar"></button>
   <div class="qk-trail" id="qk-trail"><span class="hint">no keys tapped yet</span></div>
   <div class="qk-btns">
-    <button class="btn btn-sm btn-lay" id="lay-btn" onclick="doLayout()"
-            title="Keyboard layout of the focused window — tap to switch">&hellip;</button>
+    <button class="btn btn-sm" onclick="doTypePreset('1')" title="Type 1 + Enter">1</button>
+    <button class="btn btn-sm btn-ok-soft" onclick="doTypePreset('2')" title="Type 2 + Enter">2</button>
     <button class="btn btn-sm qk-arrow" onclick="doKey('up')" title="Arrow up — previous option">&uarr;</button>
     <button class="btn btn-sm qk-arrow" onclick="doKey('down')" title="Arrow down — next option">&darr;</button>
     <button class="btn btn-sm qk-arrow" onclick="doKey('left')" title="Arrow left">&larr;</button>
@@ -674,9 +710,15 @@ body.qk-hidden #toast{bottom:28px}
     <button class="btn btn-sm" onclick="doKey('tab')" title="Tab — next field / accept completion (NOT Sh+Tab)">Tab</button>
     <button class="btn btn-sm btn-claude" onclick="doClaudeCode()" title="Start Claude Code in the VS Code terminal">Claude</button>
   </div>
-  <!-- Outside .qk-btns on purpose: in there it was the last child of the row that
-       scrolls at <=560px, so the answer field scrolled away with the keys — the
-       opposite of what the comment beside that rule has always claimed. -->
+  <!-- Outside .qk-btns on purpose, twice over: in there they were the last children
+       of the row that scrolls at <=560px, so they scrolled away with the keys — and
+       they are also what stays when the bar is folded, which .qk-btns is not. -->
+  <div class="qk-always">
+    <button class="btn btn-sm btn-lay" id="lay-btn" onclick="doLayout()"
+            title="Keyboard layout of the focused window — tap to switch">&hellip;</button>
+    <button class="btn btn-sm" id="qk-attach" onclick="pickFiles(true)"
+            title="Attach a file — saved on the PC, its path is typed">&#128206;</button>
+  </div>
   <input id="qk-type" class="qk-input" placeholder="type&hellip; &#9166;" title="Type text + Enter into the focused window">
 </div>
 </div>
@@ -695,27 +737,46 @@ body.qk-hidden #toast{bottom:28px}
     <button data-zoom="out" title="Zoom out (hold to keep zooming)">&minus;</button>
   </div>
   <div id="lb-bottom">
-    <div id="lb-proj-row">
-      <select id="lb-win"><option value="">&mdash; select window &mdash;</option></select>
-      <button onclick="doFocusWin('lb-win')" title="Focus the selected window">&#128421;<span class="lb-lbl"> Focus</span></button>
-      <select id="lb-proj"><option value="">&mdash; select project &mdash;</option></select>
-      <button onclick="doCodeSel('lb-proj')" title="Open this project in a new VS Code window">Open</button>
-      <button id="lb-claude" onclick="doClaudeCode()" title="Start Claude Code in the VS Code terminal">Claude</button>
-      <button id="lb-int" onclick="lbCycleInt()" title="Auto-refresh interval">3s</button>
+    <!-- Everything that is not the four controls below folds away. On a phone these
+         rows float OVER the screenshot, so each one is picture lost — and none of
+         them is touched between two typed answers. -->
+    <div id="lb-more">
+      <div id="lb-proj-row">
+        <select id="lb-win"><option value="">&mdash; select window &mdash;</option></select>
+        <button onclick="doFocusWin('lb-win')" title="Focus the selected window">&#128421;<span class="lb-lbl"> Focus</span></button>
+        <select id="lb-proj"><option value="">&mdash; select project &mdash;</option></select>
+        <button onclick="doCodeSel('lb-proj')" title="Open this project in a new VS Code window">Open</button>
+        <button id="lb-claude" onclick="doClaudeCode()" title="Start Claude Code in the VS Code terminal">Claude</button>
+        <button id="lb-int" onclick="lbCycleInt()" title="Auto-refresh interval">3s</button>
+        <!-- Auto lives with the interval it sets, not alone in a row of its own. -->
+        <button id="lb-auto" onclick="lbToggleAuto()">Auto: OFF</button>
+      </div>
+      <div id="lb-keys">
+        <!-- Digits first (`D-022`): a numbered Claude Code prompt is the most common
+             thing answered from a phone, and through the freeform field it costs a
+             keyboard over the screenshot for one character. `2` is tinted like the
+             Keys rail's — one meaning, one colour, wherever it appears. -->
+        <button onclick="doTypePreset('1')" title="Type 1 + Enter">1</button>
+        <button class="lb-ok" onclick="doTypePreset('2')" title="Type 2 + Enter">2</button>
+        <button onclick="doKey('up')" title="Arrow up — previous option">&uarr;</button>
+        <button onclick="doKey('down')" title="Arrow down — next option">&darr;</button>
+        <button onclick="doKey('left')" title="Arrow left">&larr;</button>
+        <button onclick="doKey('right')" title="Arrow right">&rarr;</button>
+        <button class="lb-ok" onclick="doKey('enter')">Enter</button>
+        <button class="lb-ok" onclick="doKey('shift+tab')" title="Cycle Claude Code mode">Sh+Tab</button>
+        <button onclick="doKey('tab')" title="Tab &mdash; next field / accept completion (NOT Sh+Tab)">Tab</button>
+      </div>
     </div>
-    <div id="lb-keys">
+    <!-- Always out (`D-021`): Click arms every gesture, the layout pill decides which
+         characters arrive, and the clip attaches a file. Nothing here is optional. -->
+    <div id="lb-quick">
       <button id="lb-click" onclick="lbToggleClick()">Click: OFF</button>
-      <button onclick="doKey('left')" title="Arrow left">&larr;</button>
-      <button onclick="doKey('right')" title="Arrow right">&rarr;</button>
-      <button class="lb-ok" onclick="doKey('enter')">Enter</button>
-      <button class="lb-ok" onclick="doKey('shift+tab')" title="Cycle Claude Code mode">Sh+Tab</button>
-      <button onclick="doKey('tab')" title="Tab — next field / accept completion (NOT Sh+Tab)">Tab</button>
-      <button onclick="pickFiles(true)" title="Attach a file — saved on the PC, its path is typed">&#128206;</button>
-      <input id="lb-type" class="qk-input" placeholder="type&hellip; &#9166;" title="Type text + Enter into the focused window">
+      <button id="lb-lay" onclick="doLayout()" title="Keyboard layout &mdash; tap to switch">&hellip;</button>
+      <button id="lb-attach" onclick="pickFiles(true)" title="Attach a file &mdash; saved on the PC, its path is typed">&#128206;</button>
     </div>
-    <div id="lb-view-row">
-      <button id="lb-lay" onclick="doLayout()" title="Keyboard layout — tap to switch">&hellip;</button>
-      <button id="lb-auto" onclick="lbToggleAuto()">Auto: OFF</button>
+    <div id="lb-entry">
+      <input id="lb-type" class="qk-input" placeholder="type&hellip; &#9166;" title="Type text + Enter into the focused window">
+      <button id="lb-toggle" onclick="toggleViewerMore()" title="Show/hide windows, projects and keys"></button>
     </div>
   </div>
   <img id="lb-img" alt="preview">
@@ -723,7 +784,7 @@ body.qk-hidden #toast{bottom:28px}
 
 <div id="toast"></div>
 
-<script src="/static/common.js?v=0.21.0"></script>
+<script src="/static/common.js?v=0.22.0"></script>
 <script>
 let autoTimer = null, autoOn = false;
 let lastRect = null, clickMode = false, lastCapture = 'window';  // window capture is the entry default
@@ -805,6 +866,22 @@ function togglePanel(id){
    "fold everything" walks one prefix. The class goes on <body>, not on #quick-keys:
    the two things that must follow the fold — body's bottom clearance and #toast —
    are not descendants of the bar. */
+/* Viewer fold. Same shape as the panels and the bar: a class, a caret from a
+   pseudo-element, one key in the acc_ namespace. The DEFAULT is where it differs —
+   folded only where the rows actually cost picture (the compact breakpoint), open
+   on a desktop viewer that has room for all of it. A stored choice beats both. */
+const _LB_COMPACT = '(max-width:620px),(max-height:520px)';
+function toggleViewerMore(){
+  const folded = document.getElementById('lb-bottom').classList.toggle('folded');
+  localStorage.setItem('acc_lb-more', folded ? '1' : '0');
+}
+function _lbApplyFold(){
+  const saved = localStorage.getItem('acc_lb-more');
+  const folded = saved === null ? matchMedia(_LB_COMPACT).matches : saved === '1';
+  document.getElementById('lb-bottom').classList.toggle('folded', folded);
+}
+_lbApplyFold();
+
 function toggleQuickKeys(){
   const hidden = document.body.classList.toggle('qk-hidden');
   localStorage.setItem('acc_quick-keys', hidden ? '1' : '0');
@@ -1294,28 +1371,122 @@ function toggleClickMode() {
   bindImgClick();
 }
 
+/* Gesture constants, shared by the live view and the zoomed viewer so the two
+   surfaces cannot drift apart under a thumb.
+   TAP_MOVE_PX — below this a finger has not moved, it has trembled. Two fingers
+   always tremble, which is why the pinch branch needs a threshold and not the
+   `moved = true` it used to set on the first pixel.
+   RIGHT_TAP_MS — a two-finger tap that outlasts this is a pinch that changed its
+   mind, or a hand resting on the glass. Not a right click. */
+const TAP_MOVE_PX = 8, RIGHT_TAP_MS = 400, DRAG_HOLD_MS = 350;
+/* DOUBLE_TAP_MS is paid by EVERY single click, not just the double ones: the
+   first tap is held back this long in case a second arrives. 280 was tighter
+   than any platform default (Windows GetDoubleClickTime is 500ms, touch browsers
+   ~300ms) and double clicks were being missed on the phone. Raising it trades
+   single-click latency for a double click you can actually land. */
+const DOUBLE_TAP_MS = 400;
+/* After a hold is recognised, what separates "I meant a right click" from "I meant
+   to drag" is whether the finger then MOVES — and a finger resting on glass for
+   350ms always drifts, so the threshold is deliberately coarser than TAP_MOVE_PX. */
+const DRAG_MOVE_PX = 16;
+
+function _haptic(kind) {
+  try { window.Telegram?.WebApp?.HapticFeedback?.impactOccurred(kind || 'medium'); } catch(e) {}
+}
+
+/* Screenshot pixel -> PC pixel, through the rect the server sent with the frame.
+   Window captures carry an offset, so this is never just "scale by width". */
+function _mapToScreen(fx, fy) {
+  if (!lastRect || lastRect.length !== 4) return null;
+  return [Math.round(lastRect[0] + fx * lastRect[2]),
+          Math.round(lastRect[1] + fy * lastRect[3])];
+}
+
 let _imgTapTimer = null;
 function bindImgClick() {
   const img = document.querySelector('#screen-area img');
   if (!img) return;
   img.style.cursor = clickMode ? 'crosshair' : 'zoom-in';
+
+  /* Two-finger tap = right click (`D-017`) — the trackpad gesture, and the one Moonlight
+     and Microsoft's RD client both use in pointer mode. Long-press was rejected:
+     on every client that ships it, it is the gesture users report as "the PC
+     thinks the left button is stuck down".
+     It lives on pointer events because `onclick` cannot see how many fingers were
+     involved, and it must suppress the click that follows — the browser still
+     synthesises one from the first finger. */
+  const g = {peak: 0, t0: 0, moved: false, held: false, holdTimer: null, pts: new Map()};
+  img.onpointerdown = e => {
+    g.pts.set(e.pointerId, {x: e.clientX, y: e.clientY});
+    if (g.pts.size === 1) {
+      g.t0 = Date.now(); g.moved = false; g.held = false; g.peak = 1;
+      // Hold = right click (`D-020`), the gesture people arrive expecting. There is
+      // no drag on this surface (a finger moving here scrolls the PAGE), so a hold
+      // has one meaning; in the viewer the same hold can still become a drag.
+      clearTimeout(g.holdTimer);
+      if (clickMode) g.holdTimer = setTimeout(() => {
+        if (g.pts.size === 1 && !g.moved) { g.held = true; _haptic('medium'); }
+      }, DRAG_HOLD_MS);
+    }
+    g.peak = Math.max(g.peak, g.pts.size);
+  };
+  img.onpointermove = e => {
+    const p = g.pts.get(e.pointerId);
+    if (!p) return;
+    if (Math.abs(e.clientX - p.x) + Math.abs(e.clientY - p.y) > TAP_MOVE_PX) {
+      g.moved = true;
+      clearTimeout(g.holdTimer);      // a finger that travelled is a page scroll
+    }
+  };
+  const gEnd = e => {
+    clearTimeout(g.holdTimer);
+    const wasTwo = g.peak === 2 && !g.moved && Date.now() - g.t0 < RIGHT_TAP_MS;
+    const wasHold = g.peak === 1 && g.held && !g.moved;
+    const pts = [...g.pts.values()];
+    g.pts.delete(e.pointerId);
+    if (g.pts.size) return;                       // other fingers still down
+    const peak = g.peak; g.peak = 0;
+    if (!clickMode || !lastRect) return;
+    if (!wasTwo && !wasHold) return;
+    _imgSuppressClick = true;                     // the synthetic click is not a left click
+    // RIGHT_TAP_MS deliberately reused: the browser's synthesised click lands within
+    // a frame of pointerup, so anything on the order of the gesture's own lifetime
+    // works — and one knob is better than two that must be kept in sympathy.
+    setTimeout(() => { _imgSuppressClick = false; }, RIGHT_TAP_MS);
+    clearTimeout(_imgTapTimer); _imgTapTimer = null;   // and it is not half a double click
+    const box = img.getBoundingClientRect();
+    const mid = (wasTwo && pts.length === 2)
+      ? [(pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2]
+      : [e.clientX, e.clientY];
+    const pt = _mapToScreen((mid[0] - box.left) / box.width, (mid[1] - box.top) / box.height);
+    if (pt) _fireClick(pt[0], pt[1], false, 'right');
+  };
+  img.onpointerup = gEnd;
+  img.oncontextmenu = e => { if (clickMode) e.preventDefault(); };
+  img.onpointercancel = e => { g.pts.delete(e.pointerId); g.moved = true; };
+
   img.onclick = e => {
+    if (_imgSuppressClick) return;               // a two-finger tap already answered
     if (!clickMode) { openLightbox(img.src); return; }
     if (!lastRect) return;
     const box = img.getBoundingClientRect();
-    const fx = (e.clientX - box.left) / box.width;
-    const fy = (e.clientY - box.top) / box.height;
-    const x = Math.round(lastRect[0] + fx * lastRect[2]);
-    const y = Math.round(lastRect[1] + fy * lastRect[3]);
-    const fire = async double => {
-      await doClick(x, y, double);       // wait until the PC actually executed the click
-      requestCapture();                  // immediate — the queue keeps it single-flight
-      setTimeout(requestCapture, 900);   // second pass catches slow UI updates
-    };
-    // Tap-delay: second tap within 280ms upgrades to a remote double click
-    if (_imgTapTimer) { clearTimeout(_imgTapTimer); _imgTapTimer = null; fire(true); return; }
-    _imgTapTimer = setTimeout(() => { _imgTapTimer = null; fire(false); }, 280);
+    const pt = _mapToScreen((e.clientX - box.left) / box.width, (e.clientY - box.top) / box.height);
+    if (!pt) return;
+    // Tap-delay: a second tap inside DOUBLE_TAP_MS upgrades to a remote double click
+    if (_imgTapTimer) { clearTimeout(_imgTapTimer); _imgTapTimer = null; _fireClick(pt[0], pt[1], true); return; }
+    _imgTapTimer = setTimeout(() => { _imgTapTimer = null; _fireClick(pt[0], pt[1], false); }, DOUBLE_TAP_MS);
   };
+}
+let _imgSuppressClick = false;
+
+/* Every click from a screenshot goes through here: send it, then refresh twice —
+   immediately, and again at 900ms for UI that takes its time. Awaiting the click
+   first is deliberate; an unawaited click plus a timer captures the PRE-click
+   screen over a slow tunnel, which reads as "the click lagged one frame". */
+async function _fireClick(x, y, double, button) {
+  await doClick(x, y, double, button);
+  requestCapture();
+  setTimeout(requestCapture, 900);
 }
 
 /* ===== Lightbox viewer: wheel/pinch zoom, drag pan, double-tap zoom ===== */
@@ -1323,7 +1494,15 @@ function bindImgClick() {
    pointerup to #lightbox, so pointerup's own target cannot say whether the touch
    started on the image. Without them a plain tap (or the tail of a pinch) looked
    like a backdrop tap and closed the viewer. */
-const _lb = {sc: 1, min: 1, tx: 0, ty: 0, ptrs: new Map(), dist: 0, moved: false, lastTap: 0, click: false, closeTimer: null, onBackdrop: false, multi: false};
+/* `down` keeps where each finger LANDED (ptrs tracks where it is now, and is
+   rewritten on every move) — a two-finger tap is anchored at the midpoint of the
+   landings, not of two positions that have drifted apart by release time.
+   `peak` is the high-water mark of simultaneous fingers: at pointerup the map is
+   already emptying, so counting it there would say 1 for every gesture. */
+const _lb = {sc: 1, min: 1, tx: 0, ty: 0, ptrs: new Map(), down: new Map(), dist: 0, dist0: 0,
+             moved: false, peak: 0, t0: 0, lastTap: 0, click: false, closeTimer: null,
+             onBackdrop: false, multi: false,
+             dragTimer: null, dragArmed: false, dragging: false, dragFrom: null};
 /* Controls layered over the viewer (keys, project row, the freeform field) must be
    exempt from pan/pinch/backdrop-close, or a tap on the input starts a drag and the
    viewer dismisses itself mid-typing. SELECT/INPUT matter as much as BUTTON now. */
@@ -1432,16 +1611,39 @@ function _lbZoomAt(cx, cy, factor) {
     e.preventDefault();
     box.setPointerCapture(e.pointerId);
     _lb.ptrs.set(e.pointerId, {x: e.clientX, y: e.clientY});
+    _lb.down.set(e.pointerId, {x: e.clientX, y: e.clientY});   // where it LANDED
     if (_lb.ptrs.size === 1) {
       _lb.moved = false;
       _lb.multi = false;
+      _lb.peak = 1;
+      _lb.t0 = Date.now();
       _lb.onBackdrop = e.target.id === 'lightbox';   // only pointerdown knows this
+      // Press-and-hold arms a remote drag (Moonlight's gesture: tap = click,
+      // tap-and-hold = click-drag). It has to be a HOLD: an immediate finger
+      // drag is the pan, which is how you reach the rest of a zoomed screenshot
+      // and cannot be given up.
+      clearTimeout(_lb.dragTimer);
+      if (_lb.click && !_lbCtl(e.target)) {
+        _lb.dragTimer = setTimeout(() => {
+          if (_lb.ptrs.size !== 1 || _lb.moved) return;
+          _lb.dragArmed = true;
+          _lb.dragging = false;
+          _lb.dragFrom = [e.clientX, e.clientY];
+          _lbImg().style.cursor = 'grabbing';
+          _haptic('medium');                        // the only cue that costs no pixels
+          setStatus('Hold — release for right click, move to drag', false);
+        }, DRAG_HOLD_MS);
+      }
     } else {
       _lb.multi = true;                              // pinch: never a close tap
+      clearTimeout(_lb.dragTimer);                   // a second finger is not a drag
+      _lb.dragArmed = false;
     }
+    _lb.peak = Math.max(_lb.peak, _lb.ptrs.size);
     if (_lb.ptrs.size === 2) {
       const [a, b] = [..._lb.ptrs.values()];
       _lb.dist = Math.hypot(a.x - b.x, a.y - b.y);
+      _lb.dist0 = _lb.dist;
     }
   });
 
@@ -1451,8 +1653,16 @@ function _lbZoomAt(cx, cy, factor) {
     if (_lb.ptrs.size === 1) {
       const dx = e.clientX - p.x, dy = e.clientY - p.y;
       if (Math.abs(dx) + Math.abs(dy) > 3) _lb.moved = true;
-      _lb.tx += dx; _lb.ty += dy;
-      _lbApply();
+      // Armed: the finger is acting on the REMOTE machine, so the view must hold
+      // still. Panning here would move the picture under the gesture and the drop
+      // would land somewhere the operator never pointed at.
+      if (!_lb.dragArmed) { _lb.tx += dx; _lb.ty += dy; _lbApply(); }
+      // Past this threshold the hold has committed to being a drag rather than a
+      // right click. Coarse on purpose: a finger held 350ms always drifts.
+      else if (!_lb.dragging &&
+               Math.abs(e.clientX - _lb.dragFrom[0]) + Math.abs(e.clientY - _lb.dragFrom[1]) > DRAG_MOVE_PX) {
+        _lb.dragging = true; setStatus('Dragging…', false);
+      }
     }
     p.x = e.clientX; p.y = e.clientY;
     if (_lb.ptrs.size === 2) {
@@ -1460,16 +1670,49 @@ function _lbZoomAt(cx, cy, factor) {
       const d = Math.hypot(a.x - b.x, a.y - b.y);
       if (_lb.dist > 0) _lbZoomAt((a.x + b.x) / 2, (a.y + b.y) / 2, d / _lb.dist);
       _lb.dist = d;
-      _lb.moved = true;
+      // NOT `moved = true` on the first pixel: two fingers landing together
+      // always jitter, and treating that as movement makes a two-finger TAP
+      // impossible to distinguish from a pinch — which is why the gesture used
+      // to be swallowed entirely. A pinch changes the SPAN; a tap does not.
+      if (Math.abs(d - (_lb.dist0 || d)) > TAP_MOVE_PX) _lb.moved = true;
     }
   });
 
   box.addEventListener('pointerup', e => {
     if (_lbCtl(e.target)) return;
+    clearTimeout(_lb.dragTimer);
+    const down = [..._lb.down.values()];
+    const peak = _lb.peak, held = Date.now() - _lb.t0, moved = _lb.moved;
     _lb.ptrs.delete(e.pointerId);
+    _lb.down.delete(e.pointerId);
     _lb.dist = 0;
-    if (_lb.moved || _lb.multi) return;
     if (_lb.ptrs.size) return;                       // other fingers still down
+    _lb.peak = 0;
+
+    // A recognised hold wins over everything. What it MEANT is decided by what the
+    // finger did afterwards: moved = drag, stayed = right click. That is the whole
+    // reason one gesture can carry both without a mode switch.
+    if (_lb.dragArmed) {
+      const dragging = _lb.dragging;
+      _lb.dragArmed = false; _lb.dragging = false;
+      _lbSyncClickBtn();                             // cursor back to crosshair
+      const a = _lbToScreen(_lb.dragFrom[0], _lb.dragFrom[1]);
+      if (!a) { setStatus('Ignored — outside the frame', true); return; }
+      if (!dragging) { _haptic('light'); _lbClickSend(a[0], a[1], false, 'right'); return; }
+      const b2 = _lbToScreen(e.clientX, e.clientY);
+      if (b2) doDrag(a[0], a[1], b2[0], b2[1]);
+      else setStatus('Drag ignored — released outside the frame', true);
+      return;
+    }
+    // Two fingers, neither moved, over in under RIGHT_TAP_MS = right click.
+    // Checked BEFORE the `multi` early-return below, which exists to stop the
+    // tail of a pinch closing the viewer and used to swallow this gesture too.
+    if (peak === 2 && !moved && held < RIGHT_TAP_MS && _lb.click && down.length >= 2) {
+      const pt = _lbToScreen((down[0].x + down[1].x) / 2, (down[0].y + down[1].y) / 2);
+      if (pt) { _haptic('light'); _lbClickSend(pt[0], pt[1], false, 'right'); }
+      return;
+    }
+    if (moved || _lb.multi) return;
     if (_lb.click) { _lbTapClick(e.clientX, e.clientY); return; }
     const now = Date.now();
     if (now - _lb.lastTap < 300) {
@@ -1500,9 +1743,16 @@ function _lbZoomAt(cx, cy, factor) {
   // pointerup. Without this the finger stayed in the map and pan/pinch wedged.
   box.addEventListener('pointercancel', e => {
     _lb.ptrs.delete(e.pointerId);
+    _lb.down.delete(e.pointerId);
     _lb.dist = 0;
     _lb.moved = true;                                // an aborted gesture is not a tap
     clearTimeout(_lb.closeTimer);
+    // An armed drag whose pointerup never arrives (the OS took the gesture, the
+    // app switched, the call came in) must not stay armed: the next release
+    // would send a drag from a point the operator has forgotten about.
+    clearTimeout(_lb.dragTimer);
+    if (_lb.dragArmed) { _lb.dragArmed = false; _lb.dragging = false; _lbSyncClickBtn(); setStatus('Gesture cancelled', true); }
+    if (!_lb.ptrs.size) _lb.peak = 0;
   });
 
   document.addEventListener('keydown', e => {
@@ -1520,7 +1770,7 @@ function _lbSyncClickBtn() {
 
 function lbToggleClick() { _lb.click = !_lb.click; _lbSyncClickBtn(); }
 
-/* Tap-delay disambiguation: 1 tap = single click (after 280ms), 2 taps = double click.
+/* Tap-delay disambiguation: 1 tap = single click (after DOUBLE_TAP_MS), 2 = double.
    Standard remote-desktop pattern — zoom stays on pinch/wheel while Click is armed. */
 let _lbTapTimer = null, _lbTapXY = null;
 function _lbTapClick(cx, cy) {
@@ -1533,19 +1783,29 @@ function _lbTapClick(cx, cy) {
   _lbTapTimer = setTimeout(() => {
     _lbTapTimer = null;
     _lbClickAt(_lbTapXY[0], _lbTapXY[1], false);
-  }, 280);
+  }, DOUBLE_TAP_MS);
+}
+
+/* Viewport point -> PC pixel: invert the pan/zoom transform, then map through the
+   frame's rect. Returns null outside the picture — a tap on the letterbox is not
+   a click at (0,0), which is a real corner of the desktop. */
+function _lbToScreen(cx, cy) {
+  const img = _lbImg();
+  if (!lastRect || !img) return null;
+  const nx = (cx - _lb.tx) / _lb.sc, ny = (cy - _lb.ty) / _lb.sc;
+  if (nx < 0 || ny < 0 || nx > img.naturalWidth || ny > img.naturalHeight) return null;
+  return _mapToScreen(nx / img.naturalWidth, ny / img.naturalHeight);
+}
+
+async function _lbClickSend(x, y, double, button) {
+  await doClick(x, y, double, button);   // wait until the PC actually executed it
+  requestCapture();
+  setTimeout(requestCapture, 900);
 }
 
 async function _lbClickAt(cx, cy, double) {
-  if (!lastRect) return;
-  const img = _lbImg();
-  const nx = (cx - _lb.tx) / _lb.sc, ny = (cy - _lb.ty) / _lb.sc;
-  if (nx < 0 || ny < 0 || nx > img.naturalWidth || ny > img.naturalHeight) return;
-  const x = Math.round(lastRect[0] + nx / img.naturalWidth * lastRect[2]);
-  const y = Math.round(lastRect[1] + ny / img.naturalHeight * lastRect[3]);
-  await doClick(x, y, double);  // wait until the PC actually executed the click
-  requestCapture();
-  setTimeout(requestCapture, 900);
+  const pt = _lbToScreen(cx, cy);
+  if (pt) await _lbClickSend(pt[0], pt[1], double);
 }
 
 /* ===== Windows / Projects ===== */
@@ -1888,12 +2148,26 @@ async function doLayout() {
   _layLoading = false; renderLayout();
 }
 
-async function doClick(x, y, double) {
+async function doClick(x, y, double, button) {
+  const b = button || 'left';
   try {
-    const r = await api('POST', '/api/click', {x, y, double: !!double});
-    if (r.ok) toast(`${double ? 'Double-clicked' : 'Clicked'}: (${x}, ${y})`);
+    const r = await api('POST', '/api/click', {x, y, double: !!double, button: b});
+    // The button is named in the toast because a right click that silently went
+    // out as a left click is a context menu that never opened — indistinguishable
+    // from a dead gesture unless the answer says which button was sent.
+    if (r.ok) toast(`${double ? 'Double-clicked' : 'Clicked'} ${b}: (${x}, ${y})`);
     else toast(r.error, true);
   } catch(e) { toast(e.message, true); }
+}
+
+async function doDrag(x, y, toX, toY, button) {
+  try {
+    const r = await api('POST', '/api/drag', {x, y, to_x: toX, to_y: toY, button: button || 'left'});
+    if (r.ok) toast(`Dragged: (${x}, ${y}) → (${toX}, ${toY})`);
+    else toast(r.error, true);
+  } catch(e) { toast(e.message, true); }
+  requestCapture();
+  setTimeout(requestCapture, 900);
 }
 
 /* ===== Enter = send, Shift+Enter = new row (all three inputs) ===== */

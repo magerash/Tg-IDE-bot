@@ -8,7 +8,7 @@ load_dotenv()
 # Bot settings
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0"))
-VERSION = "0.21.0"
+VERSION = "0.22.0"
 
 # Web dashboard / Mini App
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
@@ -121,6 +121,14 @@ TYPE_TERMINAL_PROCS = [
     ).split(",")
     if p.strip()
 ]
+
+# Mouse timing — PAUSE is off (handlers/input.py); why each gap: utils/mouse.py
+MOUSE_MOVE_SETTLE = float(os.getenv("MOUSE_MOVE_SETTLE", "0.04"))   # move must land first
+MOUSE_CLICK_HOLD = float(os.getenv("MOUSE_CLICK_HOLD", "0.02"))     # down→up
+MOUSE_DOUBLE_GAP = float(os.getenv("MOUSE_DOUBLE_GAP", "0.06"))     # < GetDoubleClickTime
+MOUSE_DRAG_HOLD = float(os.getenv("MOUSE_DRAG_HOLD", "0.12"))       # press, then move
+MOUSE_DRAG_STEPS = int(os.getenv("MOUSE_DRAG_STEPS", "12"))
+MOUSE_DRAG_STEP_DELAY = float(os.getenv("MOUSE_DRAG_STEP_DELAY", "0.012"))
 
 # File delivery
 APK_SEARCH_DIRS = [
