@@ -291,6 +291,68 @@ async def api_type(request):
         return _err(str(e), 500)
 
 
+
+async def api_chars(request):
+    """Type characters into the FOREGROUND window — the direct-typing path (row 17).
+
+    Deliberately not `/api/type` with a flag. That route pastes through the clipboard,
+    optionally focuses a window, optionally hops to the VS Code terminal and optionally
+    presses Enter; this one sends keystrokes and does nothing else. A stream of
+    characters cannot afford any of those steps between batches, and `D-005`'s rule —
+    Enter is sequenced by exactly one function — is kept by this path never having one.
+
+    `expect` is a GUARD, not a focus request, and that is the whole lesson of E2: a
+    verified focus does not stay verified, and 800ms after one this project put 62
+    characters into an unrelated editor. Focusing here would re-run that race on every
+    batch. Instead the caller says which window it believes it is typing into, and a
+    mismatch REFUSES — for a stream, typing into the wrong window is not a wrong guess,
+    it is a wrong guess repeated at 50 characters a second.
+    """
+    if not _check_auth(request):
+        return _err("Unauthorized", 401)
+    try:
+        data = await request.json()
+        text = data.get("text", "")
+        expect = (data.get("expect") or "").strip()
+        if not text:
+            return _err("Missing 'text'")
+
+        from handlers.input import type_unicode
+        from utils.window import get_active_window_title, same_window_id
+
+        def _do():
+            if expect:
+                now = get_active_window_title()
+                # same_window_id, not equality: VS Code puts the open file first, so
+                # two titles of one window can share no prefix (`D-009`). And not
+                # bare tail_key either — that returns '' for a single-segment title
+                # like '✳ Claude Code', so comparing tails would match EVERYTHING
+                # against the one target this row exists for.
+                if not same_window_id(now, expect):
+                    return None, now, ""
+            title, proc, sent = type_unicode(text)
+            return sent, title, proc
+
+        sent, title, proc = await asyncio.to_thread(_do)
+        if sent is None:
+            logger.info("web /api/chars refused: expected %r, foreground is %r", expect, title)
+            return _json({"ok": False, "refused": "foreground", "expect": expect,
+                          "window": title, "sent": 0})
+        out = {"ok": True, "sent": sent, "window": title, "proc": proc}
+        if sent != len(text):
+            # Short is reported, never swallowed: the client must be able to stop
+            # rather than send the next batch on top of a half-delivered one.
+            out["ok"] = False
+            out["short"] = len(text) - sent
+        return _json(out)
+    except ValueError as e:
+        # type_unicode refuses control characters and over-long payloads by design.
+        return _err(str(e))
+    except Exception as e:
+        logger.error("web /api/chars error: %s", e)
+        return _err(str(e), 500)
+
+
 async def api_click(request):
     """Click at a point. `button` is left (default), right or middle.
 
@@ -580,6 +642,7 @@ def create_web_app():
     app.router.add_post("/api/window", api_window)
     app.router.add_post("/api/key", api_key)
     app.router.add_post("/api/type", api_type)
+    app.router.add_post("/api/chars", api_chars)
     app.router.add_post("/api/click", api_click)
     app.router.add_post("/api/drag", api_drag)
     app.router.add_post("/api/scroll", api_scroll)

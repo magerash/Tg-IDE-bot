@@ -201,8 +201,8 @@ the same gestures, with one set of constants (`TAP_MOVE_PX` 8, `RIGHT_TAP_MS` 40
 |---|---|---|
 | tap | left click | `DOUBLE_TAP_MS` (400ms) tap-delay, so a second tap can upgrade it — paid by every single click |
 | tap ×2 | double click | one request with `double:true`, never two clicks — within `DOUBLE_TAP_MS` |
-| **two-finger tap** | **right click** | `D-017` — both surfaces, anchored at the midpoint of where the fingers *landed* |
-| **press-hold** | **right click** | **live view: fires at 350ms**, while the finger is still down (`D-023`). Viewer: on release in place (`D-020`) |
+| **two-finger tap** (short) | **right click — the primary gesture** | `D-017`, `D-024` — both surfaces, anchored at the midpoint of where the fingers *landed*, tolerance `HOLD_SLOP_PX` |
+| **press-hold** | **right click** — second route | **live view: fires at 350ms**, while the finger is still down (`D-023`). Viewer: on release in place (`D-020`) |
 | **press-hold, then move >16px** | **drag** | viewer only; the same hold, resolved by what the finger does next — which is why that surface still waits for the release |
 | one-finger move | pan | unchanged, and it is why drag needs the hold |
 | two-finger pinch | zoom | unchanged |
@@ -210,6 +210,11 @@ the same gestures, with one set of constants (`TAP_MOVE_PX` 8, `RIGHT_TAP_MS` 40
 
 All of it is gated on **Click mode being armed**. With Click off, a tap opens the viewer and
 nothing reaches the PC.
+
+**`Keyboard: ON` (live view) / `⌨` (viewer)** arms direct typing beside it, and arms Click too
+if it was off — a tap is how the caret gets placed in the target, so one intention should not
+need two toggles. From then on the phone's own keyboard goes straight to the focused window,
+character by character. It has its own chunk: [direct-typing.md](direct-typing.md), `D-025`–`D-028`.
 
 ### Why the hold never fired (row 16, `D-023`)
 

@@ -651,6 +651,136 @@ it, and the viewer's drag (`D-018`).
 
 ---
 
+## D-024 — The two-finger tap is the right click, and it was unfireable for the same reason the hold was
+
+**2026-09-08** · row 20 · `web/index.html` · **makes `D-017`'s gesture the primary one** · [chunk](sessions/06-hold-never-fired/2026-09-08-hold-never-fired.md)
+
+The operator's ruling: right click is the **short two-finger tap**, the trackpad convention.
+`D-017` chose that gesture and it has never fired — the server log shows **zero** `button:right`
+requests in its whole history, from either gesture.
+
+The cause is the one `D-023` found for the hold, in a second place: the tap was gated on
+`TAP_MOVE_PX` (8 px from each finger's landing point) on the live view, and on an 8 px change of
+the **pinch span** in the viewer. **Two fingers landing together always drift more than 8 px
+between them.** So the gate that distinguishes a tap from a drag also made the two-finger tap
+impossible, exactly as it made the hold impossible. Both now use `HOLD_SLOP_PX` (14 px); the
+400 ms window is unchanged, because "short" is the point.
+
+**The long press stays on the live view** (`D-023`) as a second route to the same verb. It costs
+nothing, it is what a hand reaches for on a touchscreen, and the two paths cannot collide — the
+hold timer requires exactly one pointer. If it ever misfires on a resting finger it comes out in
+one line, and the two-finger tap is unaffected.
+
+**Reverse:** put `TAP_MOVE_PX` back in the two gates. The measurement that says not to is in
+`D-023`.
+
+---
+
+## D-025 — Characters and named keys are two paths that never merge, and both doors enforce it
+
+**2026-09-09** · row 17 · `handlers/input.py`, `web/index.html` · **implements a row-10 constraint** · [chunk](sessions/08-direct-typing/2026-09-09-direct-typing.md)
+
+A `KEYEVENTF_UNICODE` key carries **no virtual-key code**. A synthetic Ctrl therefore has
+nothing to combine with, and a helper taking "a string, possibly with modifiers" is the bug
+waiting to be written. So `type_unicode()` carries characters and `press_keys()` carries every
+named key and combo, and neither calls the other.
+
+The rule is enforced at both doors rather than trusted to callers. `type_unicode()` **refuses
+every control character by name** — Enter most of all, because Enter is sequenced against a
+paste by exactly one function (`D-005`) and a Tab or an Escape arriving through a text field is
+a keystroke the client never meant to send. The client honours the same split: `beforeinput`'s
+`insertLineBreak` and `deleteContentBackward` become named keys through `/api/key`, never
+characters.
+
+**The Win32 detail that costs a session to rediscover:** `sizeof(INPUT)` must be **40** on x64,
+because the union's largest member is `MOUSEINPUT` (32 bytes). Declare the union with
+`KEYBDINPUT` alone and it is 32, whereupon Windows rejects **every** call with
+`ERROR_INVALID_PARAMETER` (87) and sends nothing. Experiment E2 failed exactly this way before
+it succeeded. `press_keys` never met it because it uses the legacy `keybd_event`.
+
+**Reverse:** merge the two into one "type this, with modifiers" helper. The layout bug class
+`D-012` fixed comes back on whichever surface forgets which path it is on.
+
+---
+
+## D-026 — A targeted send guards the foreground; it never re-focuses it
+
+**2026-09-09** · row 17 · `handlers/web.py`, `utils/window.py` · **narrows `D-008`** · [chunk](sessions/08-direct-typing/2026-09-09-direct-typing.md)
+
+`/api/chars` takes an optional `expect`: the window the caller **believes** it is typing into.
+A mismatch refuses and types nothing. It does not focus, and that is the decision.
+
+Measured, in E2 on 2026-09-08: `force_foreground()` verified the foreground and returned
+`True` honestly — and **800 ms later a different window held it**, and 62 characters went into
+an unrelated editor. Focusing before each batch would re-run that race on every batch, at
+typing speed. A stream is not a wrong guess made once; it is a wrong guess repeated 50 times a
+second.
+
+Comparison is `same_window_id()`, the server-side twin of the client's `_sameWinId` (`D-009`):
+exact title, or a **non-empty** shared tail key. Not `focus_window_exact`'s rule, which is
+deliberately loose — it answers "will focusing find it?", and containment would wave through
+"Telegram" against "Telegram Web - Google Chrome". And not bare `tail_key` either: that returns
+`''` for a single-segment title, and `'' == ''` made the first version of this guard **inert
+against `✳ Claude Code`**, the one target the feature exists for.
+
+**Reverse:** focus before typing, as `/api/type` does. Row 19 is the same argument pointing the
+other way — that route should adopt *this* rule, not the reverse.
+
+---
+
+## D-027 — The typing surface is a password field, and autocorrect is off on purpose
+
+**2026-09-09** · row 17 · `web/index.html` · [chunk](sessions/08-direct-typing/2026-09-09-direct-typing.md)
+
+The client's keystroke sink is `<input type="password">` inside a `<form>`, off-screen but
+**focusable**. Both halves are load-bearing.
+
+*Password*, because Chrome-for-Android ignores `autocomplete` and `spellcheck` on an ordinary
+field — noVNC hits the same wall, and xterm.js's own maintainers propose exactly this blunt
+fix. iOS autocorrect goes further and rewrites words that have **already been committed**,
+arriving as `insertReplacementText`. Locally an editor just fixes itself; here the characters
+are already inside a terminal on the PC, and a keystroke cannot be un-sent. The suggestion
+layer is therefore defeated at the field rather than handled afterwards, because there is no
+"afterwards" that can help.
+
+*Focusable*, because `display:none` cannot take focus and raises no keyboard — the mode would
+simply look dead. It is 1 px at 1 % opacity, and `font-size:16px` so iOS does not zoom the page
+when it is focused.
+
+Two limits stay honest rather than engineered away: plain characters land immediately, but a
+word the keyboard is **predicting** lands only when committed (`compositionend` is the only
+reliable sync point), and an autocorrect that slips through cannot be recalled.
+
+**Reverse:** a normal text field or a textarea. The Android suggestion strip returns, and with
+it corrections applied to a remote terminal.
+
+---
+
+## D-028 — The chain is the batcher; the coalescing window measured to zero
+
+**2026-09-09** · row 17 · `web/index.html` · **supersedes the 60–80 ms estimate in the row-18 study** · [chunk](sessions/08-direct-typing/2026-09-09-direct-typing.md)
+
+`TYPE_BATCH_MS` shipped at 70 ms on a reasonable argument: this transport is chained HTTPS
+through a tunnel with a ~133 ms warm round trip, not a WebSocket to a local PTY, so one request
+per character would load the single pipe `D-011` exists to protect. No terminal project
+publishes a debounce window, so the number was labelled an engineering choice to be measured.
+
+**Measured on the first device session** (Android, 25 characters): every request carried
+**exactly one character**. The shortest gap between two thumb keystrokes was **143 ms**, the
+median **367 ms** — nothing ever arrived inside a 70 ms window. The window coalesced nothing
+and delayed everything by 70 ms.
+
+What actually batches is the **chain**: keystrokes arriving while a request is in flight merge
+into the next one, so batch size becomes a function of the link — one character when the tunnel
+keeps up, a batch when it does not. That is the behaviour the window was approximating, and it
+needs no constant. The constant stays named at `0` because it is the knob to turn if a faster
+typist or a slower link ever needs one.
+
+**Reverse:** raise it. The cost is that latency, paid on every character, buys coalescing only
+above ~7 characters per second sustained — a rate the measurement did not see.
+
+---
+
 ## Assumed
 
 ## A-001 — The phone's slow link is carrier policing of the sustained UDP flow ⚠️

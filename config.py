@@ -8,7 +8,7 @@ load_dotenv()
 # Bot settings
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0"))
-VERSION = "0.22.1"
+VERSION = "0.23.0"
 
 # Web dashboard / Mini App
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
@@ -121,6 +121,20 @@ TYPE_TERMINAL_PROCS = [
     ).split(",")
     if p.strip()
 ]
+
+# Direct typing (row 17) — characters go out as KEYEVENTF_UNICODE, one SendInput
+# call per character, and the active keyboard layout is never consulted. That is
+# the whole point: pyautogui resolves a character THROUGH the layout, so under
+# Russian VkKeyScanW('v') returns -1 and the key is simply never sent (`D-012`).
+# A unicode key carries no virtual-key code, so a synthetic Ctrl cannot combine
+# with it — modifiers and named keys stay on press_keys and the two paths never
+# merge.
+#
+# Measured 2026-09-09 (experiment E2, study §18): 52.0 cps into '✳ Claude Code'
+# in Windows Terminal, byte-exact, zero short calls, Cyrillic and astral emoji
+# included. No server-side pacing is needed at any rate a phone can produce, so
+# there is no delay constant here — only a cap on how much one request may carry.
+TYPE_CHARS_MAX = int(os.getenv("TYPE_CHARS_MAX", "512"))
 
 # Mouse timing — PAUSE is off (handlers/input.py); why each gap: utils/mouse.py
 MOUSE_MOVE_SETTLE = float(os.getenv("MOUSE_MOVE_SETTLE", "0.04"))   # move must land first

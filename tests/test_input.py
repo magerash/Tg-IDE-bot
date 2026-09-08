@@ -41,6 +41,13 @@ def _html():
     with open(INDEX, encoding="utf-8") as f, open(COMMON, encoding="utf-8") as g:
         return f.read() + chr(10) + g.read()
 
+def _read_source(rel):
+    """A source file as text, for the invariants that are about the code's SHAPE
+    rather than its behaviour — the ones a passing call cannot prove."""
+    with open(os.path.join(ROOT, rel), encoding="utf-8") as f:
+        return f.read()
+
+
 def _lightbox_js(html):
     """The viewer's own gesture IIFE. Splitting the page on the first
     addEventListener('pointerdown') lands in the scroll pad, which binds one too —
@@ -181,6 +188,316 @@ def test_every_click_path_uses_the_mouse_module():
         "the wheel is stamped with the cursor position it is injected at — the move must land first"
 
 
+# --- direct typing: the unicode path (row 17) --------------------------------
+
+def test_unicode_typing_refuses_everything_that_is_not_a_character():
+    """The seam between the two input paths, enforced at the door.
+
+    `type_unicode` carries text. Enter is sequenced against a paste by exactly one
+    function (`D-005`) and a Tab or an Escape arriving through a text field is a
+    keystroke the client never meant to send — so every control character is
+    refused here rather than trusted not to arrive. The cap is refused for the same
+    reason a stream needs one: an unbounded batch is an unbounded time with the
+    keyboard held.
+    """
+    from config import TYPE_CHARS_MAX
+    from handlers.input import type_unicode
+
+    for code, why in ((10, "newline"), (9, "tab"), (27, "escape"),
+                      (13, "carriage return"), (127, "delete"), (0, "NUL")):
+        with pytest.raises(ValueError) as e:
+            type_unicode("a" + chr(code) + "b")
+        assert "control" in str(e.value).lower(), f"{why} must be refused by name"
+        assert f"U+{code:04X}" in str(e.value), f"{why} must be named in the error"
+
+    with pytest.raises(ValueError) as e:
+        type_unicode("x" * (TYPE_CHARS_MAX + 1))
+    assert str(TYPE_CHARS_MAX) in str(e.value), "the cap must name itself"
+
+
+def test_unicode_path_never_touches_a_modifier():
+    """A unicode key carries no virtual-key code, so a synthetic Ctrl has nothing
+    to combine WITH — the combo silently becomes a literal character. Modifiers and
+    named keys stay on press_keys, and the two paths must never merge. This is the
+    same shape as `D-008`'s one-file rule: the failure is silent, so a test has to
+    be the thing that notices.
+    """
+    src = _read_source("handlers/input.py")
+    body = src.split("def type_unicode(")[1].split(chr(10) + "def ")[0]
+    body = re.sub(r"#.*", "", body)          # a rule must not fire on its own explanation
+    body = re.sub(r'"""(.|\n)*?"""', "", body)
+    for forbidden in ("press_keys", "_VK", "keybd_event", "hotkey", "pyautogui"):
+        assert forbidden not in body, \
+            f"type_unicode reaches for {forbidden} — the two input paths have merged"
+
+    # And the structure Windows actually validates: the union must carry MOUSEINPUT
+    # or sizeof(INPUT) is 32, whereupon SendInput rejects EVERY call with error 87
+    # and sends nothing. E2 failed exactly this way before it succeeded.
+    import ctypes
+
+    from handlers.input import _INPUT
+    assert ctypes.sizeof(_INPUT) == 40, "sizeof(INPUT) must be 40 on x64"
+
+
+def test_astral_characters_go_out_as_one_call():
+    """An emoji is two UTF-16 units — a surrogate pair — and both must ride the same
+    SendInput call. Split across two calls the target can see two lone surrogates,
+    which is a mangled character rather than a missing one. Measured arriving intact
+    in E2 (2026-09-09); this is what keeps it that way.
+    """
+    import handlers.input as inp
+
+    calls = []
+    saved = inp._u32.SendInput
+
+    def fake(n, arr, size):
+        calls.append([arr[i].ki.wScan for i in range(n)])
+        return n
+    try:
+        inp._u32.SendInput = fake
+        assert inp._send_char("a") == (2, 2), "one BMP char is one down/up pair"
+        assert calls[-1] == [0x0061, 0x0061]
+
+        calls.clear()
+        inp._send_char("\U0001F642")
+        assert len(calls) == 1, "a surrogate pair must not be split across calls"
+        assert calls[0] == [0xD83D, 0xD83D, 0xDE42, 0xDE42], calls[0]
+    finally:
+        inp._u32.SendInput = saved
+
+
+def test_chars_endpoint_guards_the_target_instead_of_focusing_it():
+    """`expect` refuses; it does not focus. E2 measured a verified focus going stale
+    800ms later and putting 62 characters into an unrelated editor — focusing per
+    batch would re-run that race on every batch, at typing speed. So the client
+    states what it believes it is typing into and a mismatch sends nothing.
+    """
+    import handlers.input as inp
+    import utils.window as win
+
+    typed = []
+    saved_type, saved_title = inp.type_unicode, win.get_active_window_title
+
+    def fake(text):
+        typed.append(text)
+        return "Claude Code", "windowsterminal.exe", len(text)
+
+    async def go():
+        async with await _client() as c:
+            r = await c.post("/api/chars", json={"text": "hi"})
+            assert r.status == 401, "keystrokes into the desktop — never unauthenticated"
+
+            r = await c.post("/api/chars", json={"text": "ok"}, headers=AUTH)
+            body = await r.json()
+            assert body["ok"] and body["sent"] == 2 and typed == ["ok"]
+
+            # The guard: a foreground that is not what the caller expected sends
+            # NOTHING, and says so rather than answering a cheerful ok.
+            typed.clear()
+            r = await c.post("/api/chars",
+                             json={"text": "secret", "expect": "Some Other Window"},
+                             headers=AUTH)
+            body = await r.json()
+            assert body["ok"] is False and body["refused"] == "foreground", body
+            assert body["sent"] == 0 and typed == [], "a refused batch must not type"
+
+            # Matching expectation types normally.
+            r = await c.post("/api/chars",
+                             json={"text": "yes", "expect": "Claude Code"}, headers=AUTH)
+            assert (await r.json())["ok"], "a matching foreground must not be refused"
+            assert typed == ["yes"]
+
+            # A control character is a 400 naming the problem, not a 500 — checked
+            # against the REAL function, since the refusal is the thing under test.
+            inp.type_unicode = saved_type
+            r = await c.post("/api/chars", json={"text": "a" + chr(10)}, headers=AUTH)
+            assert r.status == 400 and "control" in (await r.json())["error"].lower()
+
+    try:
+        inp.type_unicode = fake
+        win.get_active_window_title = lambda: "Claude Code"
+        _run(go())
+    finally:
+        inp.type_unicode, win.get_active_window_title = saved_type, saved_title
+
+
+def test_typing_sink_is_a_password_field_that_can_actually_take_focus():
+    """Two independent traps, both fatal and both silent.
+
+    `display:none` cannot take focus, so a hidden field raises no keyboard at all
+    and the mode looks dead. And Chrome-for-Android ignores `autocomplete` and
+    `spellcheck` on a text field, which is why xterm.js and noVNC both land on
+    `type=password` inside a form — an autocorrect here rewrites characters that
+    are already inside a terminal on the PC, and a keystroke cannot be un-sent.
+    """
+    html = _html()
+    sink = html.split('id="kb-sink"')[0].rsplit("<input", 1)[1] + \
+        html.split('id="kb-sink"')[1].split(">")[0]
+    assert 'type="password"' in sink, "the sink must be a password field, or autocorrect stays on"
+    for attr in ("autocomplete=\"off\"", "autocapitalize=\"off\"",
+                 "autocorrect=\"off\"", "spellcheck=\"false\""):
+        assert attr in sink, f"the sink is missing {attr}"
+    assert "<form" in html.split('id="kb-sink"')[0].rsplit("<input", 1)[0][-400:], \
+        "the sink must sit inside a form — the half of the trick that silences the suggestion strip"
+
+    css = html.split("#kb-sink{")[1].split("}")[0]
+    assert "display:none" not in css.replace(" ", ""), \
+        "display:none cannot take focus and raises no keyboard"
+    assert "font-size:16px" in css.replace(" ", ""), \
+        "under 16px iOS zooms the page when the field takes focus"
+
+
+def test_typing_uses_beforeinput_and_never_forwards_a_composition_in_progress():
+    """`keydown` cannot carry the character on a phone — UI Events REQUIRES keyCode
+    229 while a soft keyboard composes, which on Android is nearly every letter. And
+    `insertCompositionText` fires repeatedly with intermediate guesses: forwarding it
+    sends a predicted word letter by letter and then the committed word again.
+    """
+    html = _html()
+    kb = html.split("function bindKbSink()")[1].split(chr(10) + "}")[0]
+    assert "'beforeinput'" in kb, "beforeinput is the primary signal"
+    assert "insertCompositionText" in kb and "return" in kb, \
+        "composition text must be skipped, not forwarded"
+    assert "'compositionend'" in kb, "the committed word arrives at compositionend"
+    assert "insertText" in kb and "deleteContentBackward" in kb, \
+        "the inputType switch lost a case that carries characters"
+
+
+def test_named_keys_never_ride_the_character_path():
+    """A unicode key carries no virtual-key code, so Enter and Backspace cannot be
+    characters — they are VK codes through /api/key. The client must honour the same
+    split the server enforces at its door, or the two paths merge on one surface
+    only, which is how every bug in this project's typing history started.
+    """
+    html = _html()
+    pump = html.split("async function _kbPump()")[1].split(chr(10) + "}")[0]
+    assert "/api/chars" in pump and "/api/key" in pump, "both paths leave through the pump"
+    chars_call = pump.split("/api/chars")[0]
+    assert "op.t === 'key'" in chars_call, \
+        "a named key must be routed away BEFORE the character request is built"
+
+    kb = html.split("function bindKbSink()")[1].split(chr(10) + "}")[0]
+    for it, key in (("insertLineBreak", "enter"), ("deleteContentBackward", "backspace")):
+        line = [l for l in kb.splitlines() if it in l]
+        assert line and f"_kbKey('{key}')" in line[0], \
+            f"{it} must go out as the named key {key}, not as a character"
+
+
+def test_typing_requests_chain_and_never_run_concurrently():
+    """`D-011`: everything on this page rides ONE reverse-SSH pipe, so a request
+    fired on a timer rather than from the previous one's completion piles up and the
+    live view stops updating underneath the typing. A stream of keystrokes is the
+    worst possible thing to send on a fixed interval.
+    """
+    html = _html()
+    block = html.split("const TYPE_BATCH_MS")[1].split("function _kbRefocus")[0]
+    assert "setInterval" not in block, "typing must chain from completion, never setInterval"
+    pump = html.split("async function _kbPump()")[1].split(chr(10) + "}")[0]
+    assert "_kbSending" in pump and "await" in pump, \
+        "the pump must hold a sending flag and await each request"
+    assert "while (_kbQ.length)" in pump, "the queue drains in order, one request at a time"
+
+    # The batch window is an engineering choice justified by this transport's
+    # ~133ms round trip, not a cited practice — but it must exist.
+    assert re.search(r"const TYPE_BATCH_MS = \d+;", html), "the batch window must be a named constant"
+
+
+def test_the_keyboard_is_measured_and_dismissed_by_the_only_things_that_work():
+    """Two device facts, each of which makes the mode feel broken if ignored.
+
+    The keyboard covers the bottom of the screen — which is where the operator just
+    tapped, because that is where the caret went. There is no keyboard event to
+    listen for: the keyboard opening IS a `visualViewport` resize. Telegram's own
+    `viewportHeight` is NOT a substitute — a Telegram-iOS issue reports it not
+    reflecting the keyboard at all, so a client trusting it scrolls the picture for
+    no reason or not at all.
+
+    And `blur()` alone leaves the keyboard up on some Android builds, so a mode
+    switched OFF would still be covering the screenshot — the same class of lie as
+    a toggle whose label disagrees with its state.
+    """
+    html = _html()
+    block = html.split("function _kbKeepVisible()")[1].split("function _kbRefocus")[0]
+    assert "visualViewport" in block, "the keyboard is detected by viewport resize, nothing else"
+    assert "viewportHeight" not in block, \
+        "Telegram's viewportHeight does not reflect the keyboard on iOS — do not measure with it"
+
+    hide = html.split("function _kbHideKeyboard()")[1].split(chr(10) + "}")[0]
+    assert "blur()" in hide and "hideKeyboard" in hide, \
+        "exiting must both blur and ask Telegram to drop the keyboard"
+
+    # The aim is a FRACTION of the image, not pixels: the frame is replaced every
+    # refresh and re-laid-out, so a pixel remembered now points somewhere else next
+    # frame.
+    aim = html.split("function _kbAimAt(")[1].split(chr(10) + "}")[0]
+    assert "fx" in aim and "fy" in aim, "the aimed point must be stored as fractions"
+    keep = html.split("function _kbKeepVisible()")[1].split(chr(10) + "}")[0]
+    assert "box.height * _kbAim.y" in keep, \
+        "the remembered fraction must be re-multiplied by the CURRENT image box"
+
+
+def test_client_and_server_agree_on_the_character_cap():
+    """The client trims to a cap the server also enforces. If they drift, the phone
+    sends a batch the server refuses and the operator sees typing stop with a 400
+    naming a limit nothing on the phone knows about.
+    """
+    from config import TYPE_CHARS_MAX
+    m = re.search(r"const TYPE_CHARS_MAX = (\d+);", _html())
+    assert m, "the client must name its cap"
+    assert int(m.group(1)) == TYPE_CHARS_MAX, \
+        f"client cap {m.group(1)} != config.py TYPE_CHARS_MAX {TYPE_CHARS_MAX}"
+
+
+def test_window_identity_is_strict_and_mirrors_the_client():
+    """`same_window_id` guards `/api/chars`, and a guard that says yes too often is
+    not a guard. Two traps, both met while writing it:
+
+    - a single-segment title ('Claude Code') has NO tail key, and comparing bare
+      tail keys makes two empties equal — which waved through every window against
+      the one target row 17 exists for;
+    - containment is right for "will focus find it?" and wrong for identity, since
+      'Telegram' is inside 'Telegram Web - Google Chrome'.
+
+    The client's `_sameWinId` is the same rule and the pair must not drift (`D-009`).
+    """
+    from utils.window import same_window_id
+
+    same = [
+        ("Claude Code", "Claude Code"),
+        ("CLAUDE CODE", "claude code"),
+        ("  Claude Code  ", "Claude Code"),
+        # VS Code puts the open file first: no shared prefix, same tail.
+        ("config.py - Tg-IDE-bot - Visual Studio Code",
+         "web.py - Tg-IDE-bot - Visual Studio Code"),
+    ]
+    for a, b in same:
+        assert same_window_id(a, b), f"{a!r} and {b!r} are the same window"
+
+    different = [
+        ("Claude Code", "Some Other Window"),
+        ("Claude Code", ""),
+        ("", ""),
+        (None, None),
+        # Both have empty tail keys — the bug this test exists for.
+        ("Notepad", "Calculator"),
+        # Containment is not identity.
+        ("Telegram", "Telegram Web - Google Chrome"),
+        # Same last segment, different project: the tail is TWO segments.
+        ("main.py - OtherProject - Visual Studio Code",
+         "main.py - Tg-IDE-bot - Visual Studio Code"),
+    ]
+    for a, b in different:
+        assert not same_window_id(a, b), f"{a!r} and {b!r} are NOT the same window"
+
+    # The client's twin must still be the same rule, or the phone and the server
+    # disagree about what window it is typing into.
+    js = _html().split("function _sameWinId(")[1].split(chr(10) + "}")[0]
+    assert "if (x === y) return true;" in js, "client identity dropped the exact match"
+    assert "return !!k && k === _tailKey(b);" in js, \
+        "client identity no longer requires a NON-EMPTY tail key"
+    assert "includes(" not in js, "containment leaked into the client's identity rule"
+
+
 def test_two_finger_tap_is_a_right_click():
     """The gesture Moonlight and the Microsoft RD client both use. Long-press was
     rejected: on every client that ships it, users report it as 'the PC thinks the
@@ -198,7 +515,16 @@ def test_two_finger_tap_is_a_right_click():
     two = move.split("_lb.ptrs.size === 2")[1]
     assert "_lb.moved = true;" not in two.split("if (Math.abs(d")[0], \
         "the pinch branch marks movement before any span change — a two-finger tap can never fire"
-    assert "TAP_MOVE_PX" in two, "pinch detection has no movement threshold"
+    # The threshold is HOLD_SLOP_PX now, not TAP_MOVE_PX: two fingers landing together
+    # drift more than 8px between them, so the tap threshold made a two-finger TAP as
+    # unfireable as the hold was — measured, zero right clicks ever sent (`D-024`).
+    assert "HOLD_SLOP_PX" in two, "pinch detection has no movement threshold"
+    assert "TAP_MOVE_PX" not in two, "the pinch branch is back on the tap threshold"
+
+    live_end = html.split("const gEnd = e =>")[1].split("img.onpointerup")[0]
+    was_two = live_end.split("const wasTwo")[1].split(";")[0]
+    assert "!g.slid" in was_two and "g.moved" not in was_two, \
+        "the live view's two-finger tap is gated on the 8px tap threshold again"
 
     up = lb.split("addEventListener('pointerup'")[1].split("addEventListener(")[0]
     assert up.index("peak === 2") < up.index("_lb.multi) return"), \

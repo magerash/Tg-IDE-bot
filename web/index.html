@@ -312,7 +312,12 @@ select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:
 #lb-proj-row select option{color:#1c1917}
 #lb-claude,#lb-proj-row button.lb-claude{background:var(--claude)}
 #lb-claude:hover,#lb-proj-row button.lb-claude:hover{background:var(--claude-hover)}
-#lb-click.on{background:var(--err)}
+#lb-click.on,#lb-kb.on{background:var(--err)}
+/* Off-screen but focusable, and 16px so iOS does not zoom the page when it is
+   focused. Never display:none — an unfocusable field raises no keyboard. */
+#kb-sink{position:fixed;bottom:0;left:0;width:1px;height:1px;padding:0;border:0;
+  opacity:.01;font-size:16px;background:transparent;color:transparent;
+  pointer-events:none;z-index:1}
 #lb-auto.on{background:var(--ok)}
 #lb-int{min-width:52px}
 #lb-close{width:38px;padding:0;font-size:20px;line-height:1;border-radius:50%}
@@ -561,6 +566,8 @@ body.qk-hidden #quick-keys>.qk-btns,body.qk-hidden #quick-keys>.qk-trail{display
           <option value="0">Full</option>
         </select>
         <button class="btn btn-sm btn-soft" onclick="toggleClickMode()" id="click-btn">Click: OFF</button>
+        <button class="btn btn-sm btn-soft" onclick="toggleKbMode()" id="kb-btn"
+                title="Direct typing: the phone's keyboard goes straight to the focused window, character by character">Keyboard: OFF</button>
       </div>
     </div>
 
@@ -771,6 +778,7 @@ body.qk-hidden #quick-keys>.qk-btns,body.qk-hidden #quick-keys>.qk-trail{display
          characters arrive, and the clip attaches a file. Nothing here is optional. -->
     <div id="lb-quick">
       <button id="lb-click" onclick="lbToggleClick()">Click: OFF</button>
+      <button id="lb-kb" onclick="toggleKbMode()">⌨ OFF</button>
       <button id="lb-lay" onclick="doLayout()" title="Keyboard layout &mdash; tap to switch">&hellip;</button>
       <button id="lb-attach" onclick="pickFiles(true)" title="Attach a file &mdash; saved on the PC, its path is typed">&#128206;</button>
     </div>
@@ -782,9 +790,19 @@ body.qk-hidden #quick-keys>.qk-btns,body.qk-hidden #quick-keys>.qk-trail{display
   <img id="lb-img" alt="preview">
 </div>
 
+<!-- The typing sink. A password field inside a form, off-screen but focusable:
+     display:none cannot take focus and would never raise the phone's keyboard.
+     type=password is the only reliable way to switch off autocorrect and the
+     suggestion strip on Chrome-for-Android, which ignores autocomplete and
+     spellcheck on a textarea — and an autocorrect here rewrites text that is
+     already inside a terminal on the PC. Row 17, and xterm.js's own advice. -->
+<form id="kb-form" onsubmit="return false" autocomplete="off">
+  <input id="kb-sink" type="password" tabindex="-1" aria-hidden="true"
+         autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+</form>
 <div id="toast"></div>
 
-<script src="/static/common.js?v=0.22.1"></script>
+<script src="/static/common.js?v=0.23.0"></script>
 <script>
 let autoTimer = null, autoOn = false;
 let lastRect = null, clickMode = false, lastCapture = 'window';  // window capture is the entry default
@@ -1471,7 +1489,10 @@ function bindImgClick() {
   };
   const gEnd = e => {
     clearTimeout(g.holdTimer);
-    const wasTwo = g.peak === 2 && !g.moved && Date.now() - g.t0 < RIGHT_TAP_MS;
+    // HOLD_SLOP_PX, not TAP_MOVE_PX: two fingers landing together always drift more
+    // than 8px between them, so the 8px gate made a two-finger tap as unfireable as
+    // the hold was. Same measurement, same fix (`D-024`).
+    const wasTwo = g.peak === 2 && !g.slid && Date.now() - g.t0 < RIGHT_TAP_MS;
     const wasHold = g.peak === 1 && g.held;   // already sent by the timer; just swallow the click
     const pts = [...g.pts.values()];
     g.pts.delete(e.pointerId);
@@ -1499,11 +1520,16 @@ function bindImgClick() {
 
   img.onclick = e => {
     if (_imgSuppressClick) return;               // a two-finger tap already answered
+    // Synchronously, inside the gesture: the tap moved focus off the sink, and a
+    // browser only re-raises a soft keyboard from a real user gesture.
+    _kbRefocus();
     if (!clickMode) { openLightbox(img.src); return; }
     if (!lastRect) return;
     const box = img.getBoundingClientRect();
-    const pt = _mapToScreen((e.clientX - box.left) / box.width, (e.clientY - box.top) / box.height);
+    const fx = (e.clientX - box.left) / box.width, fy = (e.clientY - box.top) / box.height;
+    const pt = _mapToScreen(fx, fy);
     if (!pt) return;
+    _kbAimAt(fx, fy);        // where the caret now is, for when the keyboard rises
     // Tap-delay: a second tap inside DOUBLE_TAP_MS upgrades to a remote double click
     if (_imgTapTimer) { clearTimeout(_imgTapTimer); _imgTapTimer = null; _fireClick(pt[0], pt[1], true); return; }
     _imgTapTimer = setTimeout(() => { _imgTapTimer = null; _fireClick(pt[0], pt[1], false); }, DOUBLE_TAP_MS);
@@ -1714,7 +1740,7 @@ function _lbZoomAt(cx, cy, factor) {
       // always jitter, and treating that as movement makes a two-finger TAP
       // impossible to distinguish from a pinch — which is why the gesture used
       // to be swallowed entirely. A pinch changes the SPAN; a tap does not.
-      if (Math.abs(d - (_lb.dist0 || d)) > TAP_MOVE_PX) _lb.moved = true;
+      if (Math.abs(d - (_lb.dist0 || d)) > HOLD_SLOP_PX) _lb.moved = true;
     }
   });
 
@@ -1747,7 +1773,7 @@ function _lbZoomAt(cx, cy, factor) {
     // Two fingers, neither moved, over in under RIGHT_TAP_MS = right click.
     // Checked BEFORE the `multi` early-return below, which exists to stop the
     // tail of a pinch closing the viewer and used to swallow this gesture too.
-    if (peak === 2 && !moved && held < RIGHT_TAP_MS && _lb.click && down.length >= 2) {
+    if (peak === 2 && !moved && !_lb.slid && held < RIGHT_TAP_MS && _lb.click && down.length >= 2) {
       const pt = _lbToScreen((down[0].x + down[1].x) / 2, (down[0].y + down[1].y) / 2);
       if (pt) { _haptic('light'); _lbClickSend(pt[0], pt[1], false, 'right'); }
       return;
@@ -2143,6 +2169,256 @@ async function doKey(key, repeat, interval) {
     else toast(r.error, true);
   } catch(e) { toast(e.message, true); }
   loadLayout();     // a key may have been the layout shortcut itself
+}
+
+/* ===== Direct typing — the phone's own keyboard, straight through (row 17) =====
+
+   The naive design (listen to keydown, send the character) CANNOT work on a phone
+   and that is normative, not a bug: while a soft keyboard is composing, UI Events
+   requires keyCode 229 and key 'Process', which on Android is nearly every letter.
+   `beforeinput` + `inputType` is the primary signal instead, the way xterm.js and
+   noVNC do it.
+
+   The sink is a PASSWORD field on purpose. Chrome-for-Android ignores autocomplete
+   and spellcheck on a textarea, and iOS autocorrect rewrites words that were already
+   committed — arriving as `insertReplacementText`. Locally an editor just fixes
+   itself; here the characters are already inside a terminal on the PC and a keystroke
+   cannot be un-sent. So the suggestion layer is defeated at the field rather than
+   handled after the fact — xterm.js's own maintainers propose exactly this.
+
+   Two honest limits, worth stating rather than discovering on the device:
+   plain characters land immediately, but a word the keyboard is PREDICTING lands
+   only when it is committed (composition edges are the only reliable sync points),
+   and nothing here can recover from an autocorrect that slips through. */
+const TYPE_BATCH_MS = 0;       /* Coalescing window, MEASURED to 0 rather than
+   guessed. It shipped at 70ms on the argument that this transport is chained HTTPS
+   over a tunnel (~133ms warm round trip) rather than a WebSocket to a local PTY,
+   so a request per character would flood the single pipe `D-011` protects.
+
+   The first device session (2026-09-09, Android, 25 characters) says otherwise:
+   EVERY request carried exactly one character, because the shortest gap between
+   two thumb keystrokes was 143ms and the median 367ms — nothing ever arrived
+   inside a 70ms window. So the window coalesced nothing and delayed everything.
+
+   What actually does the batching is the chain itself: while a request is in
+   flight, later keystrokes merge into the next one (_kbQueue appends to the
+   pending text op). That makes the batch size a function of the LINK — big when
+   the tunnel is slow, one character when it is fast — which is the behaviour the
+   window was trying to approximate. Kept as a named constant because it is the
+   knob to turn if a faster typist or a slower link ever needs it. */
+const TYPE_CHARS_MAX = 512;    // mirrors config.py — the server refuses more
+
+let kbMode = false, _kbQ = [], _kbTimer = null, _kbSending = false,
+    _kbExpect = '', _kbComposing = false;
+
+function _kbSink() { return document.getElementById('kb-sink'); }
+
+/* The queue holds ORDERED operations, not a string, because a batch of characters
+   and a named key must not overtake each other: type 'ls', press Enter, and an
+   Enter that jumps the pending 'ls' submits an empty prompt. Adjacent text is
+   merged, so a burst still leaves in one request. */
+function _kbQueue(s) {
+  if (!s) return;
+  const last = _kbQ[_kbQ.length - 1];
+  if (last && last.t === 'text' && last.s.length + s.length <= TYPE_CHARS_MAX) last.s += s;
+  else _kbQ.push({t: 'text', s: s.slice(0, TYPE_CHARS_MAX)});
+  _kbSchedule();
+}
+
+/* Named keys never ride the character path: a unicode key carries no virtual-key
+   code, so Enter and Backspace go out as VK codes through /api/key. The two input
+   paths never merge — that is the same rule the server enforces at its own door. */
+function _kbKey(k) { _kbQ.push({t: 'key', k}); _kbSchedule(); }
+
+function _kbSchedule() {
+  if (_kbTimer || _kbSending) return;
+  _kbTimer = setTimeout(() => { _kbTimer = null; _kbPump(); }, TYPE_BATCH_MS);
+}
+
+/* Chained, never concurrent (`D-011`): the next request leaves when the previous
+   one has COMPLETED. A fixed interval, or a request per keystroke, piles up in the
+   single reverse-SSH pipe and the live view stops updating underneath the typing. */
+async function _kbPump() {
+  if (_kbSending) return;
+  _kbSending = true;
+  try {
+    while (_kbQ.length) {
+      const op = _kbQ.shift();
+      if (op.t === 'key') { await api('POST', '/api/key', {key: op.k, repeat: 1}, 0); continue; }
+      const body = {text: op.s};
+      if (_kbExpect) body.expect = _kbExpect;
+      const r = await api('POST', '/api/chars', body, 0);
+      if (r.refused === 'foreground') {
+        // The window moved out from under the typing. Stop at once and drop what
+        // is queued: E2 measured a stale focus putting 62 characters into an
+        // unrelated editor, and a stream would do it at 50 a second.
+        _kbQ.length = 0;
+        toast('Typing stopped — foreground is now ' + (r.window || 'another window'), true);
+        toggleKbMode(false);
+        return;
+      }
+      if (!r.ok) {
+        _kbQ.length = 0;
+        toast(r.error || ('Typed ' + (r.sent || 0) + ' of ' + op.s.length), true);
+        return;
+      }
+      // The first batch names the target; every later one is guarded against it.
+      if (!_kbExpect && r.window) _kbExpect = r.window;
+    }
+  } catch (e) {
+    _kbQ.length = 0;
+    toast(e.message, true);
+  } finally {
+    _kbSending = false;
+    if (_kbQ.length) _kbSchedule();
+  }
+}
+
+function _kbFlushNow() { clearTimeout(_kbTimer); _kbTimer = null; _kbPump(); }
+
+function bindKbSink() {
+  const sink = _kbSink();
+  if (!sink || sink._bound) return;
+  sink._bound = true;
+
+  sink.addEventListener('compositionstart', () => { _kbComposing = true; });
+  sink.addEventListener('compositionend', e => {
+    _kbComposing = false;
+    if (e.data) _kbQueue(e.data);      // the committed word, atomically
+    sink.value = '';
+  });
+
+  sink.addEventListener('beforeinput', e => {
+    if (!kbMode) return;
+    const t = e.inputType;
+    // Not cancelable, fires repeatedly, and the committed result arrives at
+    // compositionend — forwarding it would send every intermediate guess.
+    if (t === 'insertCompositionText' || _kbComposing) return;
+    if (t === 'insertText') { _kbQueue(e.data); return; }
+    if (t === 'insertFromPaste') {
+      _kbQueue(e.data || (e.dataTransfer && e.dataTransfer.getData('text')) || '');
+      return;
+    }
+    if (t === 'insertLineBreak' || t === 'insertParagraph') { _kbKey('enter'); return; }
+    if (t === 'deleteContentBackward') { _kbKey('backspace'); return; }
+    if (t === 'deleteWordBackward') { _kbKey('ctrl+backspace'); return; }
+    // Anything else (formatting, history) has no meaning on a remote terminal.
+  });
+
+  // The field is kept EMPTY: it is a sink, not a text box, and a value that grows
+  // is a value the phone will offer to autocomplete. Backspace still reports
+  // itself through deleteContentBackward on every keyboard tested; the sentinel
+  // trick that CodeMirror carried for years is deliberately not here until a
+  // keyboard is shown to need it.
+  sink.addEventListener('input', () => { if (!_kbComposing) sink.value = ''; });
+
+  sink.addEventListener('keydown', e => {
+    if (!kbMode) return;
+    // Fallback for keyboards that fire no beforeinput for these two.
+    if (e.key === 'Enter') { e.preventDefault(); _kbKey('enter'); }
+    else if (e.key === 'Backspace' && !e.repeat) { /* beforeinput covers it */ }
+    else if (e.key === 'Escape') { e.preventDefault(); toggleKbMode(false); }
+  });
+
+  // Focus is TAKEN back, not surrendered. A tap on the screenshot is part of
+  // typing — it places the caret in the target — and it blurs this field on the
+  // way. Disarming on blur would make every tap turn the keyboard off; asking the
+  // browser for focus back keeps the two compatible. The toggle stays the only
+  // way out, so the button never claims a state the field does not have.
+  sink.addEventListener('blur', () => {
+    if (kbMode) setTimeout(() => { if (kbMode) sink.focus({preventScroll: true}); }, 0);
+  });
+}
+
+/* Arming opens the phone's keyboard, so focus() must happen INSIDE the tap that
+   armed it — iOS refuses to raise the keyboard from a timer or a promise. */
+function toggleKbMode(on) {
+  const next = (on === undefined) ? !kbMode : !!on;
+  if (next === kbMode) return;
+  kbMode = next;
+  bindKbSink();
+  const sink = _kbSink();
+  for (const id of ['kb-btn', 'lb-kb']) {
+    const b = document.getElementById(id);
+    if (!b) continue;
+    // The viewer's row floats OVER the picture, so every pixel it takes is
+    // screenshot lost and the icon carries the label there — the rule v0.20.0
+    // set when Focus dropped its own. The live view has room for the word.
+    b.textContent = (id === 'kb-btn' ? 'Keyboard: ' : '⌨ ') + (kbMode ? 'ON' : 'OFF');
+    b.classList.toggle('btn-red', kbMode && id === 'kb-btn');
+    b.classList.toggle('btn-soft', !kbMode && id === 'kb-btn');
+    b.classList.toggle('on', kbMode);
+  }
+  if (kbMode) {
+    _kbQ.length = 0; _kbExpect = ''; _kbComposing = false;
+    _kbBindViewport();
+    if (sink) { sink.value = ''; sink.focus({preventScroll: true}); }
+    // A tap on the screenshot is how the caret gets placed in the target, and
+    // that needs Click armed. Arming it here rather than asking the operator to
+    // arm two things for one intention.
+    if (!clickMode) toggleClickMode();
+    toast('Keyboard on — characters go to the focused window');
+  } else {
+    _kbFlushNow();
+    _kbAim = null;
+    _kbHideKeyboard();
+  }
+}
+
+/* The keyboard takes half the screen, and the half it takes is the half the
+   operator just tapped — the caret is where the finger was, near the bottom of a
+   screenshot, and the keyboard rises over exactly that. So the last aimed point is
+   remembered as a FRACTION of the image (the image is re-fetched and re-laid-out
+   constantly; pixels would be stale by the next frame) and scrolled back into the
+   part of the page the keyboard leaves visible.
+
+   Measured with visualViewport, not Telegram's viewportHeight: a Telegram-iOS
+   issue reports that field not reflecting the keyboard at all, and a wrong number
+   here scrolls the picture for no reason. */
+let _kbAim = null;          // {x, y} as fractions of the image, 0..1
+
+function _kbAimAt(fx, fy) { _kbAim = {x: fx, y: fy}; }
+
+function _kbKeepVisible() {
+  if (!kbMode || !_kbAim || !window.visualViewport) return;
+  const img = document.querySelector('#screen-area img');
+  if (!img) return;
+  const box = img.getBoundingClientRect();
+  const y = box.top + box.height * _kbAim.y;      // where the aimed point sits now
+  const vh = window.visualViewport.height;        // what the keyboard leaves
+  const margin = 24;
+  // Only ever scroll to UNCOVER the point. Re-centring it on every resize would
+  // fight the operator's own scrolling between keystrokes.
+  if (y > vh - margin) window.scrollBy({top: y - vh * 0.45, behavior: 'smooth'});
+  else if (y < margin) window.scrollBy({top: y - vh * 0.25, behavior: 'smooth'});
+}
+
+let _kbVvBound = false;
+function _kbBindViewport() {
+  if (_kbVvBound || !window.visualViewport) return;
+  _kbVvBound = true;
+  // The keyboard opening IS a viewport resize; there is no keyboard event.
+  window.visualViewport.addEventListener('resize', () => {
+    if (kbMode) setTimeout(_kbKeepVisible, 60);   // after the animation settles
+  });
+}
+
+/* Telegram added hideKeyboard() in Bot API 9.1; blur alone leaves the keyboard up
+   on some Android builds, and a keyboard covering the screenshot after the mode is
+   OFF is the control lying about its state again. */
+function _kbHideKeyboard() {
+  const sink = _kbSink();
+  if (sink) sink.blur();
+  try { if (_twa && typeof _twa.hideKeyboard === 'function') _twa.hideKeyboard(); } catch (e) {}
+}
+
+/* Re-focusing after a tap keeps the keyboard up: the tap moved focus to the image,
+   and without this the first character after every tap is swallowed. Synchronous,
+   inside the gesture, for the same reason arming is. */
+function _kbRefocus() {
+  if (!kbMode) return;
+  const sink = _kbSink();
+  if (sink && document.activeElement !== sink) sink.focus({preventScroll: true});
 }
 
 /* ===== Keyboard layout of the focused window =====

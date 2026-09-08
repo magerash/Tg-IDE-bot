@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.22.1
+# TG-IDE-Bot v0.23.0
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -114,6 +114,16 @@ curl -k -o /dev/null -w "%{http_code}\n" https://bot.magerash.com:8443/ # Caddy 
 **Gotcha:** when matching processes by command line, exclude your own shell (`$_.ProcessId -ne $PID`) — a `Where-Object { $_.CommandLine -match 'start_tunnel_vps' }` filter matches the very command that contains that string, so the kill loop terminates your own session and inflates keeper counts by one.
 
 ## Changelog
+
+### v0.23.0 2026-09-09
+- **⌨ The phone types straight into the PC.** Arm `Keyboard`, tap where the caret goes, type — every character reaches the focused window as you type it. No `type…` field, no Enter to send: the phone's own Return key *is* Enter on the PC
+- Proved before it was built — experiment **E2**: synthetic keystrokes into a live `✳ Claude Code` prompt arrive **byte-exact at 52 cps**, Cyrillic and emoji included. Characters go out as `KEYEVENTF_UNICODE`, so the keyboard layout is never consulted and cannot mangle them
+- **Two input paths that never merge:** a unicode key carries no virtual-key code, so characters and named keys are separate by construction — control characters are refused at the door, Enter and Backspace go out as VK codes
+- **A targeted send guards the foreground, never re-focuses it.** A verified focus was measured going stale 800 ms later, putting 62 characters into an unrelated editor; `/api/chars` refuses instead of typing into the wrong window
+- The coalescing window **measured to zero** — 25 characters from the phone showed every request carrying exactly one, with 143 ms as the shortest gap between keystrokes. The request chain is what batches, and it does it as a function of the link
+- **👆 The two-finger tap was as unfireable as the hold was,** for the same reason — the 8px tap threshold, which two fingers landing together always clear. Zero right clicks had ever reached the server from either gesture
+- **🔬 An architecture study** (`docs/analysis/remote-control-architecture.md`) recommends the architecture already running, and says why an external web UI or a VNC stack would add moving parts without removing any
+- Tests 103 → **114**, 19 mutations all red, rendered at a true 390px viewport before shipping
 
 ### v0.22.1 2026-09-08
 - **The press-and-hold right click had never fired once** — it shipped broken in v0.22.0, and the log proved it: 31 clicks in a live session, every one `left`, zero `button: right` requests ever. The hold was cancelled by the *tap* threshold, the webview claimed the gesture as a page scroll (`pointercancel`, no error anywhere), and completion depended on a release that a drifting finger sends elsewhere

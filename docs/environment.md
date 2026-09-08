@@ -70,10 +70,15 @@ still be re-measured before being compared against, per
 
 | | |
 |---|---|
-| Screen | 2048×1152, **single monitor** — so nothing multi-monitor in this project has ever been exercised |
+| Phone | **Vivo V2419A, Android 16**, Telegram-Android 12.10.1, Chrome 151 webview — the only device any of this has been confirmed on. No iOS device has ever tested this project, which is why every iOS claim in the wiki is cited rather than measured |
+| Screen | 2048×1152, **single monitor**, scaling **100 %** — so neither multi-monitor nor DPI scaling has ever been exercised. The Python process is `DPI_AWARENESS_UNAWARE`; on a 125/150 % display it would be handed virtualised coordinates and the frame would disagree with the click |
+| Captured frames | **contain no mouse cursor** — `mss` is one `BitBlt(SRCCOPY\|CAPTUREBLT)` and never draws it. True of every frame this project has ever sent |
 | `mss` full-screen grab | 27.8 / **33.7** / 45.5 ms (min/median/max) |
 | Frame 1280 WebP q70 | 51.5 KB · **82–91 ms** locally · **483–552 ms** through the tunnel |
 | Warm tunnel round trip | **~133 ms** for a 192-byte control call (TTFB minus TLS) |
+| **Unicode keystroke injection** | `KEYEVENTF_UNICODE` into `✳ Claude Code` in Windows Terminal: **52.0 cps**, byte-exact, zero short calls (E2, 2026-09-09). Cyrillic and astral emoji survive; `e`+`U+0301` comes back precomposed |
+| **`sizeof(INPUT)`** | must be **40** on x64 — a union without `MOUSEINPUT` is 32 and `SendInput` then fails **every** call with `ERROR_INVALID_PARAMETER` (87), sending nothing |
+| **Thumb typing on the phone** | **1.6 cps** average over 25 characters, shortest gap between keystrokes **143 ms**, median **367 ms** — measured through the tunnel, 2026-09-09 |
 | WebP q70 `method=2` vs JPEG q70 | **44–47 % smaller**, ~50 ms more encode. `method=4` buys 3 % for 2.6× the time |
 | **`pyautogui.PAUSE`** | 0.1 s by default — measured 100.5 ms per call against 0.1 ms with it off. **Set to 0 since row 11** (`D-019`); the gaps it was hiding are now `MOUSE_*` in `config.py` |
 | Undeclared installed packages | `numpy` 2.4.4 and `websockets` 16.0 are importable but **not in `requirements.txt`** — a fresh clone does not have them |
@@ -98,6 +103,14 @@ page laid out at **476px** and the screenshot merely cropped it, which reads as 
 are clipped on a phone" when nothing is. For a true mobile viewport, load the harness in a
 `<iframe width="390">` inside a desktop-sized window; media queries and `position:fixed` then
 resolve against the frame.
+
+**The second trap, found 2026-09-09:** reading the iframe's document from the outer page needs
+`--allow-file-access-from-files`. Without it every `file://` document is its own opaque origin
+and `contentDocument` is `null` — the probe fails with "Cannot read properties of null", which
+looks like a broken harness rather than a security policy. A geometry probe reading
+`getBoundingClientRect()` inside the frame and copying it out to a `<pre>` in the outer page is
+what makes `--dump-dom` report real widths; measured this way, the phone control row is two
+visual lines and the viewer's is 374px of 390 with `nowrap`.
 
 ## Failure modes that have actually happened
 

@@ -2,6 +2,14 @@
 
 **Row 10 · 2026-09-07 · research only, no code was written.**
 
+> **⚠ Superseded by [remote-control-architecture.md](remote-control-architecture.md) (row 18,
+> 2026-09-08).** That study asks a wider question — three architecture variants including an
+> external web UI, a session model, a threat model and an MVP plan — and it is the current
+> answer. **This file stays for its measurements**, which were taken on this machine and are
+> cited rather than repeated there: frame redundancy, encode costs, the tunnel round trip and
+> the `pyautogui.PAUSE` finding. Read this one for *numbers*, that one for *what to build*.
+> Route A of this pack shipped as v0.22.0; `D-017`–`D-020`, `D-023`.
+
 The question: what does an interactive remote-control mode cost *on top of what the
 dashboard already does*, and which parts of the brief are already shipped, already
 impossible, or worth building.

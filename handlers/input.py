@@ -3,11 +3,12 @@ import ctypes
 import logging
 import threading
 import time
+from ctypes import wintypes
 import pyautogui
 from telegram import Update
 from telegram.ext import ContextTypes
 from config import (
-    TYPE_ENTER_DELAY, TYPE_PASTE_HOTKEY, TYPE_TERMINAL_HINTS,
+    TYPE_CHARS_MAX, TYPE_ENTER_DELAY, TYPE_PASTE_HOTKEY, TYPE_TERMINAL_HINTS,
     TYPE_TERMINAL_PASTE_HOTKEY, TYPE_TERMINAL_PROCS,
 )
 from utils.auth import auth_required, rate_limit
@@ -121,6 +122,120 @@ def press_keys(*names: str) -> bool:
         flags = _KEYEVENTF_KEYUP | (_KEYEVENTF_EXTENDEDKEY if c in _VK_EXTENDED else 0)
         _u32.keybd_event(c, 0, flags, 0)
     return True
+
+
+# --- Direct typing: characters, and nothing but characters -------------------
+#
+# A second input path, deliberately separate from press_keys. `wVk = 0`, the
+# UTF-16 code unit in `wScan`, KEYEVENTF_UNICODE set: Windows delivers VK_PACKET,
+# TranslateMessage turns it into WM_CHAR with that exact unit, and VkKeyScanW is
+# never consulted — so the active keyboard layout cannot mangle it, which is the
+# bug class `D-012` had to work around by hand for every other path.
+#
+# The two paths must never merge. A unicode key carries no virtual-key code, so a
+# synthetic Ctrl has nothing to combine WITH: modifiers and named keys stay on
+# press_keys. _CHARS_REFUSED enforces the split at this function's door rather
+# than trusting callers, and a test fails if a modifier reaches here.
+#
+# sizeof(INPUT) MUST be 40 on x64. The union's largest member is MOUSEINPUT (32
+# bytes); declare a union of KEYBDINPUT alone and it is 32, whereupon Windows
+# rejects EVERY call with ERROR_INVALID_PARAMETER (87) and sends nothing at all.
+# The E2 experiment failed exactly this way before it succeeded.
+_INPUT_KEYBOARD = 1
+_KEYEVENTF_UNICODE = 0x0004
+_ULONG_PTR = ctypes.c_size_t
+
+
+class _KEYBDINPUT(ctypes.Structure):
+    _fields_ = [("wVk", wintypes.WORD), ("wScan", wintypes.WORD),
+                ("dwFlags", wintypes.DWORD), ("time", wintypes.DWORD),
+                ("dwExtraInfo", _ULONG_PTR)]
+
+
+class _MOUSEINPUT(ctypes.Structure):
+    """Never sent from here — present so sizeof(INPUT) is the 40 Windows expects."""
+    _fields_ = [("dx", wintypes.LONG), ("dy", wintypes.LONG),
+                ("mouseData", wintypes.DWORD), ("dwFlags", wintypes.DWORD),
+                ("time", wintypes.DWORD), ("dwExtraInfo", _ULONG_PTR)]
+
+
+class _HARDWAREINPUT(ctypes.Structure):
+    _fields_ = [("uMsg", wintypes.DWORD), ("wParamL", wintypes.WORD),
+                ("wParamH", wintypes.WORD)]
+
+
+class _INPUTUNION(ctypes.Union):
+    _fields_ = [("ki", _KEYBDINPUT), ("mi", _MOUSEINPUT), ("hi", _HARDWAREINPUT)]
+
+
+class _INPUT(ctypes.Structure):
+    _anonymous_ = ("u",)
+    _fields_ = [("type", wintypes.DWORD), ("u", _INPUTUNION)]
+
+
+_u32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(_INPUT), ctypes.c_int]
+_u32.SendInput.restype = wintypes.UINT
+
+
+def _unicode_key(unit: int, up: bool) -> _INPUT:
+    flags = _KEYEVENTF_UNICODE | (_KEYEVENTF_KEYUP if up else 0)
+    return _INPUT(type=_INPUT_KEYBOARD, ki=_KEYBDINPUT(0, unit, flags, 0, 0))
+
+
+def _send_char(ch: str) -> tuple[int, int]:
+    """One character as its UTF-16 units, each a down/up pair, in ONE SendInput call.
+
+    Astral code points (emoji) are two units — a surrogate pair — and both must ride
+    the same call or the target sees two lone surrogates. Returns (requested, inserted).
+    """
+    units = [int.from_bytes(ch.encode("utf-16-le")[i:i + 2], "little")
+             for i in range(0, len(ch.encode("utf-16-le")), 2)]
+    events = []
+    for u in units:
+        events.append(_unicode_key(u, False))
+        events.append(_unicode_key(u, True))
+    arr = (_INPUT * len(events))(*events)
+    return len(events), _u32.SendInput(len(events), arr, ctypes.sizeof(_INPUT))
+
+
+def type_unicode(text: str) -> tuple[str, str, int]:
+    """Type *text* character by character into whatever window has focus.
+
+    Returns (title, process, characters sent). Nothing here focuses anything: the
+    caller keeps the target focused, because this path exists for a stream of
+    keystrokes and re-focusing between them is how a stream turns into a race.
+
+    Refuses control characters outright. Enter is not "a character you may send" —
+    it is sequenced against a paste by type_and_enter and nowhere else (`D-005`),
+    and a Tab or an Escape arriving through a text field is a keystroke the client
+    never meant to send. That refusal is the seam between the two input paths.
+    """
+    if not text:
+        return get_active_window_title(), get_active_window_process(), 0
+    if len(text) > TYPE_CHARS_MAX:
+        raise ValueError(f"{len(text)} characters exceeds TYPE_CHARS_MAX ({TYPE_CHARS_MAX})")
+    bad = [c for c in text if ord(c) < 0x20 or ord(c) == 0x7F]
+    if bad:
+        raise ValueError("control characters refused: "
+                         + " ".join(f"U+{ord(c):04X}" for c in bad))
+
+    with _input_lock:
+        title = get_active_window_title()
+        proc = get_active_window_process()
+        sent = 0
+        for ch in text:
+            want, got = _send_char(ch)
+            if got != want:
+                # Windows accepted fewer events than asked for. Stop rather than
+                # push on: the rest of the string would land interleaved with
+                # whatever blocked it, and half a word is worse than a short one.
+                logger.warning("SendInput short at U+%04X (%d/%d, err=%d) after %d chars",
+                               ord(ch), got, want, _k32.GetLastError(), sent)
+                break
+            sent += 1
+        logger.debug("Typed %d/%d chars into '%s' [%s] as unicode",
+                     sent, len(text), title, proc or "?")
+        return title, proc, sent
 
 
 def paste_hotkey_for(title: str, proc: str = "") -> tuple[str, ...]:

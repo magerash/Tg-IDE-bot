@@ -31,9 +31,9 @@ them is the security model gone.
 
 | Path | Purpose |
 |---|---|
-| `handlers/input.py` (280) | **The keyboard contract, and the most load-bearing file here.** `type_and_enter()` is the only place allowed to sequence paste-then-Enter (`D-005`); `paste_hotkey_for()` picks `Ctrl+Shift+V` or `Ctrl+V` from the target (`D-006`, `D-007`); `_stuck_modifiers()` releases a Ctrl/Shift/Alt left down by an earlier hotkey, which otherwise turns the next paste into something else entirely |
+| `handlers/input.py` (409) | **The keyboard contract, and the most load-bearing file here.** `type_unicode()` is the second input path — `SendInput` + `KEYEVENTF_UNICODE`, characters only, every control character refused at the door so it can never merge with `press_keys` (`D-025`). `type_and_enter()` is the only place allowed to sequence paste-then-Enter (`D-005`); `paste_hotkey_for()` picks `Ctrl+Shift+V` or `Ctrl+V` from the target (`D-006`, `D-007`); `_stuck_modifiers()` releases a Ctrl/Shift/Alt left down by an earlier hotkey, which otherwise turns the next paste into something else entirely |
 | `handlers/screen.py` (153) | `/screen`, `/window`, `/crop` — mss capture, Pillow encode, crop region state |
-| `handlers/web.py` (605) | The aiohttp app and 18 routes: frame/screen/window, click, scroll, key, type, sh, git, build, status, restart, scope. Owns `_check_auth` and `_check_auth_refine`, and `create_web_app()` with the 30MB body cap that uploads and long dictations both live under. **Over its 200-line budget — `D-015`, [row 5](ROADMAP.md)** |
+| `handlers/web.py` (707) | The aiohttp app and 19 routes: frame/screen/window, click, drag, scroll, key, type, **chars**, sh, git, build, status, restart, scope. `api_chars()` is the direct-typing route — it GUARDS the foreground with `expect` and refuses rather than focusing (`D-026`). Owns `_check_auth` and `_check_auth_refine`, and `create_web_app()` with the 30MB body cap that uploads and long dictations both live under. **Over its 200-line budget — `D-015`, [row 5](ROADMAP.md)** |
 | `handlers/web_extra.py` (404) | The other 17 routes: windows, focus, folders, code, project, stt, improve, ccmetrics, schedule(s), unschedule, paste, upload, layout. Split from `web.py` by *when it was written*, not by concept, which is why row 5 exists |
 | `handlers/panel.py` (275) | The inline-keyboard control panel. `build_keyboard(chat_type)` is rebuilt per message because `web_app` buttons are private-chat-only and Telegram fails the **whole message** elsewhere. `_TYPE_PRESETS` is the single source for the quick-type buttons |
 | `handlers/audio.py` (129) | Voice message → Groq Whisper → optional AI cleanup → Type / Type+Enter / Claude buttons |
@@ -55,7 +55,7 @@ place instead of three.
 
 | Path | Purpose |
 |---|---|
-| `utils/window.py` (147) | Finds a window by title through four rules — exact, containment, 25-char prefix, `tail_key()`. The fourth exists because VS Code retitles per open file (`D-009`). Logs its misses, which it did not always do |
+| `utils/window.py` (170) | Finds a window by title through four rules — exact, containment, 25-char prefix, `tail_key()`. The fourth exists because VS Code retitles per open file (`D-009`). Logs its misses, which it did not always do. `same_window_id()` is the STRICT twin used to guard a targeted send (`D-026`) — containment is right for "will focus find it?" and wrong for identity |
 | `utils/winfocus.py` (65) | Actually *activates* it — the Win32 chain that works when `pygetwindow` alone does not |
 | `utils/vscode.py` (85) | The command-palette sequence, and **the only copy of it**. `focus_terminal_if_active()` returns `(focused, message)` so a wrong guess is reported rather than swallowed. A test fails if a second copy appears (`D-008`) |
 | `utils/layout.py` (114) | Reads and switches the foreground window's keyboard layout. Its own module because the layout silently broke every typing path once: `pyautogui` resolves a character through the *active* layout, so under Russian `VkKeyScanW('v')` is `-1` and the key is never sent (`D-012`) |
@@ -80,7 +80,7 @@ place instead of three.
 
 | Path | Purpose |
 |---|---|
-| `web/index.html` (2317) | The dashboard: live screen, click and scroll, windows, projects, keys, type, history, scheduler, shell, git, actions. **Anything calling a system endpoint stays in this file** — that rule is the refine view's isolation and a test enforces it |
+| `web/index.html` (2991) | The dashboard: live screen, click and scroll, windows, projects, keys, type, **direct typing**, history, scheduler, shell, git, actions. **Anything calling a system endpoint stays in this file** — that rule is the refine view's isolation and a test enforces it |
 | `web/refine.html` (464) | `/refine` — mic, cleanup, ✨ Improve, markdown preview, 📋 Copy. No Type button by design: text leaves through the clipboard only (`D-010`) |
 | `web/common.js` (511) | The ~460 lines both pages share — `api()`, toasts, theme, History, the hardened markdown renderer, the mic→WAV→STT stack. `window.AUTH_HEADERS` decides which credential every request carries; without it `api()` prefers `initData` and the scoped token is bypassed inside Telegram |
 
