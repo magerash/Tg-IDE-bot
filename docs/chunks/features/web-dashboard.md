@@ -202,14 +202,32 @@ the same gestures, with one set of constants (`TAP_MOVE_PX` 8, `RIGHT_TAP_MS` 40
 | tap | left click | `DOUBLE_TAP_MS` (400ms) tap-delay, so a second tap can upgrade it — paid by every single click |
 | tap ×2 | double click | one request with `double:true`, never two clicks — within `DOUBLE_TAP_MS` |
 | **two-finger tap** | **right click** | `D-017` — both surfaces, anchored at the midpoint of where the fingers *landed* |
-| **press-hold, release in place** | **right click** | `D-020` — both surfaces; the gesture people arrive expecting |
-| **press-hold, then move >16px** | **drag** | viewer only; the same hold, resolved by what the finger does next |
+| **press-hold** | **right click** | **live view: fires at 350ms**, while the finger is still down (`D-023`). Viewer: on release in place (`D-020`) |
+| **press-hold, then move >16px** | **drag** | viewer only; the same hold, resolved by what the finger does next — which is why that surface still waits for the release |
 | one-finger move | pan | unchanged, and it is why drag needs the hold |
 | two-finger pinch | zoom | unchanged |
 | double-tap (Click off) | fit ↔ 3× zoom | unchanged — which is why the double tap could not become the right click |
 
 All of it is gated on **Click mode being armed**. With Click off, a tap opens the viewer and
 nothing reaches the PC.
+
+### Why the hold never fired (row 16, `D-023`)
+
+It shipped in v0.22.0 and fired **zero** times — 31 clicks in a live session, all `left`, no
+`button: right` request ever. Three cancellations, one shape:
+
+- the **tap** threshold cancelled it (`TAP_MOVE_PX` 8px; the viewer used the 3px *pan*
+  threshold), which a finger resting for 350ms clears every time → `HOLD_SLOP_PX` (14px),
+  measured from the landing point, not per move event;
+- the webview **claims the gesture**: default `touch-action` makes a resting finger a
+  candidate page scroll and the browser answers `pointercancel` — silent → `touch-action:none`
+  on the live image while Click is armed;
+- completion needed `pointerup` on the same element → `setPointerCapture`, and, better, the
+  live view stopped needing the release: the click is sent **by the timer**.
+
+Debugging note worth keeping: the log answered this before any code was read. `bot.mouse:
+click: <button> at (x, y)` distinguishes "the gesture never reached a request" from "it
+arrived and went to the wrong place", and those have nothing in common.
 
 ### Why the two-finger tap needed a change and not just a handler
 

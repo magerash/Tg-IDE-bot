@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.22.0
+# TG-IDE-Bot v0.22.1
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -114,6 +114,11 @@ curl -k -o /dev/null -w "%{http_code}\n" https://bot.magerash.com:8443/ # Caddy 
 **Gotcha:** when matching processes by command line, exclude your own shell (`$_.ProcessId -ne $PID`) — a `Where-Object { $_.CommandLine -match 'start_tunnel_vps' }` filter matches the very command that contains that string, so the kill loop terminates your own session and inflates keeper counts by one.
 
 ## Changelog
+
+### v0.22.1 2026-09-08
+- **The press-and-hold right click had never fired once** — it shipped broken in v0.22.0, and the log proved it: 31 clicks in a live session, every one `left`, zero `button: right` requests ever. The hold was cancelled by the *tap* threshold, the webview claimed the gesture as a page scroll (`pointercancel`, no error anywhere), and completion depended on a release that a drifting finger sends elsewhere
+- Fixed by not needing the release: the right click is now **sent at 350ms**, anchored where the finger landed, with the haptic while the finger is still down. Two-finger tap and the viewer's drag are unchanged
+- Known and not built: typing straight through from the phone keyboard with no field and no Enter — Route C, on the board as row 17
 
 ### v0.22.0 2026-09-08
 - **👆 Right click and drag from the phone.** Two ways in, because a hand reaches for both: a **two-finger tap**, and a **press-and-hold** — released in place it is a right click, moved first it is a drag. Both the live view and the zoomed viewer

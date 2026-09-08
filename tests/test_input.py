@@ -301,5 +301,55 @@ def test_a_hold_is_a_right_click_unless_the_finger_then_moves():
     assert "touch-callout" in css, "a long press on an <img> pops the native sheet and cancels the gesture"
 
 
+def test_a_hold_is_not_cancelled_by_a_resting_finger():
+    """Measured against the live phone, 2026-09-08: 31 clicks landed in one session
+    and NOT ONE right click was ever sent — zero `button: right` requests reached the
+    server. The gesture never got as far as a request.
+
+    Cause: a hold was cancelled by the TAP threshold (8px from the landing point) and,
+    in the viewer, by the 3px PAN threshold. A finger resting on glass for 350ms clears
+    both every time, so the timer was cleared before it could ever fire. A hold needs
+    its own, coarser slop — and it must be measured from where the finger LANDED, not
+    per move event, or accumulated drift never registers at all."""
+    html = _html()
+    assert re.search(r"const HOLD_SLOP_PX = (\d+);", html), "the hold has no slop of its own"
+    slop = int(re.search(r"const HOLD_SLOP_PX = (\d+);", html).group(1))
+    tap = int(re.search(r"TAP_MOVE_PX = (\d+)", html).group(1))
+    assert slop > tap, "a hold is cancelled as easily as a tap — the bug this fixes"
+
+    live = html.split("function bindImgClick()")[1].split("let _imgSuppressClick")[0]
+    assert "HOLD_SLOP_PX" in live, "the live view still cancels on the tap threshold"
+    assert "g.moved" in live, "the two-finger tap lost its own threshold"
+    # The name appearing SOMEWHERE is not the claim — three mutations survived an
+    # earlier form of these assertions. Pin the two expressions that matter.
+    timer = live.split("g.holdTimer = setTimeout")[1].split("DRAG_HOLD_MS")[0]
+    code = chr(10).join(ln.split("//")[0] for ln in timer.splitlines())
+    assert "g.slid" in code and "g.moved" not in code,         "the hold timer is gated on the tap flag, not the hold slop"
+    assert "g.held = true" in timer
+    # The click is SENT from the timer, not from the release. Waiting for pointerup
+    # made the gesture depend on an event the webview may replace with pointercancel,
+    # and on the finger not drifting in between — measured: 0 right clicks ever sent.
+    assert "'right'" in timer, "the hold still waits for the release to send anything"
+    assert "g.from" in timer, "the hold anchors somewhere other than where the finger landed"
+    assert "setPointerCapture" in live, "a finger drifting off the image loses its release"
+    # ...and the release that follows must be swallowed, or a right click also
+    # sends a left one.
+    assert "_imgSuppressClick = true" in timer, "the click after the hold is not suppressed"
+    # Armed, the image is a control surface. With the default touch-action the webview
+    # treats a resting finger as a possible page scroll and fires pointercancel
+    # mid-hold — a right click that never happens, with nothing logged anywhere.
+    assert "touchAction = clickMode ? 'none'" in live,         "the webview can still claim the gesture and cancel the pointer"
+
+    lb = _lightbox_js(html)
+    down = lb.split("addEventListener('pointerdown'")[1].split("addEventListener(")[0]
+    arm = down.split("_lb.dragTimer = setTimeout")[1].split("DRAG_HOLD_MS")[0]
+    # Comments stripped: the code here NAMES the flag it deliberately does not use,
+    # and a rule that fires on its own explanation teaches people to delete it.
+    arm = chr(10).join(ln.split("//")[0] for ln in arm.splitlines())
+    assert "_lb.slid" in arm and "_lb.moved" not in arm,         "the viewer arms against the 3px pan threshold, which a resting finger clears"
+    move = lb.split("addEventListener('pointermove'")[1].split("addEventListener(")[0]
+    assert "_lb.down.get" in move and "HOLD_SLOP_PX" in move,         "the viewer measures drift per move event instead of from the landing point"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

@@ -48,6 +48,7 @@ Newest first.
 
 | # | Session | Dates | What came out of it |
 |---|---|---|---|
+| 06 | [06 · hold never fired](06-hold-never-fired/README.md) | 2026-09-08 | hold never fired |
 | 05 | [05 · mobile control grouping](05-mobile-control-grouping/README.md) | 2026-09-07 | mobile control grouping |
 | 04 | [04 · route a right click drag](04-route-a-right-click-drag/README.md) | 2026-09-07 | route a right click drag |
 | 03 | [03 · vnc mode research](03-vnc-mode-research/README.md) | 2026-09-07 | vnc mode research |

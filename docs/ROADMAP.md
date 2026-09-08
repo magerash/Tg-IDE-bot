@@ -43,6 +43,17 @@ been listed as "known, untouched" in two consecutive changelogs. `httpcore` and
 | 14 | ☐ | Extract the lightbox viewer from `index.html` (2675 > 2400 cap) | ~0.5 d | — |
 | 9 | ☐ | The stale-client escape hatch is welded shut — and unreportable | ~1 h | — |
 | 12 | ☐ | Re-measure the phone's real throughput — experiment E1, decides row 13 | ~1 h | needs the phone |
+| 17 | ☐ | Direct typing — the phone's keyboard straight through, no field, no Enter | ~1 d | E2, needs the operator at the machine |
+
+**Row 17, what the operator actually asked for:** a mode where tapping a field on the
+screenshot and typing sends each character live — no `type…` field, no Enter. It is **Route C**
+in [analysis/vnc-mode-research.md](analysis/vnc-mode-research.md): `SendInput` +
+`KEYEVENTF_UNICODE` server-side (layout-proof by construction, `D-019`'s cousin), a hidden
+focused input with ~120ms batching on the client, and **experiment E2 first** — whether Claude
+Code in Windows Terminal accepts a synthesized `WM_CHAR` at speed. E2 fires keystrokes into the
+live desktop, so it waits for somebody to be at the machine. The constraint that shapes it is
+already on record: a synthetic Ctrl does not combine with a unicode key, so modifiers stay on
+`press_keys` and the two paths never merge.
 
 **Row 14, left by row 11:** `web/index.html` reached 2675 lines against a 2400 budget — the
 gesture machine, then row 15's regrouping. The remedy is not `common.js` (shared with `/refine`) but a
@@ -75,6 +86,7 @@ is. Not on the critical path today only because the phone was proven current.
 
 | Landed | # | What | Record |
 |---|---|---|---|
+| 2026-09-08 | 16 | **The press-and-hold right click had never fired once** — `D-023` | [chunk](sessions/06-hold-never-fired/2026-09-08-hold-never-fired.md) |
 | 2026-09-08 | 15 | **Mobile: four controls stay out, the rest folds behind one caret** — `D-021`, `D-022` | [chunk](sessions/05-mobile-control-grouping/2026-09-07-mobile-control-grouping.md) |
 | 2026-09-08 | 11 | **Right click by tap or hold, drag, and the blanket `PAUSE` removed** — `D-017`–`D-020` | [chunk](sessions/04-route-a-right-click-drag/2026-09-07-route-a-right-click-drag.md) |
 | 2026-09-08 | 10 | **Interactive control ("VNC mode") — researched, not built** | [pack](analysis/vnc-mode-research.md) · [chunk](sessions/03-vnc-mode-research/2026-09-07-vnc-mode-research.md) |

@@ -609,6 +609,48 @@ depends on them.
 
 ---
 
+## D-023 — On the live view the hold fires at 350ms, not on release
+
+**2026-09-08** · row 16 · `web/index.html` · **supersedes the release-decides half of `D-020` for the live view only** · [chunk](sessions/06-hold-never-fired/2026-09-08-hold-never-fired.md)
+
+`D-020` made a hold mean two things, resolved by what the finger does next: released in
+place it is a right click, moved past `DRAG_MOVE_PX` it is a drag. It shipped and **never
+fired once**. The log is unambiguous — 31 clicks in a live session, every one `left`, not a
+single `button: right` request in the server's whole history.
+
+**Three causes, all of them "the gesture was cancelled before it could be recognised":**
+
+1. The hold was cancelled by the **tap** threshold — `TAP_MOVE_PX` (8px from the landing
+   point) on the live view, and the **3px pan** threshold in the viewer. A finger resting on
+   glass for 350ms clears both every time. A hold now has its own `HOLD_SLOP_PX` (14px),
+   measured from where the finger landed rather than per move event, so accumulated drift is
+   what counts and not one jumpy sample.
+2. **The webview claims the gesture.** With the default `touch-action`, a resting finger on
+   the live image is a possible page scroll, and the browser answers with `pointercancel` —
+   no error anywhere, and no `pointerup` to complete on. While Click is armed the image is a
+   control surface and gets `touch-action: none`; the viewer already had it.
+3. **The completion depended on `pointerup` reaching the same element.** Without pointer
+   capture a finger that drifts off the image releases somewhere else. `setPointerCapture` on
+   pointerdown fixes that, but the deeper fix is not to need the release at all.
+
+**So on the live view the right click is sent by the timer**, at the moment the hold is
+recognised, anchored at the landing point — with the haptic arriving while the finger is
+still down, which is what every OS long press does and what makes the gesture feel answered.
+The release only swallows the synthetic click that follows.
+
+**The viewer keeps arm-then-decide**, deliberately: a drag lives there and its target is
+where the finger *ends up*, so that gesture genuinely cannot be resolved until the release.
+The asymmetry is not an inconsistency — the live view has no drag, so a hold there has
+exactly one meaning and nothing to wait for.
+
+**What this does not change:** the two-finger tap (`D-017`), which never depended on any of
+it, and the viewer's drag (`D-018`).
+
+**Reverse:** move the `_fireClick(..., 'right')` call out of the timer and back behind
+`wasHold` in the release handler.
+
+---
+
 ## Assumed
 
 ## A-001 — The phone's slow link is carrier policing of the sustained UDP flow ⚠️

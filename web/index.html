@@ -784,7 +784,7 @@ body.qk-hidden #quick-keys>.qk-btns,body.qk-hidden #quick-keys>.qk-trail{display
 
 <div id="toast"></div>
 
-<script src="/static/common.js?v=0.22.0"></script>
+<script src="/static/common.js?v=0.22.1"></script>
 <script>
 let autoTimer = null, autoOn = false;
 let lastRect = null, clickMode = false, lastCapture = 'window';  // window capture is the entry default
@@ -1389,6 +1389,12 @@ const DOUBLE_TAP_MS = 400;
    to drag" is whether the finger then MOVES — and a finger resting on glass for
    350ms always drifts, so the threshold is deliberately coarser than TAP_MOVE_PX. */
 const DRAG_MOVE_PX = 16;
+/* A hold is cancelled by a much coarser slide than a tap is. Measured against the
+   live phone: 31 clicks landed and NOT ONE right click was ever sent, because the
+   hold was cancelled by TAP_MOVE_PX (8px from the landing point) and, in the
+   viewer, by the 3px pan threshold — a finger resting on glass for 350ms clears
+   both every time. */
+const HOLD_SLOP_PX = 14;
 
 function _haptic(kind) {
   try { window.Telegram?.WebApp?.HapticFeedback?.impactOccurred(kind || 'medium'); } catch(e) {}
@@ -1407,6 +1413,10 @@ function bindImgClick() {
   const img = document.querySelector('#screen-area img');
   if (!img) return;
   img.style.cursor = clickMode ? 'crosshair' : 'zoom-in';
+  // Armed, this image is a control surface. With the default touch-action the
+  // webview treats a finger on it as a possible page scroll and cancels the
+  // pointer mid-hold — which is a right click that never happens and no error.
+  img.style.touchAction = clickMode ? 'none' : '';
 
   /* Two-finger tap = right click (`D-017`) — the trackpad gesture, and the one Moonlight
      and Microsoft's RD client both use in pointer mode. Long-press was rejected:
@@ -1415,33 +1425,54 @@ function bindImgClick() {
      It lives on pointer events because `onclick` cannot see how many fingers were
      involved, and it must suppress the click that follows — the browser still
      synthesises one from the first finger. */
-  const g = {peak: 0, t0: 0, moved: false, held: false, holdTimer: null, pts: new Map()};
+  const g = {peak: 0, t0: 0, moved: false, slid: false, held: false, holdTimer: null,
+             from: null, pts: new Map()};
   img.onpointerdown = e => {
     g.pts.set(e.pointerId, {x: e.clientX, y: e.clientY});
     if (g.pts.size === 1) {
-      g.t0 = Date.now(); g.moved = false; g.held = false; g.peak = 1;
+      g.t0 = Date.now(); g.moved = false; g.slid = false; g.held = false; g.peak = 1;
+      g.from = [e.clientX, e.clientY];
       // Hold = right click (`D-020`), the gesture people arrive expecting. There is
       // no drag on this surface (a finger moving here scrolls the PAGE), so a hold
       // has one meaning; in the viewer the same hold can still become a drag.
       clearTimeout(g.holdTimer);
-      if (clickMode) g.holdTimer = setTimeout(() => {
-        if (g.pts.size === 1 && !g.moved) { g.held = true; _haptic('medium'); }
-      }, DRAG_HOLD_MS);
+      if (clickMode) {
+        // Pointer capture so the release comes back to THIS element: without it a
+        // finger that drifts off the image sends pointerup somewhere else and the
+        // gesture is never completed.
+        try { img.setPointerCapture(e.pointerId); } catch (err) {}
+        g.holdTimer = setTimeout(() => {
+          if (g.pts.size !== 1 || g.slid || !lastRect) return;
+          // Fire HERE, not on release. Waiting for pointerup made the whole gesture
+          // depend on an event the webview is free to replace with pointercancel —
+          // and on the finger not drifting in the meantime. This is also how every
+          // OS does a long press: the haptic and the menu arrive while the finger
+          // is still down. Measured before this change: 0 right clicks ever sent. `D-023`
+          g.held = true;
+          _imgSuppressClick = true;                 // the release must not click again
+          const box = img.getBoundingClientRect();
+          const pt = _mapToScreen((g.from[0] - box.left) / box.width,
+                                  (g.from[1] - box.top) / box.height);
+          if (pt) { _haptic('medium'); _fireClick(pt[0], pt[1], false, 'right'); }
+        }, DRAG_HOLD_MS);
+      }
     }
     g.peak = Math.max(g.peak, g.pts.size);
   };
   img.onpointermove = e => {
     const p = g.pts.get(e.pointerId);
     if (!p) return;
-    if (Math.abs(e.clientX - p.x) + Math.abs(e.clientY - p.y) > TAP_MOVE_PX) {
-      g.moved = true;
-      clearTimeout(g.holdTimer);      // a finger that travelled is a page scroll
+    const d = Math.abs(e.clientX - p.x) + Math.abs(e.clientY - p.y);
+    if (d > TAP_MOVE_PX) g.moved = true;          // not a tap any more
+    if (d > HOLD_SLOP_PX) {                       // and not a hold either: a page scroll
+      g.slid = true;
+      clearTimeout(g.holdTimer);
     }
   };
   const gEnd = e => {
     clearTimeout(g.holdTimer);
     const wasTwo = g.peak === 2 && !g.moved && Date.now() - g.t0 < RIGHT_TAP_MS;
-    const wasHold = g.peak === 1 && g.held && !g.moved;
+    const wasHold = g.peak === 1 && g.held;   // already sent by the timer; just swallow the click
     const pts = [...g.pts.values()];
     g.pts.delete(e.pointerId);
     if (g.pts.size) return;                       // other fingers still down
@@ -1449,6 +1480,7 @@ function bindImgClick() {
     if (!clickMode || !lastRect) return;
     if (!wasTwo && !wasHold) return;
     _imgSuppressClick = true;                     // the synthetic click is not a left click
+    if (wasHold) { setTimeout(() => { _imgSuppressClick = false; }, RIGHT_TAP_MS); return; }
     // RIGHT_TAP_MS deliberately reused: the browser's synthesised click lands within
     // a frame of pointerup, so anything on the order of the gesture's own lifetime
     // works — and one knob is better than two that must be kept in sympathy.
@@ -1457,7 +1489,7 @@ function bindImgClick() {
     const box = img.getBoundingClientRect();
     const mid = (wasTwo && pts.length === 2)
       ? [(pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2]
-      : [e.clientX, e.clientY];
+      : (g.from || [e.clientX, e.clientY]);      // a hold aims where it landed
     const pt = _mapToScreen((mid[0] - box.left) / box.width, (mid[1] - box.top) / box.height);
     if (pt) _fireClick(pt[0], pt[1], false, 'right');
   };
@@ -1500,7 +1532,7 @@ async function _fireClick(x, y, double, button) {
    `peak` is the high-water mark of simultaneous fingers: at pointerup the map is
    already emptying, so counting it there would say 1 for every gesture. */
 const _lb = {sc: 1, min: 1, tx: 0, ty: 0, ptrs: new Map(), down: new Map(), dist: 0, dist0: 0,
-             moved: false, peak: 0, t0: 0, lastTap: 0, click: false, closeTimer: null,
+             moved: false, slid: false, peak: 0, t0: 0, lastTap: 0, click: false, closeTimer: null,
              onBackdrop: false, multi: false,
              dragTimer: null, dragArmed: false, dragging: false, dragFrom: null};
 /* Controls layered over the viewer (keys, project row, the freeform field) must be
@@ -1616,6 +1648,7 @@ function _lbZoomAt(cx, cy, factor) {
       _lb.moved = false;
       _lb.multi = false;
       _lb.peak = 1;
+      _lb.slid = false;
       _lb.t0 = Date.now();
       _lb.onBackdrop = e.target.id === 'lightbox';   // only pointerdown knows this
       // Press-and-hold arms a remote drag (Moonlight's gesture: tap = click,
@@ -1625,7 +1658,9 @@ function _lbZoomAt(cx, cy, factor) {
       clearTimeout(_lb.dragTimer);
       if (_lb.click && !_lbCtl(e.target)) {
         _lb.dragTimer = setTimeout(() => {
-          if (_lb.ptrs.size !== 1 || _lb.moved) return;
+          // NOT _lb.moved: that is the 3px pan threshold and a finger held 350ms
+          // clears it every time, which is why no hold ever armed on the phone.
+          if (_lb.ptrs.size !== 1 || _lb.slid) return;
           _lb.dragArmed = true;
           _lb.dragging = false;
           _lb.dragFrom = [e.clientX, e.clientY];
@@ -1653,6 +1688,11 @@ function _lbZoomAt(cx, cy, factor) {
     if (_lb.ptrs.size === 1) {
       const dx = e.clientX - p.x, dy = e.clientY - p.y;
       if (Math.abs(dx) + Math.abs(dy) > 3) _lb.moved = true;
+      const d0 = _lb.down.get(e.pointerId);
+      if (d0 && Math.abs(e.clientX - d0.x) + Math.abs(e.clientY - d0.y) > HOLD_SLOP_PX) {
+        _lb.slid = true;                          // a real slide, not a resting finger
+        clearTimeout(_lb.dragTimer);
+      }
       // Armed: the finger is acting on the REMOTE machine, so the view must hold
       // still. Panning here would move the picture under the gesture and the drop
       // would land somewhere the operator never pointed at.

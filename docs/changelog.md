@@ -16,9 +16,16 @@ stable, not yet reached. A version is bumped only on the operator's "Let's finis
 ---
 
 ## Current Version
-- **Version**: v0.22.0
-- **VersionCode**: 45
+- **Version**: v0.22.1
+- **VersionCode**: 46
 - **Last Updated**: 2026-09-08
+
+### Changelog v0.22.1 2026-09-08
+- **The press-and-hold right click had never fired once.** Not a regression — it shipped broken in v0.22.0 and the log proved it: one live session, 31 clicks, **every one `left`**, and not a single `button: right` request in the server's whole history. So the gesture was being cancelled on the client, before any request
+- Three causes, one shape — *the hold was cancelled before it could be recognised*. It was cancelled by the **tap** threshold (8px from the landing point, and the 3px *pan* threshold in the viewer), which a finger resting on glass for 350ms clears every time. The webview **claims the gesture**: with the default `touch-action` a resting finger on the live image is a candidate page scroll, answered with `pointercancel` — no error, no `pointerup`, nothing logged. And completion depended on that `pointerup` reaching the same element, which a finger drifting off the image does not
+- Fixed by not needing the release at all: on the live view the right click is **sent from the timer** at 350ms (`D-023`), anchored where the finger landed, with the haptic arriving while the finger is still down — what every OS long press does. Plus `HOLD_SLOP_PX` (14px, measured from the landing point), `setPointerCapture`, and `touch-action:none` while Click is armed. The viewer keeps arm-then-decide, because a drag lives there and its target is where the finger *ends up*
+- Tests 102 → **103**, eight mutations all red. Two assertions had to be tightened after mutations **survived** them — one checked that a flag appeared *somewhere* in the handler, which a version reading the wrong flag still satisfied
+- **Known and not built:** typing straight through from the phone's keyboard, with no `type…` field and no Enter. That is Route C in `docs/analysis/vnc-mode-research.md`, it needs `SendInput` + `KEYEVENTF_UNICODE` and experiment E2 first, and it is on the board as row 17
 
 ### Changelog v0.22.0 2026-09-08
 - **The phone can right-click and drag.** Two ways into the same verb, because a hand reaches for both: a **two-finger tap** (the trackpad gesture, what Moonlight and Microsoft's RD client use) and a **press-and-hold released in place** (`D-017`, `D-020`). The hold does double duty — release it where it landed and it is a right click, move past 16px first and it is a **drag** (`D-018`). Both surfaces: the live view and the zoomed viewer
