@@ -1,0 +1,51 @@
+{
+  "kit": "llm-wiki-kit",
+  "repo": "https://github.com/magerash/llm-wiki-kit",
+  "version": "0.3.2",
+  "commit": "eb90d5170984de3ce10e2dbfe0fe4f49b081c1bf",
+  "tier": "core",
+  "release_mode": "versioned",
+  "scaffolded": "2026-09-02",
+  "updated": "2026-09-29",
+  "answers": {
+    "name": "Tg-IDE-bot",
+    "slug": "tg-ide-bot",
+    "stack": "Python 3.14 · python-telegram-bot v20 (polling) · aiohttp on `:8080` · mss,",
+    "run": "python bot.py",
+    "test": "python -m pytest tests/ -q",
+    "src_globs": [
+      "handlers/*.py",
+      "utils/*.py",
+      "bot.py",
+      "config.py",
+      "web/*"
+    ],
+    "ui_globs": null,
+    "design_doc": null
+  },
+  "ci": [],
+  "files": {
+    ".claude/rules/documentation.md": null,
+    ".claude/rules/git-protocol.md": "sha256:828628e9c9060633d024151509f69d813140d7ac448f3f4641dbf30cbd52ab23",
+    ".claude/rules/security.md": "sha256:8e61196df1eb5ad81b25d8803f61626e44449af0a087ccca13d227a97fe44b19",
+    ".claude/rules/verification.md": null,
+    ".claude/settings.json": "sha256:e98c0a468d9810075ae6a69260a4997bada5b3bb90e81cab67c04880b2c4c08b",
+    ".cursorrules": null,
+    "AGENTS.md": null,
+    "CLAUDE.md": null,
+    "docs/DECISIONS.md": null,
+    "docs/README.md": null,
+    "docs/ROADMAP.md": null,
+    "docs/code-map.md": null,
+    "docs/environment.md": null,
+    "docs/sessions/01-bootstrap/2026-09-02-wiki-bootstrap.md": null,
+    "docs/sessions/01-bootstrap/README.md": null,
+    "docs/sessions/README.md": null,
+    "tools/wiki/check-links.py": "sha256:a1e24f842457a73bf9c2064fbbcbcae8aa742eaa1e73b0426510159b67467b7d",
+    "tools/wiki/hook_gate.py": "sha256:3b903274a5a197f362161e6e92ac992063257254354f98fb6838eecea41e3150",
+    "tools/wiki/hook_guard.py": "sha256:535775420c57673ee3f1a6284b582a4348a0364fd0ad6cf28445a6a89018df6f",
+    "tools/wiki/hook_preflight.py": "sha256:5f195220821d612c0da5e567ad02d729fb79288c746b550513b0ac9a7ceb33ab",
+    "tools/wiki/new-session.py": "sha256:192b07a94d9afa34c314ce6b68bb04069515e404c594179ae03ca8f0dd1ed29d",
+    "tools/wiki/wiki-doctor.py": "sha256:7f11218cb7846cef450a74ed9d9a5b72c0a68e0c1621145334ecc750e14d9dbf"
+  }
+}

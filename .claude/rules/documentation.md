@@ -25,8 +25,9 @@ are written.
 **This project releases as `versioned`.** `VERSION` in `config.py` is bumped and a dated
 entry written to [docs/changelog.md](../../docs/changelog.md) and `README.md` **only** when
 the operator says `Let's finish` — never mid-session, because a version that describes
-unfinished work is worse than no version. The commit subject carries the changelog line; the
-full format is in [git-protocol.md](git-protocol.md).
+unfinished work is worse than no version. The commit carries the changelog entry's shape;
+the format is step 6 of the update regulation in [docs/README.md](../../docs/README.md), the
+procedure is [git-protocol.md](git-protocol.md), and the commit gate enforces both limits.
 
 `v0.0.x` small changes and fixes · `v0.x.0` new features · `v1.0.0` first stable, not yet
 reached.

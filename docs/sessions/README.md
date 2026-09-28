@@ -48,6 +48,7 @@ Newest first.
 
 | # | Session | Dates | What came out of it |
 |---|---|---|---|
+| 11 | [11 · kit upgrade v0.3.2](11-kit-upgrade-v0-3-2/README.md) | 2026-09-29 | kit upgrade v0.3.2 |
 | 10 | [10 · typing from web — click re-targets keyboard, null click](10-typing-from-web-click-re-targets-keyboard-null/README.md) | 2026-09-29 | typing from web — click re-targets keyboard, null click |
 | 09 | [09 · humanize token budget](09-humanize-token-budget/README.md) | 2026-09-13 | the 429 that never reached the model — `D-030`, row 22 done |
 | 08 | [08 · direct typing](08-direct-typing/README.md) | 2026-09-09 | the phone types straight into the PC — `D-025`–`D-028`, row 17 done |

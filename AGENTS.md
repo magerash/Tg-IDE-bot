@@ -13,6 +13,9 @@ pyautogui/mss/pygetwindow for the machine, pytest for the proof.
 starting** — it carries the preflight, the update regulation, the document map and the
 "concept → where to look" index.
 
+Built on [llm-wiki-kit](https://github.com/magerash/llm-wiki-kit); the base version is in
+`.wiki-kit.json` — `wiki-kit status` compares it with the installed kit.
+
 <!--
 This file is the single source of the repo's rules, and every agent reads it. CLAUDE.md at
 the root imports it with @AGENTS.md, so there is one text and not two copies. CLAUDE.md is
@@ -42,8 +45,9 @@ elsewhere — point at this file. Keep it under ~200 lines.
 - **Never commit or push unless the operator says "Current branch" or "New branch".** Those
   two words are the authorization, and they carry a defined procedure — see
   [.claude/rules/git-protocol.md](.claude/rules/git-protocol.md). Version and changelog are
-  **not** touched until "Let's finish".
-- **Measure, don't guess.** `python -m pytest tests/ -q` is the instrument, 94 tests today.
+  **not** touched until "Let's finish". A commit has the changelog's shape — step 6 of the
+  update regulation in [docs/README.md](docs/README.md) — and the commit gate enforces it.
+- **Measure, don't guess.** `python -m pytest tests/ -q` is the instrument, 122 tests today.
   Every claim about latency, frame size or throughput in this wiki came from a number
   someone actually read off a live run — keep it that way, and if there is no instrument
   for a claim you keep wanting to make, that gap is a roadmap row.
@@ -55,7 +59,7 @@ python bot.py                      # or start_bot.bat — tunnel keeper, then an
 ```
 
 ```bash
-python -m pytest tests/ -q         # 94 passed
+python -m pytest tests/ -q         # 122 passed
 ```
 
 Then, before you commit:

@@ -7,6 +7,10 @@ stdout — Claude Code surfaces a SessionStart hook's stdout as session context.
 It never blocks and never fails the session: every check is best-effort, and a missing
 wiki simply produces a shorter preflight. A hook that can break the session start is a
 hook somebody disables.
+
+One more line appears only when it has something to say: the project is behind the kit it
+was built on, or carries no `.wiki-kit.json` to tell. It asks the kit already on this
+machine — never the network — so it costs a file read, not a round trip.
 """
 
 import json
@@ -120,6 +124,48 @@ def open_entries(root):
     return {label: len(ids) for label, ids in counts.items()}
 
 
+def find_kit():
+    """The llm-wiki-kit clone on this machine, or None. Never the network.
+
+    WIKI_KIT_ROOT wins; otherwise the marketplace clones Claude Code keeps a list of.
+    """
+    candidates = [os.environ.get("WIKI_KIT_ROOT")]
+    known = os.path.join(os.path.expanduser("~"), ".claude", "plugins", "known_marketplaces.json")
+    try:
+        with open(known, encoding="utf-8") as fh:
+            candidates += [entry.get("installLocation") for entry in json.load(fh).values()
+                           if isinstance(entry, dict)]
+    except (OSError, ValueError, AttributeError):
+        pass
+    for path in candidates:
+        if isinstance(path, str) and os.path.isfile(os.path.join(path, "tools", "wiki-upgrade.py")):
+            return path
+    return None
+
+
+def kit_line(root):
+    """One line when the project is behind the kit or unstamped; None when there is nothing to say."""
+    stamped = os.path.isfile(os.path.join(root, ".wiki-kit.json"))
+    if not stamped and not os.path.isdir(os.path.join(root, "tools", "wiki")):
+        return None                            # not a kit project at all
+    kit = find_kit()
+    if kit is None:
+        return None if stamped else (
+            "Kit: no .wiki-kit.json, so this project cannot tell a kit change from its own "
+            "edit. Say 'update the kit' to stamp it.")
+    try:
+        done = subprocess.run(
+            [sys.executable, os.path.join(kit, "tools", "wiki-upgrade.py"), "status",
+             "--brief", "--into", root],
+            capture_output=True, timeout=4,          # the whole hook has 20 s; git may take 10
+            env=dict(os.environ, PYTHONIOENCODING="utf-8"),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    line = done.stdout.decode("utf-8", errors="replace").strip()
+    return line or None
+
+
 def main():
     data = payload()
     root = data.get("cwd") or os.getcwd()
@@ -149,6 +195,10 @@ def main():
         lines.append("4. Open: " + ", ".join(f"{n} {label}(s)" for label, n in sorted(counts.items())))
     else:
         lines.append("4. Open: no unsuperseded blockers found.")
+
+    kit = kit_line(root)
+    if kit:
+        lines.append(kit)
 
     print("\n".join(lines))
     return 0

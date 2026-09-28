@@ -105,6 +105,7 @@ is. Not on the critical path today only because the phone was proven current.
 
 | Landed | # | What | Record |
 |---|---|---|---|
+| 2026-09-29 | 26 | **Wiki kit base v0.1.0 → v0.3.2** — the new commit gate would have denied every CB until the changelog headings were renamed — `D-032` | [chunk](sessions/11-kit-upgrade-v0-3-2/2026-09-29-kit-upgrade-v0-3-2.md) |
 | 2026-09-29 | 24 | **A tap mapped through a zero divisor sent `x: null` and got a 500** — `_mapToScreen` refuses non-finite, the route answers 400 | [chunk](sessions/10-typing-from-web-click-re-targets-keyboard-null/2026-09-29-typing-from-web-click-re-targets-keyboard-null.md) · [feature](chunks/features/direct-typing.md) |
 | 2026-09-29 | 23 | **Clicking another window switched Keyboard mode off** — a successful click re-targets it; `D-026` still stops a focus thief — `D-031` | [chunk](sessions/10-typing-from-web-click-re-targets-keyboard-null/2026-09-29-typing-from-web-click-re-targets-keyboard-null.md) · [feature](chunks/features/direct-typing.md) |
 | 2026-09-13 | 22 | **Improve/humanize 429'd on every request — the budget is sent, reasoning is per model, truncation refused** — `D-030` | [chunk](sessions/09-humanize-token-budget/2026-09-13-humanize-token-budget.md) · [feature](chunks/features/audio-to-text.md) |

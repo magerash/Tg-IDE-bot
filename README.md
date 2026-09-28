@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.23.1
+# TG-IDE-Bot v0.23.2
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -114,6 +114,10 @@ curl -k -o /dev/null -w "%{http_code}\n" https://bot.magerash.com:8443/ # Caddy 
 **Gotcha:** when matching processes by command line, exclude your own shell (`$_.ProcessId -ne $PID`) — a `Where-Object { $_.CommandLine -match 'start_tunnel_vps' }` filter matches the very command that contains that string, so the kill loop terminates your own session and inflates keeper counts by one.
 
 ## Changelog
+
+### v0.23.2 2026-09-29
+- 🔧 Wiki kit base v0.1.0 → v0.3.2 — new commit gate, preflight and doctor; the commit shape is now written in the wiki
+- 📝 Changelog headings are `### vX.Y.Z` — the commit gate reads released versions from them (`D-032`)
 
 ### v0.23.1 2026-09-29
 - **Clicking another window no longer switches Keyboard mode off** — a confirmed click re-targets it; a window that grabs the foreground on its own is still refused (`D-031`)

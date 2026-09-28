@@ -12,13 +12,18 @@ useful. "Fixed" is not.
 disagree about whether it was met can settle it without arguing about taste. If a claim you
 keep wanting to make has no instrument behind it, that gap is a roadmap row.
 
+**What the instruments cannot see is handed over as a numbered test case, not as "please
+check".** `TC-n`, the steps, the pass/fail criterion, and where the evidence will show — a
+log tag, a screen, a row. A build shipped without its test list is a blind upload: the
+operator cannot judge it, so it gets judged as fine.
+
 **Never compare against a number from an earlier session.** Re-derive the baseline in the
 same run, on the same machine, or the comparison measures the afternoon.
 
 This project's instruments:
 
 ```bash
-python -m pytest tests/ -q          # 94 passed as of 2026-09-02
+python -m pytest tests/ -q          # 122 passed as of 2026-09-29
 ```
 
 There is **no CI and no linter** — see [docs/environment.md](../../docs/environment.md). That

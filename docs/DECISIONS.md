@@ -959,3 +959,24 @@ twice to be believed, and the first attempt is exactly the keystroke that went n
 the guard were each deleted in turn, both red. Not yet confirmed on hardware.
 
 **Reverse:** delete the `if (r.ok) _kbExpect = ''` line in `doClick`.
+
+## D-032 — Changelog entries are headed `### vX.Y.Z date`, the kit's form
+
+**2026-09-29** · row 26 · `docs/changelog.md`, `tools/wiki/hook_gate.py` · [chunk](sessions/11-kit-upgrade-v0-3-2/2026-09-29-kit-upgrade-v0-3-2.md)
+
+Kit v0.2.0's commit gate denies a commit whose subject names a version that is neither the
+changelog's `Open:` version nor a released one, and it reads the released ones from headings
+matching `### vX.Y.Z`. This changelog wrote `### Changelog vX.Y.Z` for 48 entries; the one
+match was the oldest, `### v0.1.0`, so every `CB` naming `v0.23.1` or later was denied. The
+48 headings were renamed, and the version workflow in `CLAUDE.md` names the new form.
+
+**The alternative rejected:** widening `ENTRY_LINE` in `hook_gate.py` — the kit's file
+becomes customised and every future upgrade has to merge it. Also rejected: an `## Open:`
+line — commits before `Let's finish` would carry an unreleased number, which changes the
+version workflow rather than the heading.
+
+**Instruments:** the gate fed a `git commit` command as a hook payload — `v0.23.1` allowed,
+`v0.9.9` denied; check-links found no anchor that depended on the old form.
+
+**Reverse:** `sed -i 's/^### v/### Changelog v/'` over the entries, and widen `ENTRY_LINE`.
+

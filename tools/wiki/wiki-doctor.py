@@ -17,6 +17,9 @@ FAIL vs WARN, and why the line is where it is:
         it is misled. Exit code 1.
   WARN  the writing is thin — a chunk with no Verification section, a decision nobody
         ever cited. Nothing is false; something is missing. Exit code 0, unless --strict.
+  INFO  worth knowing and nobody's fault — the kit this project was built on has moved
+        ahead. Never counted, not even under --strict: a commit must never be blocked
+        because somebody else released something.
 
 The checks adapt to the tier: a Core project has one ledger file and no cards, and the
 checks that need `ASSUMPTIONS.md` or `rows/` simply do not run rather than complaining
@@ -25,6 +28,8 @@ about a tier you did not ask for.
 Python 3 stdlib only. No network, no config file, no third-party imports.
 """
 
+import hashlib
+import json
 import os
 import re
 import sys
@@ -40,6 +45,7 @@ CHECKS = [
     ("specs", "no spec claims built while its board row says not started"),
     ("manifest", "every starter template has a manifest row and vice versa (the kit itself)"),
     ("agentlayer", "skills, agents and rules parse, fit their budgets, and carry no unfilled placeholder"),
+    ("kitstamp", "the project's .wiki-kit.json is valid and no .kit-new is left; on the kit, every plugin version is the released one"),
 ]
 
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".mypy_cache", "dist", "build"}
@@ -68,6 +74,9 @@ class Report:
 
     def warn(self, check, where, message):
         self.items.append(("WARN", check, where, message))
+
+    def info(self, check, where, message):
+        self.items.append(("INFO", check, where, message))
 
     @property
     def failures(self):
@@ -689,11 +698,188 @@ def check_agentlayer(wiki, rep, _fix):
                          "with one name" % os.path.basename(path))
 
 
+# ---------------------------------------------------------------- the kit stamp
+
+STAMP = ".wiki-kit.json"
+TIERS = ("core", "standard", "full")
+SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
+RELEASED = re.compile(r"^###\s+v(\d+\.\d+\.\d+)", re.M)
+
+
+def version_tuple(version):
+    return tuple(int(p) for p in version.split(".")) if SEMVER.match(version or "") else (0,)
+
+
+def released_version(root):
+    m = RELEASED.search(read(os.path.join(root, "docs", "changelog.md")))
+    return m.group(1) if m else None
+
+
+def installed_kit():
+    """The llm-wiki-kit clone on this machine, or None — WIKI_KIT_ROOT, then the marketplace
+    clones Claude Code lists. A file read, never the network."""
+    candidates = [os.environ.get("WIKI_KIT_ROOT")]
+    known = os.path.join(os.path.expanduser("~"), ".claude", "plugins", "known_marketplaces.json")
+    try:
+        with open(known, encoding="utf-8") as fh:
+            candidates += [e.get("installLocation") for e in json.load(fh).values()
+                           if isinstance(e, dict)]
+    except (OSError, ValueError, AttributeError):
+        pass
+    for path in candidates:
+        if isinstance(path, str) and os.path.isfile(os.path.join(path, "tools", "wiki-upgrade.py")):
+            return path
+    return None
+
+
+def json_versions(path):
+    """Every "version" value in a plugin or marketplace manifest, wherever it sits."""
+    try:
+        data = json.loads(read(path))
+    except ValueError:
+        return None
+    found = []
+
+    def walk_json(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == "version" and isinstance(value, str):
+                    found.append(value)
+                else:
+                    walk_json(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk_json(value)
+    walk_json(data)
+    return found
+
+
+def file_digest(path):
+    """The stamp's hash: sha256 over the text with CRLF normalised, as wiki-init writes it."""
+    try:
+        with open(path, encoding="utf-8-sig", newline="") as fh:
+            text = fh.read()
+    except (OSError, UnicodeDecodeError):
+        return None
+    return "sha256:" + hashlib.sha256(text.replace("\r\n", "\n").encode("utf-8")).hexdigest()
+
+
+def check_kit_release(root, rep):
+    """On the kit itself: every manifest and the fixture's stamp say the released version.
+
+    Claude Code caches a plugin by its version, so a fix released without a bump may never
+    reach a machine that already has the plugin. On 2026-09-29 every plugin.json and the
+    marketplace still said 0.1.0 while the kit had released v0.2.0.
+    """
+    released = released_version(root)
+    if not released:
+        return
+    manifests = [os.path.join(root, ".claude-plugin", "marketplace.json")]
+    plugins = os.path.join(root, "plugins")
+    if os.path.isdir(plugins):
+        manifests += [os.path.join(plugins, p, ".claude-plugin", "plugin.json")
+                      for p in sorted(os.listdir(plugins))]
+    for path in manifests:
+        if not os.path.isfile(path):
+            continue
+        versions = json_versions(path)
+        if versions is None:
+            rep.fail("kitstamp", rel(root, path), "not valid JSON")
+            continue
+        for version in versions or ["(none)"]:
+            if version != released:
+                rep.fail("kitstamp", rel(root, path),
+                         "version %s, but the kit's last release is v%s. Claude Code caches "
+                         "plugins by version — bump every manifest in the release change, or "
+                         "the release never reaches an installed machine" % (version, released))
+
+    example = os.path.join(root, "example")
+    if not os.path.isdir(example):
+        return
+    for name in sorted(os.listdir(example)):
+        path = os.path.join(example, name, STAMP)
+        if not os.path.isfile(path):
+            continue
+        try:
+            data = json.loads(read(path))
+        except ValueError:
+            rep.fail("kitstamp", rel(root, path), "not valid JSON")
+            continue
+        if data.get("version") != released:
+            rep.fail("kitstamp", rel(root, path),
+                     "the fixture is stamped v%s but the kit released v%s — the example must "
+                     "show a project on the current base: wiki-kit upgrade --into %s --apply"
+                     % (data.get("version"), released, rel(root, os.path.join(example, name))))
+        for dest, digest in sorted((data.get("files") or {}).items()):
+            target = os.path.join(example, name, dest)
+            if digest and os.path.isfile(target) and file_digest(target) != digest:
+                rep.fail("kitstamp", rel(root, path),
+                         "records a hash for %s that no longer matches it — re-stamp the "
+                         "fixture: wiki-kit stamp --into %s --force"
+                         % (dest, rel(root, os.path.join(example, name))))
+
+
+def check_kitstamp(wiki, rep, _fix):
+    root = wiki.root
+
+    # An upgrade that hit a conflict leaves the kit's version beside the file. Committing
+    # one means committing two versions of a rule, and a gate that obeys neither.
+    for base, dirs, files in os.walk(root):
+        dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
+        for name in sorted(files):
+            if name.endswith(".kit-new"):
+                rep.fail("kitstamp", rel(root, os.path.join(base, name)),
+                         "an unresolved upgrade conflict — merge it into the file beside it, "
+                         "then delete it")
+
+    if os.path.isfile(os.path.join(root, "MANIFEST.md")) and \
+            os.path.isdir(os.path.join(root, "starter")):
+        check_kit_release(root, rep)
+        return
+
+    path = os.path.join(root, STAMP)
+    if not os.path.isfile(path):
+        if os.path.isdir(os.path.join(root, "tools", "wiki")):
+            rep.warn("kitstamp", STAMP,
+                     "missing, so nothing can tell a change the kit made from one this project "
+                     "made, and the preflight cannot say when the kit moved ahead. "
+                     "`wiki-kit stamp` infers it")
+        return
+    try:
+        data = json.loads(read(path))
+        if not isinstance(data, dict):
+            raise ValueError("not an object")
+    except ValueError as exc:
+        rep.fail("kitstamp", STAMP,
+                 "not valid JSON (%s) — wiki-kit status and upgrade cannot read it" % exc)
+        return
+    if data.get("tier") not in TIERS:
+        rep.fail("kitstamp", STAMP,
+                 "tier %r is not one of %s" % (data.get("tier"), ", ".join(TIERS)))
+    version = str(data.get("version", ""))
+    if not SEMVER.match(version):
+        rep.fail("kitstamp", STAMP, "version %r is not X.Y.Z" % data.get("version"))
+    files = data.get("files")
+    if not isinstance(files, dict) or any(
+            v is not None and not (isinstance(v, str) and v.startswith("sha256:"))
+            for v in files.values()):
+        rep.fail("kitstamp", STAMP,
+                 "`files` must map each path to a sha256: hash, or null for customised")
+
+    # Behind is information, not a fault: the kit moving is nobody's mistake here.
+    kit = installed_kit()
+    latest = released_version(kit) if kit else None
+    if latest and SEMVER.match(version) and version_tuple(latest) > version_tuple(version):
+        rep.info("kitstamp", STAMP,
+                 "built on kit v%s; v%s is installed on this machine. Say 'update the kit' "
+                 "when convenient — this never blocks a commit" % (version, latest))
+
+
 ALL = {
     "counts": check_counts, "budget": check_budget, "codemap": check_codemap,
     "ids": check_ids, "board": check_board, "cards": check_cards,
     "sessions": check_sessions, "specs": check_specs, "manifest": check_manifest,
-    "agentlayer": check_agentlayer,
+    "agentlayer": check_agentlayer, "kitstamp": check_kitstamp,
 }
 
 
@@ -717,7 +903,7 @@ def main():
     for name, _what in CHECKS:
         ALL[name](wiki, rep, fix)
 
-    order = {"FAIL": 0, "WARN": 1}
+    order = {"FAIL": 0, "WARN": 1, "INFO": 2}
     for level, check, where, message in sorted(rep.items, key=lambda i: (order[i[0]], i[1], i[2])):
         print("%-6s %-11s %s\n       %s" % (level, check, where, message))
 
