@@ -9,7 +9,7 @@
 | Endpoint | `POST /api/improve` (`handlers/web_extra.py::api_improve`) |
 | UI | second `.type-controls` row — on **both** surfaces: `web/index.html` and `web/refine.html` (Twin toggle · style select · ✨ Improve) |
 | Client JS | `web/common.js` (`doImprove`, twin/style toggles) — shared by both pages |
-| Config | `HAE_PROFILE_DIR` (default `~/.hae/profile`); reuses `HUMANIZE_MODEL`/`FALLBACKS`/`REASONING` |
+| Config | `HAE_PROFILE_DIR` (default `~/.hae/profile`); reuses `HUMANIZE_MODEL`/`FALLBACKS`/`REASONING`/`MAX_TOKENS` — the output budget and its known limit are in [audio-to-text.md](audio-to-text.md#output-budget-2026-09-13--the-429-that-never-reached-the-model) (`D-030`) |
 | Tests | `test_improve_endpoint_auth_and_validation`, `test_improve_styles_match_ui_and_twin_is_optional`, `test_improve_never_auto_sends_and_saves_draft_first` |
 
 Related: [audio-to-text.md](audio-to-text.md) (humanizer origin), [web-dashboard.md](web-dashboard.md)

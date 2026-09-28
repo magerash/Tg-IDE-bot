@@ -9,7 +9,7 @@
 | `handlers/web_extra.py` | `/api/stt` POST endpoint (`?humanize=1` flag, returns `{text, raw}`) |
 | `web/common.js` | Mic button logic shared by both surfaces (`toggleMic`, `blobToWav`, `sttUpload`), ✨ Human toggle |
 | `web/index.html` · `web/refine.html` | the two pages that mount it — see `refinement-view.md` |
-| `config.py` | `GROQ_API_KEY`, `STT_MODEL`, `HUMANIZE_MODEL`, `HUMANIZE_FALLBACKS`, `HUMANIZE_REASONING`, `HUMANIZE_DEFAULT` |
+| `config.py` | `GROQ_API_KEY`, `STT_MODEL`, `HUMANIZE_MODEL`, `HUMANIZE_FALLBACKS`, `HUMANIZE_REASONING`, `HUMANIZE_MAX_TOKENS`, `HUMANIZE_DEFAULT` |
 
 ## Overview
 Speak instead of type. Two entry points:
@@ -26,6 +26,7 @@ Engine: **Groq Whisper** (`whisper-large-v3-turbo`), free key at console.groq.co
 
 ### `utils/humanize.py`
 - `humanize(text)` — Groq chat completions (`HUMANIZE_MODEL`, temp 0.2, 30s timeout), tries `HUMANIZE_FALLBACKS` in order when a model is gone, raises only when every model failed
+- Every request carries `max_tokens` = `_max_tokens(text)` (`len(text) + 256`, capped at `HUMANIZE_MAX_TOKENS`, 900) and the reasoning effort from `_reasoning_for(model)`; a reply with `finish_reason=length` is that model's failure, never a result (`D-030`)
 - System prompt: remove fillers/repeats/false starts (keep final version of self-corrections), preserve tech terms/paths/commands verbatim, keep RU/EN mix, no new content, output only cleaned text
 - `_strip_reasoning(text)` — drops `<think>…</think>` (and an unterminated tail) in case a model ignores the reasoning setting
 - Callers fall back to raw **and must say so** — see below
@@ -42,13 +43,26 @@ Rules that came out of it:
   (`openai/gpt-oss-20b`). First model that answers wins; falling back logs a warning.
 - **Never fail silently.** `/api/stt` returns `humanized` + `humanize_error`; the
   dashboard toasts `AI cleanup failed, raw text: …`; TG appends `⚠ AI cleanup failed`.
-- **Suppress reasoning.** `HUMANIZE_REASONING=none` → `reasoning_effort`. Without
-  it qwen3.6 returned **7196 chars of `<think>…`** for a 483-char transcript —
-  that text would have been typed straight into Claude Code.
+- **Suppress reasoning, per model.** `HUMANIZE_REASONING=qwen=none,openai/gpt-oss=low`
+  → `reasoning_effort`, first prefix match wins (a bare value applies to every model,
+  `off` sends nothing). Without it qwen3.6 returned **7196 chars of `<think>…`** for a
+  483-char transcript — that text would have been typed straight into Claude Code. And
+  gpt-oss takes only `low|medium|high`: given `none` it answers 400, and at its default
+  effort it returned an **empty content** on the twin persona (2026-09-13).
 - Still the same free Groq key and endpoint; only the model string changed.
   `openai/gpt-oss-120b` and `groq/compound-mini` answer **403 blocked at project
   level** for this key (console.groq.com → project limits to enable).
 - Check what a key can actually reach: `GET https://api.groq.com/openai/v1/models`.
+
+## Output budget (2026-09-13) — the 429 that never reached the model
+Groq compares the request's **expected** output with a per-model, per-org OTPM cap
+*before* running it; unset `max_tokens` means the model default (2048), and this org's
+cap on qwen3.6-27b is **1000** — every request 429'd. Now `max_tokens` is always sent and
+bounded, and a reply cut at the budget raises (`D-030`). **Known limit:** output that
+needs more than ~900 tokens (roughly 2000+ chars of Russian) fails on both models with
+`output truncated at 900 tokens (HUMANIZE_MAX_TOKENS)` — loud, by name. gpt-oss-20b also
+has an **8000 TPM** cap; a twin request is ~3.4K tokens, so two ✨ Improves in one minute
+trip it. Tests: `tests/test_llm.py`.
 
 ### `handlers/audio.py`
 - `audio_handler()` — `@auth_required @rate_limit(2.0)`; download → transcribe → humanize (if `HUMANIZE_DEFAULT`) → transcript + keyboard

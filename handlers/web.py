@@ -366,7 +366,12 @@ async def api_click(request):
         return _err("Unauthorized", 401)
     try:
         data = await request.json()
-        x, y = int(data["x"]), int(data["y"])
+        # Missing or null point: a malformed request, not a server fault. The client
+        # sent `x: null` once (a NaN through JSON) and this answered 500.
+        try:
+            x, y = int(data["x"]), int(data["y"])
+        except (KeyError, TypeError):
+            return _err("x and y must be numbers")
         double = bool(data.get("double", False))
         button = data.get("button", "left")
         from utils.mouse import click_at

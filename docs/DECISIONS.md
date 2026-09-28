@@ -781,6 +781,40 @@ above ~7 characters per second sustained — a rate the measurement did not see.
 
 ---
 
+## D-029 — The typing sink is never empty, and named keys come only from `keydown`
+
+**2026-09-09** · row 17 · `web/index.html` · **reverses the "no sentinel" call in `D-027`** · [chunk](sessions/08-direct-typing/2026-09-09-direct-typing.md)
+
+Backspace did nothing from the phone, and the server log settled it before any code was read:
+**`backspace` appears zero times in its whole history** while the mode was in use. So the
+keystroke never left the client, exactly like `D-023` and `D-024`.
+
+Two causes, and the second is the larger one.
+
+**The sink shipped empty.** An empty field with the caret at 0 has nothing to delete, so
+Backspace is a no-op the engine does not even report — no `beforeinput`, no `input`, no
+request. The `deleteContentBackward` branch was correct and simply never ran, which is why the
+suite stayed green over a dead key. The field now holds a **sentinel** with the caret at its
+end. `D-027` explicitly declined this ("only if a specific keyboard proves to misfire"); one
+has, and the reversal is what that clause was for. The sentinel never leaves the phone —
+characters are taken from `e.data`, never from the field's value.
+
+**`beforeinput` has no `inputType` for a named key.** Tab, Delete, the arrows, Home/End and
+every Ctrl combo can *only* arrive as a `keydown`, and the handler's Backspace branch was a
+comment and nothing else — so on a device with a hardware keyboard (an iPad) all of them were
+silently dropped. `KB_NAMED_KEYS` maps them onto the `press_keys` path, which is `D-025`'s
+split doing its job rather than an exception to it.
+
+`preventDefault` on a mapped key is load-bearing: it suppresses the `input` event, so the
+sentinel's length diff cannot infer the same keystroke a second time. Shift alone is **not**
+treated as a modifier combo — it is how capitals are typed, and treating it as one turns every
+capital letter into a keystroke instead of a character.
+
+**Reverse:** empty the sink again. Backspace goes quiet on any engine that declines to report a
+deletion it did not perform, and it goes quiet *silently*.
+
+---
+
 ## Assumed
 
 ## A-001 — The phone's slow link is carrier policing of the sustained UDP flow ⚠️
@@ -874,3 +908,54 @@ Neither is a fix.
 **Honest assessment:** the workarounds hold, and it has not cost anything since v0.18.0. It
 matters because it will hit a third call site eventually, and the third one will look like a
 brand-new bug.
+
+---
+
+## D-030 — The LLM budget is always sent, sized from the input, and a truncated reply is refused
+
+**2026-09-13** · row 22 · `utils/humanize.py`, `config.py` · [chunk](sessions/09-humanize-token-budget/2026-09-13-humanize-token-budget.md)
+
+Groq checks a request's **expected** output against a per-model, per-org output-tokens-per-
+minute cap *before* running it. With `max_tokens` unset the expectation is the model default,
+2048; this org's cap on qwen3.6-27b is 1000. So every request 429'd without reaching the
+model, and what the operator saw was the fallback's own failure: gpt-oss-20b answers 400 to
+the `reasoning_effort=none` that qwen needs, and at its default effort it spent the whole
+budget thinking about the twin persona and returned an empty content.
+
+Three rules. `max_tokens` is always sent — `len(text) + 256`, capped at `HUMANIZE_MAX_TOKENS`
+(900), under the measured limit. The reasoning effort is chosen **per model prefix**, because
+one value cannot serve two model families that reject each other's. And `finish_reason=length`
+**raises**: the chain moves on or fails loudly, it never returns the fragment.
+
+**The alternative rejected:** returning the truncated text with a warning — the result is
+typed into a terminal on the PC and the phone cannot see the cut. Also rejected: a larger cap
+for the fallback model only. One cap, one instrument; a dictation that needs more output than
+the cap fails on both models *by name*, which is a limit written down rather than a silent one.
+
+**Instruments:** live probe 2026-09-13 — qwen without `max_tokens` → `429 … Requested 2048`;
+with 700 → 200 in 1.28s. gpt-oss-20b with `none` → `400 must be one of low, medium, or high`;
+with `low` → 200 in 0.49s. `tests/test_llm.py`, five mutations red.
+
+**Reverse:** both are env — `HUMANIZE_MAX_TOKENS`, `HUMANIZE_REASONING`. Raise the cap past
+1000 and the first request 429s again.
+
+## D-031 — A successful click re-targets Keyboard mode; only an unasked foreground change is refused
+
+**2026-09-29** · rows 23, 24 · `web/index.html` (`doClick`, `_mapToScreen`), `handlers/web.py` (`api_click`) · [chunk](sessions/10-typing-from-web-click-re-targets-keyboard-null/2026-09-29-typing-from-web-click-re-targets-keyboard-null.md)
+
+`D-026` locks Keyboard mode to the window its first batch landed in and refuses any batch
+whose foreground differs. On a desktop that also refuses the operator: they click a second
+window on purpose, type, and the guard reads it as a focus thief, refuses, and switches the
+mode off — `bot.log` 2026-09-28 17:32:36, `expected 'Жан', foreground is 'Вера'`. A click the
+PC confirmed (`r.ok`) is the operator choosing a target, so it clears `_kbExpect` and the next
+batch learns the new one. A window that takes the foreground **without** a click is still
+refused, which is the case `D-026` was written for.
+
+**The alternative rejected:** re-learning on every foreground change — that is the guard
+removed. Also rejected: re-learning on the refusal toast — the operator would have to type
+twice to be believed, and the first attempt is exactly the keystroke that went nowhere.
+
+**Instruments:** `tests/test_input.py::test_a_click_re_targets_keyboard_mode`; the reset and
+the guard were each deleted in turn, both red. Not yet confirmed on hardware.
+
+**Reverse:** delete the `if (r.ok) _kbExpect = ''` line in `doClick`.

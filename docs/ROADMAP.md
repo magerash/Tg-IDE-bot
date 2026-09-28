@@ -28,6 +28,7 @@ the feature's chunk; why lives in [DECISIONS.md](DECISIONS.md); what happened li
 
 | # | State | Task | Size | Blocked by |
 |---|---|---|---|---|
+| 25 | ⏸ | Answer field may drop Enter while Android composes the last word (`index.html` `bindSendKeys`) | ~1 h | a failing case on the phone — unreproduced |
 | 3 | ☐ | `bot.log` rotation and per-library log levels | ~0.5 d | — |
 
 **Row 18 supersedes the row-10 research, it does not repeat it.** The old pack
@@ -104,6 +105,9 @@ is. Not on the critical path today only because the phone was proven current.
 
 | Landed | # | What | Record |
 |---|---|---|---|
+| 2026-09-29 | 24 | **A tap mapped through a zero divisor sent `x: null` and got a 500** — `_mapToScreen` refuses non-finite, the route answers 400 | [chunk](sessions/10-typing-from-web-click-re-targets-keyboard-null/2026-09-29-typing-from-web-click-re-targets-keyboard-null.md) · [feature](chunks/features/direct-typing.md) |
+| 2026-09-29 | 23 | **Clicking another window switched Keyboard mode off** — a successful click re-targets it; `D-026` still stops a focus thief — `D-031` | [chunk](sessions/10-typing-from-web-click-re-targets-keyboard-null/2026-09-29-typing-from-web-click-re-targets-keyboard-null.md) · [feature](chunks/features/direct-typing.md) |
+| 2026-09-13 | 22 | **Improve/humanize 429'd on every request — the budget is sent, reasoning is per model, truncation refused** — `D-030` | [chunk](sessions/09-humanize-token-budget/2026-09-13-humanize-token-budget.md) · [feature](chunks/features/audio-to-text.md) |
 | 2026-09-09 | 17 | **Direct typing — the phone's keyboard straight through** · E2 passed, confirmed on the device | [chunk](sessions/08-direct-typing/2026-09-09-direct-typing.md) · [feature](chunks/features/direct-typing.md) |
 | 2026-09-08 | 20 | **Two-finger tap made fireable — the same 8px gate that killed the hold** — `D-024` | [chunk](sessions/06-hold-never-fired/2026-09-08-hold-never-fired.md) |
 | 2026-09-08 | 18 | **Architecture study — the answer is the architecture we have** · supersedes row 10 | [study](analysis/remote-control-architecture.md) · [chunk](sessions/07-remote-control-architecture-study/2026-09-08-remote-control-architecture-study.md) |

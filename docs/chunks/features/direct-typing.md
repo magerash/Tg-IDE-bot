@@ -34,6 +34,22 @@ surrogates, which is a mangled character rather than a missing one.
 rewrites *already committed* words; focusable-but-invisible is what raises the keyboard at all.
 `D-027`.
 
+**The sink is never empty.** It holds a sentinel with the caret at its end, because an empty
+field has nothing to delete and Backspace then produces *no event at all* — no `beforeinput`,
+no `input`, no request. That is not theory: it shipped empty and Backspace was dead on iPadOS,
+with `backspace` appearing zero times in the server's log. `D-029`.
+
+**Named keys come only from `keydown`.** `beforeinput` has no `inputType` for Tab, Delete, an
+arrow, Home/End or a Ctrl combo, so `KB_NAMED_KEYS` maps them onto the `press_keys` path. They
+are `preventDefault`ed, which is what stops the sentinel path inferring the same keystroke a
+second time. Shift alone is not a combo — it is how capitals are typed.
+
+| Key | Sends |
+|---|---|
+| Backspace · Delete · Tab · Enter | `backspace` · `delete` · `tab` · `enter` |
+| ↑ ↓ ← → · Home · End · PageUp · PageDown | the matching named key |
+| Ctrl / Alt / Cmd + a letter | the combo, e.g. `ctrl+c` |
+
 **The signal is `beforeinput`, not `keydown`.** While a soft keyboard composes, UI Events
 *requires* `keyCode: 229` — on Android that is nearly every letter, so `keydown` cannot carry
 the character. The `inputType` switch:
@@ -90,6 +106,14 @@ The client sends no `expect` on its **first** batch, takes the `window` from the
 guards every batch after it. So the target is whatever you tapped, and the moment something
 else takes the foreground the stream stops with a toast instead of typing into it.
 
+**A successful click re-targets it** (`doClick` clears `_kbExpect`, 2026-09-29). Before that,
+clicking a second window on purpose and typing was indistinguishable from a focus thief: from
+a Mac on 2026-09-28 the guard refused (`expected 'Жан', foreground is 'Вера'`) and switched the
+mode off. A click is the operator choosing; a window that takes the foreground *without* one
+is still refused. The same session found `_mapToScreen` handing out NaN — a zero divisor
+passes every bounds check — which JSON sent as `x: null` and `/api/click` answered with a
+500. It now returns null for a non-finite point, and the route answers 400.
+
 ## Where it is
 
 | | |
@@ -110,6 +134,9 @@ else takes the foreground the stream stops with a toast instead of typing into i
   and everything passed.
 - **The batch window never fired.** 70 ms of latency per character, buying nothing, until a
   device session was actually measured.
+- **Backspace was dead on the first device that tried it,** because the sink was empty and an
+  empty field reports no deletion. The suite was green over it: the branch existed and was
+  correct, and nothing tested the field it depended on. `D-029`.
 
 ## Not done
 

@@ -48,6 +48,8 @@ Newest first.
 
 | # | Session | Dates | What came out of it |
 |---|---|---|---|
+| 10 | [10 · typing from web — click re-targets keyboard, null click](10-typing-from-web-click-re-targets-keyboard-null/README.md) | 2026-09-29 | typing from web — click re-targets keyboard, null click |
+| 09 | [09 · humanize token budget](09-humanize-token-budget/README.md) | 2026-09-13 | the 429 that never reached the model — `D-030`, row 22 done |
 | 08 | [08 · direct typing](08-direct-typing/README.md) | 2026-09-09 | the phone types straight into the PC — `D-025`–`D-028`, row 17 done |
 | 07 | [07 · remote control architecture study](07-remote-control-architecture-study/README.md) | 2026-09-08 | the answer is the architecture we have — supersedes row 10 |
 | 06 | [06 · hold never fired](06-hold-never-fired/README.md) | 2026-09-08 | the right click had never fired once — `D-023`, `D-024` |

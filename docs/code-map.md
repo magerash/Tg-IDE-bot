@@ -64,7 +64,7 @@ place instead of three.
 | `utils/webauth.py` (104) | Mini App `initData` validation and the scoped `refine.*` token — scope inside the MAC, key derived, header-only (`D-010`) |
 | `utils/auth.py` (49) | `@auth_required` and `@rate_limit` |
 | `utils/ccmetrics.py` (138) | Reads Claude Code's own local files for model, context use and both rate-limit windows |
-| `utils/humanize.py` (113) | Groq chat with a model fallback chain and `<think>` stripping. `chat(system, text)` is the generic entry; `humanize()` a thin wrapper (`D-013`) |
+| `utils/humanize.py` (148) | Groq chat with a model fallback chain, `<think>` stripping, a bounded `max_tokens` and per-model reasoning. `chat(system, text)` is the generic entry; `humanize()` a thin wrapper (`D-013`, `D-030`) |
 | `utils/improve.py` (119) | The ✨ Improve prompt: profile first, instructions last, deterministic language hint appended (`D-014`) |
 | `utils/stt.py` (46) | Groq Whisper |
 | `utils/mouse.py` (149) | **Every mouse event** — `click_at` (button, double), `drag` (one request, released in a `finally`), `scroll_at`. Windows routes the wheel by **cursor position**, so it parks the cursor, scrolls, puts it back. Owns the settles that replaced `pyautogui.PAUSE` (`D-019`) |
@@ -92,6 +92,7 @@ place instead of three.
 |---|---|
 | `tests/test_web.py` (1451) | 71 of the 100. Beyond the API smoke tests it pins **invariants**: every handler checks auth, no path pairs `_type_text` with its own Enter, the terminal-focus sequence exists once, the client matcher mirrors the server's |
 | `tests/test_refine.py` (390) | 23 — the scoped token, and that the system routes reject it |
+| `tests/test_llm.py` (113) | 3 — the LLM caller: a bounded `max_tokens` always sent, reasoning per model, a truncated reply refused (`D-030`). Split off because `test_web.py` is past its cap |
 | `tests/test_input.py` (248) | 6 — the mouse buttons, drag, and the gesture rules that decide which button a finger meant. Split off when `test_web.py` passed its cap |
 | `tools/wiki/*.py` | The wiki's own instruments: `check-links.py`, `wiki-doctor.py`, `new-session.py`, and the three hooks wired in `.claude/settings.json` — preflight at session start, guard and commit gate before a shell call, caps after an edit |
 

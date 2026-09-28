@@ -112,6 +112,27 @@ nothing and delayed everything, so it is now **0** — and what actually does th
 chain itself: keystrokes arriving while a request is in flight merge into the next one, which
 makes batch size a function of the link. `D-028`.
 
+## After it shipped, the same day
+
+**Backspace did nothing from an iPad, and neither did Tab, the arrows or any Ctrl combo.**
+`D-029`. The log settled it first, as with `D-023` and `D-024`: **zero** `backspace` requests in
+the server's whole history, so the keystroke never left the client.
+
+Two causes. The sink shipped **empty**, and an empty field with the caret at 0 has nothing to
+delete — so the engine reports no deletion at all and the correct `deleteContentBackward`
+branch simply never ran. And `beforeinput` has **no `inputType` for a named key**, so Tab, the
+arrows, Delete, Home/End and every combo could only ever have arrived as a `keydown` — where
+the handler had a Backspace branch that was a comment and nothing else.
+
+The claim in the code that Backspace "reports itself through `deleteContentBackward` on every
+keyboard tested" was **written without a keyboard having been tested**. That is the honest
+lesson of the day: the suite was green over a dead key because the test checked that the branch
+existed, not that anything could reach it.
+
+Tests 114 → **117**, nine more mutations. One survived and exposed a weak assertion of exactly
+the kind v0.22.1 hit — `preventDefault` was asserted to appear *somewhere in the handler*, which
+a version that dropped it from the branch that matters still satisfied. Re-scoped to the branch.
+
 ## Next
 
 - **E6's phone half is still open** — a *predicted* Cyrillic word goes through composition, and

@@ -16,9 +16,18 @@ stable, not yet reached. A version is bumped only on the operator's "Let's finis
 ---
 
 ## Current Version
-- **Version**: v0.23.0
-- **VersionCode**: 47
-- **Last Updated**: 2026-09-09
+- **Version**: v0.23.1
+- **VersionCode**: 48
+- **Last Updated**: 2026-09-29
+
+### Changelog v0.23.1 2026-09-29
+- **🖱 Clicking another window no longer switches Keyboard mode off** (`D-031`). The guard from `D-026` locks the mode to the window its first batch landed in, and on a desktop it also refused the operator: click a second window on purpose, type, and it read the click as a focus thief, refused, and turned itself off — `bot.log` 2026-09-28, `expected 'Жан', foreground is 'Вера'`. A click the PC confirmed now clears the target and the next batch learns the new one. A window that takes the foreground *without* a click is still refused
+- **🐛 A tap could be sent as `x: null` and answered with a 500.** `JSON.stringify(NaN)` is `null`, and `_mapToScreen` produced NaN whenever it divided by zero — the viewer's `naturalWidth` before its frame decodes, a zero-size box — which every bounds check upstream passes, because NaN compares false to everything. It now returns null for a non-finite point, and `/api/click` answers **400** `x and y must be numbers` instead of 500
+- **⌫ Backspace, Tab, the arrows and Ctrl combos were dead in Keyboard mode** (`D-029`) — found from an iPad, whose hardware keyboard produces named keys. The sink shipped empty, and an empty field has nothing to delete, so the engine reported no deletion at all; and `beforeinput` has no `inputType` for a named key, so they can only arrive as a `keydown`, where the Backspace branch was a comment. The sink now holds a sentinel and `KB_NAMED_KEYS` maps named keys onto `press_keys`. Zero `backspace` requests in the server's whole history is how it was found — the suite had been green over it
+- **✨ Improve and the voice cleanup 429'd on every request** (`D-030`). Groq checks the *expected* output against a per-org cap before running the model; with `max_tokens` unset it expects 2048 against a 1000 cap. The fallback then failed on its own bug — gpt-oss rejects the `reasoning_effort=none` qwen needs, and at its default effort it thought through the whole budget and returned nothing. `max_tokens` is now always sent, reasoning is chosen per model, and a truncated reply is refused rather than typed
+- **🖼 The live view could stick on a stale frame.** A mode switch (screen ↔ window) kept the previous mode's hash, so the server's 204-unchanged could suppress the first frame of the new mode. And a 200 with an empty body — seen twice in `bot.log` — became an image that failed to decode, with the old frame left on screen; it is now reported as an empty frame and its hash is not kept
+- **🔬 Ruled out, not fixed:** a Markdown preview holding focus does not break the terminal hop (reproduced live: typed and ran from both the editor and the preview). Known and open: `utils/vscode.py` reports "terminal focused" without checking it, and typing into a Claude Code that is showing a select menu picks the highlighted option with its Enter. Both are in the session chunk's Next
+- **🧪 Tests 114 → 122**, every new assertion mutation-tested
 
 ### Changelog v0.23.0 2026-09-09
 - **⌨ The phone types straight into the PC.** Arm `Keyboard`, tap where the caret goes, type — every character reaches the focused window as you type it. No `type…` field to fill, no Enter to press to send: the phone's own Return key *is* Enter on the PC. This was the operator's original ask and the last real gap in remote control

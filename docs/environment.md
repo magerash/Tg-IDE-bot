@@ -70,7 +70,8 @@ still be re-measured before being compared against, per
 
 | | |
 |---|---|
-| Phone | **Vivo V2419A, Android 16**, Telegram-Android 12.10.1, Chrome 151 webview — the only device any of this has been confirmed on. No iOS device has ever tested this project, which is why every iOS claim in the wiki is cited rather than measured |
+| Phone | **Vivo V2419A, Android 16**, Telegram-Android 12.10.1, Chrome 151 webview |
+| Tablet | **iPadOS Safari 26.5** — reports itself as `Macintosh; Intel Mac OS X 10_15_7`, so a log line saying "Macintosh" is not necessarily a desktop. It found the dead-Backspace bug (`D-029`) the Android device never could, because it has a hardware keyboard and produces named keys |
 | Screen | 2048×1152, **single monitor**, scaling **100 %** — so neither multi-monitor nor DPI scaling has ever been exercised. The Python process is `DPI_AWARENESS_UNAWARE`; on a 125/150 % display it would be handed virtualised coordinates and the frame would disagree with the click |
 | Captured frames | **contain no mouse cursor** — `mss` is one `BitBlt(SRCCOPY\|CAPTUREBLT)` and never draws it. True of every frame this project has ever sent |
 | `mss` full-screen grab | 27.8 / **33.7** / 45.5 ms (min/median/max) |
@@ -122,6 +123,7 @@ written as the reader will experience it, not as it was eventually understood.
 | Bot restart-loops at startup, `httpx.ConnectTimeout` to `api.telegram.org:443` every 5s | the network path to Telegram is down or filtered — **not** auth, not the token | wait, or fix the link. Confirm with `curl -o /dev/null -w "%{http_code}" https://api.telegram.org/` — a 302 means the path is fine. Observed 2026-09-02 01:00, self-cleared by 01:02 |
 | Bot answers `Typed: …` and nothing appears in the terminal | the caret is not where you think. Window focused ≠ control focused (`D-008`), or the paste key is wrong for the target (`D-006`, `D-007`) | the toast now names it. Check the foreground window really is VS Code and that the terminal, not the editor, has focus |
 | Text arrives glued to the previous message, or sits in the box unsent | Enter landed inside the bracketed-paste window (`D-005`) | never press Enter outside `type_and_enter()`; raise `TYPE_ENTER_DELAY` if a slow machine needs it |
+| Backspace (or Tab, an arrow, a Ctrl combo) does nothing while `Keyboard` mode is on | the character path cannot carry them. An **empty** sink has nothing to delete, so the engine reports no deletion at all; and `beforeinput` has no `inputType` for a named key, so it can only ever arrive as a `keydown` (`D-029`) | fixed 2026-09-09 — the sink holds a sentinel and `KB_NAMED_KEYS` maps the named keys. **Check the log first:** if `backspace` does not appear at all, the keystroke never left the phone |
 | Typing does nothing at all, on every surface, for no visible reason | the target window's keyboard layout is Russian and `VkKeyScanW` returns `-1` (`D-012`) | fixed in v0.21.0 — typing goes out as virtual-key codes. Check the layout via `/api/layout` if it recurs |
 | Mini App is slow on the phone, instant on the PC | the phone's VPN hairpins bot traffic through the VPS that *is* the VPN server (`D-004`) | exclude the VPS **address** from the VPN's split tunnel on the phone; re-check after every VPS migration, because Amnezia matches by address, not hostname |
 | Public URL 502s right after "Restart Bot" | Caddy holds pooled upstream connections through the ssh tunnel and `os.execv` kills them | retry; it self-clears. If it does not, the tunnel is down |
@@ -129,6 +131,7 @@ written as the reader will experience it, not as it was eventually understood.
 | Bot will not start, port 8080 already in use | a zombie instance still holds it (`D-002`) | `utils/singleton.py` handles it now. If it recurs, `netstat -ano \| findstr :8080` and check the pid is really python (`A-003`) |
 | The Mini App shows old UI against a new bot | Telegram's webview caches the page per URL and ignores no-cache headers | `CLIENT_VERSION` vs `/api/status` triggers a one-shot `?v=` reload; the menu-button URL is version-stamped |
 | Voice recognition works, the AI cleanup does not | the model was retired upstream (`D-013`) | the fallback chain covers it and the toast names the failure; change `HUMANIZE_MODEL` if the whole chain is gone |
+| ✨ Improve or the AI cleanup fails with `429 … output tokens per minute (OTPM): Limit 1000, Requested 2048` | Groq pre-checks the **expected** output against a per-model, per-org cap; with `max_tokens` unset it expects the model default (`D-030`). This org's caps, read off the 429 bodies 2026-09-13: qwen3.6-27b **1000 OTPM**, gpt-oss-20b **8000 TPM** — a twin request is ~3.4K tokens, so two Improves in a minute trip the second | fixed 2026-09-13 — `HUMANIZE_MAX_TOKENS` bounds every request. If it recurs the cap moved: the number is in the 429 body, the reachable models in `GET https://api.groq.com/openai/v1/models` |
 | `taskkill` or `tasklist` times out for no reason | process **creation** on this box sometimes hangs (`B-2`) | do not spawn a process to solve it — that is the bug. Use an in-process API |
 
 ## What is not here

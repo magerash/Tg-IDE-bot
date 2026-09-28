@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.23.0
+# TG-IDE-Bot v0.23.1
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -114,6 +114,13 @@ curl -k -o /dev/null -w "%{http_code}\n" https://bot.magerash.com:8443/ # Caddy 
 **Gotcha:** when matching processes by command line, exclude your own shell (`$_.ProcessId -ne $PID`) — a `Where-Object { $_.CommandLine -match 'start_tunnel_vps' }` filter matches the very command that contains that string, so the kill loop terminates your own session and inflates keeper counts by one.
 
 ## Changelog
+
+### v0.23.1 2026-09-29
+- **Clicking another window no longer switches Keyboard mode off** — a confirmed click re-targets it; a window that grabs the foreground on its own is still refused (`D-031`)
+- A tap mapped through a zero divisor was sent as `x: null` and got a 500 — now never sent, and `/api/click` answers 400
+- Backspace, Tab, arrows and Ctrl combos work in Keyboard mode — the sink was empty and named keys had no path (`D-029`)
+- ✨ Improve / voice cleanup no longer 429s — `max_tokens` always sent, reasoning per model, truncation refused (`D-030`)
+- The live view no longer sticks on a stale frame after a mode switch or an empty response
 
 ### v0.23.0 2026-09-09
 - **⌨ The phone types straight into the PC.** Arm `Keyboard`, tap where the caret goes, type — every character reaches the focused window as you type it. No `type…` field, no Enter to send: the phone's own Return key *is* Enter on the PC

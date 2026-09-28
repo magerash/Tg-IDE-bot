@@ -100,6 +100,44 @@ def test_click_takes_a_button_and_rejects_an_unknown_one():
     _run(go())
 
 
+def test_a_click_without_a_point_is_a_400_and_the_client_never_sends_one():
+    """bot.log, 2026-09-28: `/api/click error: int() argument must be ... not
+    'NoneType'` and a 500. The client had mapped a tap through a zero divisor —
+    NaN passes every bounds check, since it compares false to everything — and
+    JSON turned the NaN into null. Malformed input is the caller's 400, and the
+    one funnel every tap goes through must refuse to produce it."""
+    async def go():
+        async with await _client() as c:
+            for body in ({"x": None, "y": 5}, {"x": 5}, {"y": 5, "x": [1]}):
+                r = await c.post("/api/click", json=body, headers=AUTH)
+                assert r.status == 400, (body, r.status)
+                assert "x and y" in (await r.json())["error"]
+    _run(go())
+
+    html = _html()
+    fn = html.split("function _mapToScreen(")[1].split("\n}")[0]
+    assert "Number.isFinite(x)" in fn and "Number.isFinite(y)" in fn, \
+        "a NaN point still leaves _mapToScreen and reaches the server as null"
+    assert re.search(r":\s*null;", fn), "a non-finite point must map to null, not through"
+
+
+def test_a_click_re_targets_keyboard_mode():
+    """Keyboard mode guards the window it first typed into (`D-026`). On a desktop
+    the operator clicks another window on purpose and types — and the guard read
+    that as a focus thief, refused, and switched the mode off (bot.log 17:32:36,
+    2026-09-28, `expected 'Жан', foreground is 'Вера'`). A successful click is the
+    operator choosing, so the target is re-learned from the next batch."""
+    html = _html()
+    click = html.split("async function doClick(")[1].split("\n}")[0]
+    code = chr(10).join(ln.split("//")[0] for ln in click.splitlines())
+    assert re.search(r"if \(r\.ok\) _kbExpect = ''", code), \
+        "a click into another window still trips the Keyboard-mode guard"
+    # ...and the guard itself must survive: a window that takes the foreground on
+    # its own is still refused.
+    pump = html.split("async function _kbPump(")[1].split("\n}")[0]
+    assert "body.expect = _kbExpect" in pump and "refused === 'foreground'" in pump
+
+
 def test_double_click_gap_stays_under_the_os_window():
     """Windows merges two down/up pairs into a double click only inside
     GetDoubleClickTime — user-configurable, 500ms by default. The gap is clamped
@@ -400,6 +438,87 @@ def test_typing_requests_chain_and_never_run_concurrently():
     # The batch window is an engineering choice justified by this transport's
     # ~133ms round trip, not a cited practice — but it must exist.
     assert re.search(r"const TYPE_BATCH_MS = \d+;", html), "the batch window must be a named constant"
+
+
+def test_the_sink_is_never_empty_or_backspace_has_nothing_to_delete():
+    """The bug this exists for: the sink shipped EMPTY, and an empty field with the
+    caret at 0 has nothing to delete — so Backspace produced no `beforeinput`, no
+    `input` and no request. Measured on iPadOS Safari, where `backspace` appeared
+    **zero** times in the whole server log while the mode was in use.
+
+    The `deleteContentBackward` branch was correct all along and simply never ran,
+    which is why the suite was green while the key was dead. A test that only checks
+    the branch exists cannot see that; this one checks the field it depends on.
+    """
+    html = _html()
+    assert re.search(r"const KB_SENTINEL = '\w+';", html), \
+        "the sink needs resting content, or a backspace deletes nothing and reports nothing"
+    m = re.search(r"const KB_SENTINEL = '(\w+)';", html)
+    assert len(m.group(1)) > 1, "one character empties on the first backspace and goes quiet again"
+
+    arm = html.split("function _kbArmSink()")[1].split(chr(10) + "}")[0]
+    assert "s.value = KB_SENTINEL" in arm, "arming must refill the buffer"
+    assert "setSelectionRange" in arm, \
+        "the caret must sit at the END — content before the caret is what Backspace deletes"
+
+    kb = html.split("function bindKbSink()")[1].split(chr(10) + "}" + chr(10))[0]
+    assert "sink.value = ''" not in kb, \
+        "emptying the sink is the bug — that is what made Backspace unreportable"
+
+
+def test_named_keys_arrive_only_as_keydown_and_are_all_mapped():
+    """`beforeinput` has no `inputType` for Tab, an arrow, Delete or a Ctrl combo, so
+    those can ONLY ever be seen as a keydown. Before the map existed the handler had
+    a Backspace branch that was a comment and nothing else, and every one of these
+    was silently dropped — an iPad with a hardware keyboard produces all of them.
+
+    `preventDefault` is what stops a double send: it suppresses the input event, so
+    the sentinel path cannot infer the same keystroke a second time.
+    """
+    html = _html()
+    m = re.search(r"const KB_NAMED_KEYS = \{(.*?)\};", html, re.S)
+    assert m, "the named-key map must exist"
+    table = m.group(1)
+    for key, sent in (("Backspace", "backspace"), ("Delete", "delete"), ("Tab", "tab"),
+                      ("ArrowUp", "up"), ("ArrowDown", "down"), ("ArrowLeft", "left"),
+                      ("ArrowRight", "right"), ("Home", "home"), ("End", "end"),
+                      ("PageUp", "pageup"), ("PageDown", "pagedown"), ("Enter", "enter")):
+        assert re.search(rf"{key}: '{sent}'", table), f"{key} is not mapped to {sent}"
+
+    kd = html.split("sink.addEventListener('keydown'")[1].split(chr(10) + "  });")[0]
+    assert "KB_NAMED_KEYS[e.key]" in kd, "the map must actually be consulted"
+    # Scoped to the BRANCH, not the handler: preventDefault appears in the Escape
+    # and combo branches too, so "it is in here somewhere" is satisfied by a version
+    # that dropped it from exactly the place it matters. A mutation proved that.
+    named_branch = kd.split("if (named) {")[1].split("}")[0]
+    assert "e.preventDefault()" in named_branch,         "a named key that is not prevented also fires input, and sends twice"
+    assert named_branch.index("e.preventDefault()") < named_branch.index("_kbKey("),         "prevent first, then send" 
+
+    # Shift is how capitals are typed. Treating it as a combo turns every capital
+    # letter into a keystroke instead of a character.
+    assert "onlyShift" in kd, "shift alone must not be treated as a modifier combo"
+
+
+def test_a_deletion_is_never_counted_twice_and_never_floods():
+    """Two engines, two paths: one reports `deleteContentBackward`, one only changes
+    the field. Both must produce exactly ONE backspace, and a select-all-delete must
+    not fire a burst at a remote terminal where every one of them is destructive.
+    """
+    html = _html()
+    inp = html.split("sink.addEventListener('input'")[1].split(chr(10) + "  });")[0]
+    assert "_kbHandled" in inp, \
+        "without the flag, a reported deletion is sent again by the length diff"
+    assert "Math.min(" in inp, "the inferred-deletion loop must be capped"
+
+    before = html.split("sink.addEventListener('beforeinput'")[1].split(chr(10) + "  });")[0]
+    for it in ("deleteContentBackward", "insertText", "insertLineBreak"):
+        line = [l for l in before.splitlines() if it in l and "_kbKey" in l or (it in l and "_kbQueue" in l)]
+        assert line and "_kbHandled = true" in line[0], \
+            f"{it} must mark the keystroke handled, or the input listener repeats it"
+
+    kd = html.split("sink.addEventListener('keydown'")[1].split(chr(10) + "  });")[0]
+    assert "_kbHandled = false" in kd, \
+        "a new keystroke must clear the flag, or one stuck flag swallows the NEXT deletion"
 
 
 def test_the_keyboard_is_measured_and_dismissed_by_the_only_things_that_work():

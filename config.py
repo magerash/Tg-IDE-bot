@@ -1,6 +1,7 @@
 import os
 import logging
 import tempfile
+from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -8,7 +9,7 @@ load_dotenv()
 # Bot settings
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0"))
-VERSION = "0.23.0"
+VERSION = "0.23.1"
 
 # Web dashboard / Mini App
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
@@ -34,8 +35,19 @@ HUMANIZE_FALLBACKS = [
 ]
 # Reasoning models otherwise dump their whole chain of thought into `content`
 # (qwen3.6 returned 7196 chars of "<think>…" for a 483-char transcript, which then
-# gets pasted straight into Claude Code). "none" for qwen, "low" for gpt-oss.
-HUMANIZE_REASONING = os.getenv("HUMANIZE_REASONING", "none")
+# gets pasted straight into Claude Code). The setting is PER MODEL: qwen3 takes
+# "none"; gpt-oss accepts only low/medium/high and answers 400 to "none", and at its
+# default (medium) it spent the whole budget thinking about a 6KB twin persona and
+# returned an empty content (2026-09-13). One bare value applies to every model;
+# `prefix=value` pairs match on the model id's prefix; "off" sends nothing.
+HUMANIZE_REASONING = os.getenv("HUMANIZE_REASONING", "qwen=none,openai/gpt-oss=low")
+# Groq checks a request's EXPECTED output against a per-model "output tokens per
+# minute" cap before running it, and with max_tokens unset the expectation is the
+# model default (2048). This org's OTPM on qwen3.6-27b is 1000 (on_demand tier,
+# 2026-09-13), so every request 429'd without ever reaching the model. The budget
+# is sized from the input length and capped here; a reply that hits the cap is
+# refused rather than returned truncated.
+HUMANIZE_MAX_TOKENS = int(os.getenv("HUMANIZE_MAX_TOKENS", "900"))
 HUMANIZE_DEFAULT = os.getenv("HUMANIZE_DEFAULT", "1") == "1"
 # HAE twin profile (persona.md + principles.md) — injected into "Improve text"
 # prompts when the Twin toggle is on. Missing dir = twin unavailable, not an error.
@@ -162,13 +174,18 @@ UPLOAD_DIR = os.getenv("UPLOAD_DIR", os.path.join(tempfile.gettempdir(), "tgbot_
 UPLOAD_MAX_MB = int(os.getenv("UPLOAD_MAX_MB", "25"))
 
 # Logging setup
+# INFO, not DEBUG: DEBUG wrote ~5000 lines/hour of getUpdates polling and let
+# bot.log grow to 3.4GB. Rotated at 10MB x 5 so it can never do that again.
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
-        logging.FileHandler(LOG_FILE, encoding="utf-8"),
+        RotatingFileHandler(LOG_FILE, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8"),
         logging.StreamHandler(),
     ],
 )
+# httpx logs every request URL at INFO, and a Bot API URL contains the bot token.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 logger = logging.getLogger("bot")

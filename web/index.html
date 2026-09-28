@@ -802,7 +802,7 @@ body.qk-hidden #quick-keys>.qk-btns,body.qk-hidden #quick-keys>.qk-trail{display
 </form>
 <div id="toast"></div>
 
-<script src="/static/common.js?v=0.23.0"></script>
+<script src="/static/common.js?v=0.23.1"></script>
 <script>
 let autoTimer = null, autoOn = false;
 let lastRect = null, clickMode = false, lastCapture = 'window';  // window capture is the entry default
@@ -1022,8 +1022,14 @@ async function loadCCMetrics() {
 /* ===== Screen =====
    No-flicker update: old image stays visible while the new one loads in
    background; src swaps only when decoded. Progress goes to the status field. */
-async function doScreen() { _syncModeButtons('screen'); await requestCapture('screen'); }
-async function doWindow() { _syncModeButtons('window'); await requestCapture('window'); }
+/* _lastHash must be cleared before a mode switch. The server answers 204 when
+   the digest it just computed equals the one the client sent, and that digest
+   is of the *new* mode's image — so a stale hash from the previous mode can
+   suppress the very first frame after switching and the picture never changes.
+   The size handler below already does this ("force a full frame at the new
+   size"); the mode buttons were missing it. */
+async function doScreen() { _lastHash = ''; _syncModeButtons('screen'); await requestCapture('screen'); }
+async function doWindow() { _lastHash = ''; _syncModeButtons('window'); await requestCapture('window'); }
 
 /* ===== Single-flight capture queue =====
    Everything that wants a fresh frame (Auto tick, post-click refresh, lightbox,
@@ -1157,6 +1163,14 @@ async function capture(kind) {
     }
     const blob = await r.blob();
     if (seq !== _capSeq) return;
+    /* A 200 with an empty body is not in the server's contract — it answers
+       either 204 (no body, unchanged) or 200 with image bytes. It happens
+       anyway: seen twice in bot.log on 2026-09-25. Left alone, the empty blob
+       becomes an object URL that fails to decode, onerror fires, and the only
+       trace is "Image decode failed" while the stale frame stays on screen.
+       Say what actually happened, and do NOT store the hash: keeping it would
+       make the next request eligible for a 204 against a frame we never got. */
+    if (blob.size === 0) { setStatus('Capture returned an empty frame', true); return; }
     _lastHash = r.headers.get('X-Hash') || '';
     const url = URL.createObjectURL(blob);
     const im = new Image();
@@ -1420,10 +1434,16 @@ function _haptic(kind) {
 
 /* Screenshot pixel -> PC pixel, through the rect the server sent with the frame.
    Window captures carry an offset, so this is never just "scale by width". */
+/* Null unless both coordinates are finite. NaN gets here whenever a ratio divides
+   by zero — the viewer's naturalWidth before its frame decodes, a zero-size box —
+   and every bounds check before this one passes it, because NaN compares false
+   to everything. JSON then turns it into null and the server was handed a click
+   at (null, y): seen in bot.log on 2026-09-28. */
 function _mapToScreen(fx, fy) {
   if (!lastRect || lastRect.length !== 4) return null;
-  return [Math.round(lastRect[0] + fx * lastRect[2]),
-          Math.round(lastRect[1] + fy * lastRect[3])];
+  const x = Math.round(lastRect[0] + fx * lastRect[2]),
+        y = Math.round(lastRect[1] + fy * lastRect[3]);
+  return Number.isFinite(x) && Number.isFinite(y) ? [x, y] : null;
 }
 
 let _imgTapTimer = null;
@@ -2209,7 +2229,26 @@ const TYPE_BATCH_MS = 0;       /* Coalescing window, MEASURED to 0 rather than
 const TYPE_CHARS_MAX = 512;    // mirrors config.py — the server refuses more
 
 let kbMode = false, _kbQ = [], _kbTimer = null, _kbSending = false,
-    _kbExpect = '', _kbComposing = false;
+    _kbExpect = '', _kbComposing = false, _kbHandled = false;
+
+/* The sink's resting content. Length is arbitrary but must be > 1 so a held
+   backspace has room before the field empties and the engine goes quiet again;
+   the caret sits at the END, which is what gives Backspace something to delete. */
+const KB_SENTINEL = 'xxxxxxxxxxxxxxxx';
+
+/* Named keys have no `inputType`, so they can only ever arrive as a keydown. */
+const KB_NAMED_KEYS = {
+  Backspace: 'backspace', Delete: 'delete', Tab: 'tab', Enter: 'enter',
+  ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',
+  Home: 'home', End: 'end', PageUp: 'pageup', PageDown: 'pagedown',
+};
+
+function _kbArmSink() {
+  const s = _kbSink();
+  if (!s) return;
+  s.value = KB_SENTINEL;
+  try { s.setSelectionRange(KB_SENTINEL.length, KB_SENTINEL.length); } catch (e) {}
+}
 
 function _kbSink() { return document.getElementById('kb-sink'); }
 
@@ -2285,7 +2324,8 @@ function bindKbSink() {
   sink.addEventListener('compositionend', e => {
     _kbComposing = false;
     if (e.data) _kbQueue(e.data);      // the committed word, atomically
-    sink.value = '';
+    _kbHandled = true;                 // the input that follows is this, already sent
+    _kbArmSink();
   });
 
   sink.addEventListener('beforeinput', e => {
@@ -2294,30 +2334,85 @@ function bindKbSink() {
     // Not cancelable, fires repeatedly, and the committed result arrives at
     // compositionend — forwarding it would send every intermediate guess.
     if (t === 'insertCompositionText' || _kbComposing) return;
-    if (t === 'insertText') { _kbQueue(e.data); return; }
+    if (t === 'insertText') { _kbHandled = true; _kbQueue(e.data); return; }
     if (t === 'insertFromPaste') {
+      _kbHandled = true;
       _kbQueue(e.data || (e.dataTransfer && e.dataTransfer.getData('text')) || '');
       return;
     }
-    if (t === 'insertLineBreak' || t === 'insertParagraph') { _kbKey('enter'); return; }
-    if (t === 'deleteContentBackward') { _kbKey('backspace'); return; }
-    if (t === 'deleteWordBackward') { _kbKey('ctrl+backspace'); return; }
+    // _kbHandled: this keystroke is accounted for, so the `input` listener below
+    // must NOT also infer it from the sentinel's length and send it twice.
+    if (t === 'insertLineBreak' || t === 'insertParagraph') { _kbHandled = true; _kbKey('enter'); return; }
+    if (t === 'deleteContentBackward') { _kbHandled = true; _kbKey('backspace'); return; }
+    if (t === 'deleteWordBackward') { _kbHandled = true; _kbKey('ctrl+backspace'); return; }
     // Anything else (formatting, history) has no meaning on a remote terminal.
   });
 
-  // The field is kept EMPTY: it is a sink, not a text box, and a value that grows
-  // is a value the phone will offer to autocomplete. Backspace still reports
-  // itself through deleteContentBackward on every keyboard tested; the sentinel
-  // trick that CodeMirror carried for years is deliberately not here until a
-  // keyboard is shown to need it.
-  sink.addEventListener('input', () => { if (!_kbComposing) sink.value = ''; });
+  /* The field is NEVER EMPTY, and that is the fix for a backspace that did nothing.
 
+     It shipped empty, on the argument that a sink is not a text box. But an empty
+     field with the caret at position 0 has nothing to delete, so pressing Backspace
+     is a no-op the engine does not even report: no `beforeinput`, no `input`, no
+     request — measured on iPadOS Safari, where `backspace` appears ZERO times in
+     the server's whole log. The `deleteContentBackward` branch was correct and
+     simply never ran.
+
+     So the buffer is kept full of a sentinel with the caret at its end, which is
+     the trick CodeMirror carried for years and this code deliberately did without
+     until a keyboard proved it necessary. One has. The sentinel never leaves the
+     phone: characters are taken from `e.data`, never from the field's value. */
+  _kbArmSink();
+
+  sink.addEventListener('input', () => {
+    if (_kbComposing) return;
+    if (_kbHandled) { _kbHandled = false; _kbArmSink(); return; }
+    // No beforeinput told us what this was — infer it from what the engine removed.
+    // Only deletions can be inferred; an insertion already arrived as `e.data`.
+    const missing = KB_SENTINEL.length - sink.value.length;
+    // Capped: a select-all-and-delete must not fire a burst of backspaces at a
+    // remote terminal, where each one is destructive and none can be recalled.
+    for (let i = 0; i < Math.min(missing, 8); i++) _kbKey('backspace');
+    _kbArmSink();
+  });
+
+  /* Named keys arrive ONLY as keydown — `beforeinput` has no inputType for Tab, an
+     arrow or a Ctrl combo, so before this map every one of them was silently
+     dropped. An iPad with a hardware keyboard produces all of them.
+
+     preventDefault is what keeps this from double-sending: it stops the input
+     event, so the sentinel path above never sees the same keystroke. A printable
+     key is deliberately NOT handled here — that is `beforeinput`'s job, and on
+     Android its keydown is `keyCode: 229` anyway. */
   sink.addEventListener('keydown', e => {
-    if (!kbMode) return;
-    // Fallback for keyboards that fire no beforeinput for these two.
-    if (e.key === 'Enter') { e.preventDefault(); _kbKey('enter'); }
-    else if (e.key === 'Backspace' && !e.repeat) { /* beforeinput covers it */ }
-    else if (e.key === 'Escape') { e.preventDefault(); toggleKbMode(false); }
+    if (!kbMode || _kbComposing) return;
+    // A fresh keystroke starts with a clean slate. Without this, a beforeinput that
+    // is never followed by an input (an engine cancelling its own event) would leave
+    // the flag set and make the NEXT deletion the one that gets swallowed — a bug
+    // that would appear one keystroke away from its cause.
+    _kbHandled = false;
+    if (e.key === 'Escape' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      e.preventDefault(); toggleKbMode(false); return;   // the way out, from a keyboard
+    }
+    const mods = [];
+    if (e.ctrlKey) mods.push('ctrl');
+    if (e.altKey) mods.push('alt');
+    if (e.shiftKey) mods.push('shift');
+    if (e.metaKey) mods.push('win');
+
+    const named = KB_NAMED_KEYS[e.key];
+    if (named) {
+      e.preventDefault();
+      _kbKey(mods.concat(named).join('+'));
+      return;
+    }
+    // A modifier combo over a printable key: ctrl+c, ctrl+shift+p. Shift alone is
+    // not a combo — it is how capitals are typed, and it must stay on the
+    // character path or every capital letter becomes a keystroke instead.
+    const onlyShift = mods.length === 1 && mods[0] === 'shift';
+    if (mods.length && !onlyShift && e.key.length === 1) {
+      e.preventDefault();
+      _kbKey(mods.concat(e.key.toLowerCase()).join('+'));
+    }
   });
 
   // Focus is TAKEN back, not surrendered. A tap on the screenshot is part of
@@ -2352,7 +2447,7 @@ function toggleKbMode(on) {
   if (kbMode) {
     _kbQ.length = 0; _kbExpect = ''; _kbComposing = false;
     _kbBindViewport();
-    if (sink) { sink.value = ''; sink.focus({preventScroll: true}); }
+    if (sink) { _kbArmSink(); sink.focus({preventScroll: true}); }
     // A tap on the screenshot is how the caret gets placed in the target, and
     // that needs Click armed. Arming it here rather than asking the operator to
     // arm two things for one intention.
@@ -2468,6 +2563,11 @@ async function doClick(x, y, double, button) {
   const b = button || 'left';
   try {
     const r = await api('POST', '/api/click', {x, y, double: !!double, button: b});
+    // A click is the operator choosing a target, so Keyboard mode re-learns it
+    // from the next batch. Without this the guard (`D-026`) treats the window they
+    // just clicked into as a focus thief: it refuses, and switches the mode off.
+    // The guard still stops a window that takes the foreground on its OWN.
+    if (r.ok) _kbExpect = '';
     // The button is named in the toast because a right click that silently went
     // out as a left click is a context menu that never opened — indistinguishable
     // from a dead gesture unless the answer says which button was sent.
