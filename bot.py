@@ -19,6 +19,7 @@ from handlers.panel import panel_cmd, panel_callback
 from handlers.windows import win_cmd, code_cmd, windows_callback
 from handlers.project import project_cmd, project_callback
 from handlers.audio import audio_handler, audio_callback
+from handlers.upload import document_handler, document_callback
 
 logger = logging.getLogger("bot.main")
 
@@ -40,8 +41,10 @@ def _build_tg_app():
     app.add_handler(CallbackQueryHandler(windows_callback, pattern="^w:"))
     app.add_handler(CallbackQueryHandler(project_callback, pattern="^pj:"))
     app.add_handler(CallbackQueryHandler(audio_callback, pattern="^a:"))
+    app.add_handler(CallbackQueryHandler(document_callback, pattern="^f:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, audio_handler))
+    app.add_handler(MessageHandler(filters.Document.ALL, document_handler))
 
     async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
         logger.error("Unhandled exception:", exc_info=context.error)

@@ -5,7 +5,8 @@ import re
 import aiohttp
 
 from config import (
-    GROQ_API_KEY, HUMANIZE_FALLBACKS, HUMANIZE_MODEL, HUMANIZE_REASONING,
+    GROQ_API_KEY, HUMANIZE_FALLBACKS, HUMANIZE_MAX_TOKENS, HUMANIZE_MODEL,
+    HUMANIZE_REASONING,
 )
 
 logger = logging.getLogger("bot.humanize")
@@ -31,6 +32,30 @@ _SYSTEM = (
 )
 
 
+def _reasoning_for(model: str, spec: str = HUMANIZE_REASONING) -> str | None:
+    """Reasoning effort for one model. `spec` is a bare value for every model or
+    comma-separated `prefix=value` pairs (first prefix match wins); "off" or an
+    empty value means: send no reasoning_effort at all."""
+    spec = spec.strip()
+    if "=" not in spec:
+        value = spec
+    else:
+        value = ""
+        for part in spec.split(","):
+            prefix, _, val = part.partition("=")
+            if prefix.strip() and model.startswith(prefix.strip()):
+                value = val.strip()
+                break
+    return None if value.lower() in ("", "off") else value
+
+
+def _max_tokens(text: str) -> int:
+    """Output budget from the input length. Russian tokenises at ~2.5 chars per
+    token (measured: 289 prompt tokens for ~600 chars), so `len(text)` tokens is
+    ~2.5x the input — room for the expanding styles — capped under the OTPM limit."""
+    return max(256, min(HUMANIZE_MAX_TOKENS, len(text) + 256))
+
+
 def _strip_reasoning(text: str) -> str:
     out = _THINK_RE.sub("", text)
     out = _OPEN_THINK_RE.sub("", out)  # unterminated block = truncated thinking
@@ -39,9 +64,11 @@ def _strip_reasoning(text: str) -> str:
 
 async def _call(session, model: str, system: str, text: str,
                 reasoning: str | None) -> str:
+    max_tokens = _max_tokens(text)
     payload = {
         "model": model,
         "temperature": 0.2,
+        "max_tokens": max_tokens,
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": text},
@@ -57,7 +84,13 @@ async def _call(session, model: str, system: str, text: str,
         if resp.status != 200:
             msg = body.get("error", {}).get("message", str(body))[:300]
             raise RuntimeError(f"{resp.status}: {msg}")
-        return (body["choices"][0]["message"].get("content") or "").strip()
+        choice = body["choices"][0]
+        # A reply cut at the budget is not a reply: it would be typed into a
+        # terminal as if it were whole, and nothing on the phone could tell.
+        if choice.get("finish_reason") == "length":
+            raise RuntimeError(
+                f"output truncated at {max_tokens} tokens (HUMANIZE_MAX_TOKENS)")
+        return (choice["message"].get("content") or "").strip()
 
 
 async def chat(system: str, text: str) -> str:
@@ -75,9 +108,11 @@ async def chat(system: str, text: str) -> str:
     timeout = aiohttp.ClientTimeout(total=30)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         for model in models:
-            logger.debug("LLM request: %d chars, model=%s", len(text), model)
+            reasoning = _reasoning_for(model)
+            logger.debug("LLM request: %d chars, model=%s, reasoning=%s, max_tokens=%d",
+                         len(text), model, reasoning, _max_tokens(text))
             try:
-                out = await _call(session, model, system, text, HUMANIZE_REASONING)
+                out = await _call(session, model, system, text, reasoning)
             except RuntimeError as e:
                 # A model that rejects reasoning_effort is worth one retry without it
                 if "reasoning" in str(e).lower():

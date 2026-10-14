@@ -1,0 +1,2 @@
+@echo off
+start "" powershell -WindowStyle Hidden -ExecutionPolicy Bypass -File "C:\Projects\Tg-IDE-bot\start_tunnel_vps.ps1"

@@ -13,7 +13,7 @@ import time
 from aiohttp import web
 
 from config import (
-    ALLOWED_USER_ID, BOT_TOKEN, MAX_FILE_SIZE,
+    ALLOWED_USER_ID, BOT_TOKEN, MAX_FILE_SIZE, TYPE_FOCUS_SETTLE,
     VERSION, WEB_SCREEN_MAX_W, WEB_SCREEN_QUALITY, WEB_TOKEN, WEBAPP_URL,
 )
 from handlers.files import _find_apks
@@ -208,15 +208,15 @@ async def api_key(request):
             return _err("Missing 'key'")
 
         import time
-        import pyautogui
+        from handlers.input import press_keys
         parts = key_str.split("+")
 
         def _do():
             for i in range(repeat):
-                if len(parts) > 1:
-                    pyautogui.hotkey(*parts)
-                else:
-                    pyautogui.press(parts[0])
+                # press_keys, not pyautogui: pyautogui resolves a character
+                # through the ACTIVE layout, and under Russian every latin key
+                # resolves to -1 and is silently dropped.
+                press_keys(*parts)
                 if interval and i < repeat - 1:
                     time.sleep(interval)
 
@@ -234,27 +234,53 @@ async def api_type(request):
         data = await request.json()
         text = data.get("text", "")
         enter = data.get("enter", True)
-        # terminal=True: move the caret into the VS Code integrated terminal first.
+        # terminal: move the caret into the VS Code integrated terminal first.
         # Window focus alone raises the window and leaves the caret in the editor,
-        # where ctrl+shift+v is an editor binding and the paste disappears.
-        terminal = bool(data.get("terminal"))
+        # where ctrl+shift+v is `markdown.showPreview`, not paste — the keystroke
+        # fires, the clipboard is right, and the message is gone with a 200 OK.
+        # Absent = auto-ON, because nothing in this product wants text pasted into
+        # a source file, and focus_terminal_if_active() is a no-op unless VS Code
+        # is actually foreground. Only an explicit `false` opts out.
+        terminal = data.get("terminal")
+        terminal = True if terminal is None else bool(terminal)
         # new_terminal: open a FRESH terminal first. Reusing the active one hands
         # the text to whatever runs in it — if that is already Claude Code, `claude`
         # becomes a chat message to that session instead of starting one.
         new_terminal = bool(data.get("new_terminal"))
+        # window: raise this window before typing. Without it the text goes to
+        # whatever is foreground, and an app that grabs focus on its own (Claude
+        # Desktop does) eats messages aimed at a terminal. Focusing here rather
+        # than in a separate /api/focus call keeps the two in one round trip —
+        # a gap between them is a gap something else can take the foreground in.
+        window = (data.get("window") or "").strip()
         if not text:
             return _err("Missing 'text'")
 
         from handlers.input import type_and_enter
         from utils.vscode import focus_terminal_if_active
+        from utils.window import focus_window_exact
 
         def _do():
+            focus_ok, focus_msg = (True, "")
+            if window:
+                focus_ok, focus_msg = focus_window_exact(window)
+                if focus_ok:
+                    time.sleep(TYPE_FOCUS_SETTLE)  # a raised window is not yet the one taking keys
             focused, msg = focus_terminal_if_active(new_terminal) if terminal else (False, "")
-            type_and_enter(text, bool(enter))
-            return focused, msg
+            title, proc = type_and_enter(text, bool(enter))
+            return focused, msg, title, proc, focus_ok, focus_msg
 
-        focused, msg = await asyncio.to_thread(_do)
-        out = {"ok": True, "typed": text}
+        focused, msg, title, proc, focus_ok, focus_msg = await asyncio.to_thread(_do)
+        # The window that really got the text. Nothing here picks a target — the
+        # foreground window does — and on a busy desktop an app that grabs focus
+        # (Claude Desktop does) silently eats the message while the answer stays a
+        # cheerful "Typed:". Naming the target is what makes that visible.
+        out = {"ok": True, "typed": text, "window": title, "proc": proc}
+        if window:
+            # Asked for a window and got another one = the message went somewhere
+            # else. Say which, loudly, instead of a cheerful "Typed:".
+            out["focus"], out["focus_msg"] = focus_ok, focus_msg
+            out["on_target"] = focus_ok and title == window
         if terminal:
             # Reported, never swallowed — a caller that types into the wrong control
             # must be able to say so instead of answering a cheerful "Typed:".
@@ -265,19 +291,124 @@ async def api_type(request):
         return _err(str(e), 500)
 
 
+
+async def api_chars(request):
+    """Type characters into the FOREGROUND window — the direct-typing path (row 17).
+
+    Deliberately not `/api/type` with a flag. That route pastes through the clipboard,
+    optionally focuses a window, optionally hops to the VS Code terminal and optionally
+    presses Enter; this one sends keystrokes and does nothing else. A stream of
+    characters cannot afford any of those steps between batches, and `D-005`'s rule —
+    Enter is sequenced by exactly one function — is kept by this path never having one.
+
+    `expect` is a GUARD, not a focus request, and that is the whole lesson of E2: a
+    verified focus does not stay verified, and 800ms after one this project put 62
+    characters into an unrelated editor. Focusing here would re-run that race on every
+    batch. Instead the caller says which window it believes it is typing into, and a
+    mismatch REFUSES — for a stream, typing into the wrong window is not a wrong guess,
+    it is a wrong guess repeated at 50 characters a second.
+    """
+    if not _check_auth(request):
+        return _err("Unauthorized", 401)
+    try:
+        data = await request.json()
+        text = data.get("text", "")
+        expect = (data.get("expect") or "").strip()
+        if not text:
+            return _err("Missing 'text'")
+
+        from handlers.input import type_unicode
+        from utils.window import get_active_window_title, same_window_id
+
+        def _do():
+            if expect:
+                now = get_active_window_title()
+                # same_window_id, not equality: VS Code puts the open file first, so
+                # two titles of one window can share no prefix (`D-009`). And not
+                # bare tail_key either — that returns '' for a single-segment title
+                # like '✳ Claude Code', so comparing tails would match EVERYTHING
+                # against the one target this row exists for.
+                if not same_window_id(now, expect):
+                    return None, now, ""
+            title, proc, sent = type_unicode(text)
+            return sent, title, proc
+
+        sent, title, proc = await asyncio.to_thread(_do)
+        if sent is None:
+            logger.info("web /api/chars refused: expected %r, foreground is %r", expect, title)
+            return _json({"ok": False, "refused": "foreground", "expect": expect,
+                          "window": title, "sent": 0})
+        out = {"ok": True, "sent": sent, "window": title, "proc": proc}
+        if sent != len(text):
+            # Short is reported, never swallowed: the client must be able to stop
+            # rather than send the next batch on top of a half-delivered one.
+            out["ok"] = False
+            out["short"] = len(text) - sent
+        return _json(out)
+    except ValueError as e:
+        # type_unicode refuses control characters and over-long payloads by design.
+        return _err(str(e))
+    except Exception as e:
+        logger.error("web /api/chars error: %s", e)
+        return _err(str(e), 500)
+
+
 async def api_click(request):
+    """Click at a point. `button` is left (default), right or middle.
+
+    Right click exists because a phone has no second button and a context menu is
+    half of what a desktop is for; the client sends it from a two-finger tap (`D-017`).
+    `double` stays server-side deliberately — Windows merges two down/up pairs
+    into a double click only inside GetDoubleClickTime (500ms), which two HTTP
+    requests through the tunnel (~133ms each, warm) cannot promise to hit.
+    """
+    if not _check_auth(request):
+        return _err("Unauthorized", 401)
+    try:
+        data = await request.json()
+        # Missing or null point: a malformed request, not a server fault. The client
+        # sent `x: null` once (a NaN through JSON) and this answered 500.
+        try:
+            x, y = int(data["x"]), int(data["y"])
+        except (KeyError, TypeError):
+            return _err("x and y must be numbers")
+        double = bool(data.get("double", False))
+        button = data.get("button", "left")
+        from utils.mouse import click_at
+        res = await asyncio.to_thread(click_at, x, y, button, double)
+        return _json({"ok": True, **res})
+    except ValueError as e:                    # unknown button, non-numeric point
+        return _err(str(e))
+    except Exception as e:
+        logger.error("web /api/click error: %s", e)
+        return _err(str(e), 500)
+
+
+async def api_drag(request):
+    """Press at (x, y), move to (to_x, to_y), release — one request, always.
+
+    Not `/api/mouse {down|up}`: a button held across requests is a button the
+    tunnel can strand. Lose the `up` — a dropped connection, a backgrounded
+    webview, a phone that locks — and the operator's desktop is left with the
+    mouse down (`D-018`), where every move is a selection and nothing on the phone can say
+    so. One request cannot be half-completed; `utils/mouse.drag` releases in a
+    `finally` even when the move raises.
+    """
     if not _check_auth(request):
         return _err("Unauthorized", 401)
     try:
         data = await request.json()
         x, y = int(data["x"]), int(data["y"])
-        double = bool(data.get("double", False))
-        import pyautogui
-        fn = pyautogui.doubleClick if double else pyautogui.click
-        await asyncio.to_thread(fn, x, y)
-        return _json({"ok": True, "clicked": [x, y], "double": double})
+        to_x, to_y = int(data["to_x"]), int(data["to_y"])
+        from utils.mouse import drag
+        res = await asyncio.to_thread(
+            drag, x, y, to_x, to_y, data.get("button", "left"), int(data.get("steps", 0)),
+        )
+        return _json({"ok": True, **res})
+    except (KeyError, ValueError) as e:
+        return _err(f"drag needs x, y, to_x, to_y and a valid button: {e}")
     except Exception as e:
-        logger.error("web /api/click error: %s", e)
+        logger.error("web /api/drag error: %s", e)
         return _err(str(e), 500)
 
 
@@ -516,7 +647,9 @@ def create_web_app():
     app.router.add_post("/api/window", api_window)
     app.router.add_post("/api/key", api_key)
     app.router.add_post("/api/type", api_type)
+    app.router.add_post("/api/chars", api_chars)
     app.router.add_post("/api/click", api_click)
+    app.router.add_post("/api/drag", api_drag)
     app.router.add_post("/api/scroll", api_scroll)
     app.router.add_post("/api/sh", api_sh)
     app.router.add_post("/api/git", api_git)

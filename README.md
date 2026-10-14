@@ -1,4 +1,4 @@
-# TG-IDE-Bot v0.20.0
+# TG-IDE-Bot v0.23.2
 
 Telegram bot for remote PC control — screen capture, keyboard/mouse input, file delivery.
 
@@ -52,7 +52,7 @@ phone → https://bot.magerash.com:8443 → Caddy (VPS) → 127.0.0.1:18080 (VPS
 a raw IP. The address behind it changed once already (`45.150.33.106` → filtered
 by RF DPI → `213.165.40.182`), so a migration is a Cloudflare edit plus a tunnel
 restart, with no code change. Details:
-[`materials/documentation/vps-architecture.md`](materials/documentation/vps-architecture.md).
+[`docs/documentation/README-vps.md`](docs/documentation/README-vps.md) (the file itself is gitignored).
 ssh resolves per connection, so a DNS change only takes effect after the ssh
 process is restarted.
 
@@ -115,6 +115,51 @@ curl -k -o /dev/null -w "%{http_code}\n" https://bot.magerash.com:8443/ # Caddy 
 
 ## Changelog
 
+### v0.23.2 2026-09-29
+- 🔧 Wiki kit base v0.1.0 → v0.3.2 — new commit gate, preflight and doctor; the commit shape is now written in the wiki
+- 📝 Changelog headings are `### vX.Y.Z` — the commit gate reads released versions from them (`D-032`)
+
+### v0.23.1 2026-09-29
+- **Clicking another window no longer switches Keyboard mode off** — a confirmed click re-targets it; a window that grabs the foreground on its own is still refused (`D-031`)
+- A tap mapped through a zero divisor was sent as `x: null` and got a 500 — now never sent, and `/api/click` answers 400
+- Backspace, Tab, arrows and Ctrl combos work in Keyboard mode — the sink was empty and named keys had no path (`D-029`)
+- ✨ Improve / voice cleanup no longer 429s — `max_tokens` always sent, reasoning per model, truncation refused (`D-030`)
+- The live view no longer sticks on a stale frame after a mode switch or an empty response
+
+### v0.23.0 2026-09-09
+- **⌨ The phone types straight into the PC.** Arm `Keyboard`, tap where the caret goes, type — every character reaches the focused window as you type it. No `type…` field, no Enter to send: the phone's own Return key *is* Enter on the PC
+- Proved before it was built — experiment **E2**: synthetic keystrokes into a live `✳ Claude Code` prompt arrive **byte-exact at 52 cps**, Cyrillic and emoji included. Characters go out as `KEYEVENTF_UNICODE`, so the keyboard layout is never consulted and cannot mangle them
+- **Two input paths that never merge:** a unicode key carries no virtual-key code, so characters and named keys are separate by construction — control characters are refused at the door, Enter and Backspace go out as VK codes
+- **A targeted send guards the foreground, never re-focuses it.** A verified focus was measured going stale 800 ms later, putting 62 characters into an unrelated editor; `/api/chars` refuses instead of typing into the wrong window
+- The coalescing window **measured to zero** — 25 characters from the phone showed every request carrying exactly one, with 143 ms as the shortest gap between keystrokes. The request chain is what batches, and it does it as a function of the link
+- **👆 The two-finger tap was as unfireable as the hold was,** for the same reason — the 8px tap threshold, which two fingers landing together always clear. Zero right clicks had ever reached the server from either gesture
+- **🔬 An architecture study** (`docs/analysis/remote-control-architecture.md`) recommends the architecture already running, and says why an external web UI or a VNC stack would add moving parts without removing any
+- Tests 103 → **114**, 19 mutations all red, rendered at a true 390px viewport before shipping
+
+### v0.22.1 2026-09-08
+- **The press-and-hold right click had never fired once** — it shipped broken in v0.22.0, and the log proved it: 31 clicks in a live session, every one `left`, zero `button: right` requests ever. The hold was cancelled by the *tap* threshold, the webview claimed the gesture as a page scroll (`pointercancel`, no error anywhere), and completion depended on a release that a drifting finger sends elsewhere
+- Fixed by not needing the release: the right click is now **sent at 350ms**, anchored where the finger landed, with the haptic while the finger is still down. Two-finger tap and the viewer's drag are unchanged
+- Known and not built: typing straight through from the phone keyboard with no field and no Enter — Route C, on the board as row 17
+
+### v0.22.0 2026-09-08
+- **👆 Right click and drag from the phone.** Two ways in, because a hand reaches for both: a **two-finger tap**, and a **press-and-hold** — released in place it is a right click, moved first it is a drag. Both the live view and the zoomed viewer
+- A drag is **one request**, with the button released in a `finally`: a button held *between* HTTP requests is one the tunnel can strand, and a desktop left with the mouse down turns every movement into a selection
+- **⚡ Remote clicks got ~200ms faster.** `pyautogui` sleeps 0.1s after every call it owns (measured: 100.5ms vs 0.1ms). That blanket delay is off, and each gap it was silently paying for is now explicit — including one the wheel actually needed, which would otherwise have scrolled the window you were looking at *before*
+- **📱 Phone controls regrouped.** The text field, the layout pill, 📎 and Click stay out; windows, projects, Claude, the interval, Auto and the keys fold behind one caret. Folding the bottom bar now gives the answer field the whole width instead of leaving a 24px sliver
+- **📎 Attach** is on both phone surfaces, `1` `2` are back beside the freeform field (typing one character raises a keyboard over the screenshot you are answering about), and `↑ ↓` reached the viewer
+- **🔬 Researched first, rendered before shipping.** `docs/analysis/vnc-mode-research.md` measured what a "VNC mode" would actually cost — and rendering the UI headless caught three layout bugs no test did, including a caret that had been written into the CSS as a raw control byte
+- Tests **94 → 102**, every new assertion mutation-tested — 32 deliberate reverts, 32 failures
+
+### v0.21.0 2026-09-03
+- **Documentation is in git for the first time.** `materials/` (31 files, 160KB of feature chunks) was gitignored, so none of it reached a clone. Moved to **`docs/`** and adopted onto the `llm-wiki-kit` template — preflight, update regulation, code map, roadmap, and a decisions ledger recovered from 20 versions of changelog. `CLAUDE.md` goes 527 → 97 lines and imports the new tracked `AGENTS.md`
+- The VPS/VPN topology file stays **gitignored on purpose** — this repo is public and that file maps the machine the bot types into. See `docs/documentation/README-vps.md`
+- **📎 Attachments** — send a document to the bot or upload from the Mini App; its **path** is typed into the terminal, so Claude Code reads the file itself. Whole file, instantly, at any size — instead of a wall of clipboard text
+- **⌨ A Russian keyboard layout no longer eats every keystroke.** `pyautogui` resolves characters through the *active* layout, where `VkKeyScanW('v')` returns `-1` and the key is never sent. Typing now goes out as virtual-key codes; the layout is readable and switchable from the bottom bar
+- **Terminal detection by process, not window title** — a terminal wears the name of whatever runs inside it, so `WindowsTerminal.exe` showing `✳ Claude Code` matched no hint and the v0.17.1 silent paste no-op came back on an untested surface
+- **📱 The scroll arrows were never missing — they were invisible.** A dark 42%-opaque pill with no border on a dark VS Code screenshot, with `:hover` (which never fires on touch) as the only contrast state. Now a light hairline ring, a stronger fill, and 44px targets on a phone. Two unreported bugs fixed alongside: the held state was **white on white** in night theme, and the answer field scrolled away with the keys
+- **The bottom bar folds** — a caret at the far left, same accordion idiom as the Windows/Projects panels, ~36px of screen returned. Phone compaction shrinks inline padding and gaps while holding every touch target's height
+- Tests 74 → **94**, with the new assertions mutation-tested; both wiki checkers now gate each commit
+
 ### v0.20.0 2026-08-25
 - **Typing lands in the terminal now.** v0.19.1 diagnosed it: window focus raises the *window*, the inner keyboard focus stays put, and after `code -n` that is the editor — where `ctrl+shift+v` is an editor binding and the paste vanishes while the bot reports `Typed:`. `POST /api/type` accepts `terminal: true` and moves the caret into the VS Code integrated terminal first
 - `utils/vscode.py` holds the command-palette sequence, once. The scheduler's private copy was deleted and it imports the shared helper; a test fails if a second copy appears. The outcome is echoed back (`terminal`, `terminal_msg`) and a non-VS-Code foreground is a loud toast, not a silent success — the text is still typed either way
@@ -135,7 +180,7 @@ curl -k -o /dev/null -w "%{http_code}\n" https://bot.magerash.com:8443/ # Caddy 
 ### v0.19.0 2026-08-24
 - **Split-view Mini App**: text refinement now has its own page, **`/refine`** — mic → speech-to-text, AI cleanup, ✨ Improve, Twin, markdown preview and a **📋 Copy** button, with no screen, keys, shell, git or restart anywhere on it. Text leaves that view through the clipboard only; there is deliberately no Type button, because typing into a focused window is remote control and Copy is not
 - **The split is enforced on the server, not just hidden in the UI.** The refine page runs on a 12h scope-limited token minted by `POST /api/scope`; only `/api/status`, `/api/stt` and `/api/improve` accept it, and all 24 system endpoints answer 401. Two tests keep it that way, so "this view can't type to your PC" cannot quietly regress the next time a button is added
-- Where the boundary really is: inside Telegram, `initData` is readable by any script on the page, so this defends against the page's own code and narrows the browser flow — it is not a sandbox against the operator. Written up in `materials/chunks/features/refinement-view.md`
+- Where the boundary really is: inside Telegram, `initData` is readable by any script on the page, so this defends against the page's own code and narrows the browser flow — it is not a sandbox against the operator. Written up in `docs/chunks/features/refinement-view.md`
 - **Reach it** from the `✨ Refine` link in the dashboard header, or the `🖥 Dashboard` / `✨ Refine` buttons now on the first row of `/panel` (private chats only — Telegram rejects Mini App buttons in groups and fails the whole message)
 - **`web/common.js`**: ~460 lines shared by both pages (`api()`, toasts, theme, History, markdown, the mic→WAV→Whisper stack, Improve) extracted out of `index.html`, which drops 2332 → 1889 lines. One copy of each hard-won bug fix instead of two
 - **Security fix in the markdown preview** (shared by both views): HTML-escaping now covers quotes, and link targets are restricted to `http(s)`/`mailto`/relative — a `[x](javascript:…)` link previously rendered as a live link that would run script with the page's credentials

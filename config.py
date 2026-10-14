@@ -1,5 +1,7 @@
 import os
 import logging
+import tempfile
+from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -7,7 +9,7 @@ load_dotenv()
 # Bot settings
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0"))
-VERSION = "0.20.0"
+VERSION = "0.23.2"
 
 # Web dashboard / Mini App
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
@@ -33,8 +35,19 @@ HUMANIZE_FALLBACKS = [
 ]
 # Reasoning models otherwise dump their whole chain of thought into `content`
 # (qwen3.6 returned 7196 chars of "<think>…" for a 483-char transcript, which then
-# gets pasted straight into Claude Code). "none" for qwen, "low" for gpt-oss.
-HUMANIZE_REASONING = os.getenv("HUMANIZE_REASONING", "none")
+# gets pasted straight into Claude Code). The setting is PER MODEL: qwen3 takes
+# "none"; gpt-oss accepts only low/medium/high and answers 400 to "none", and at its
+# default (medium) it spent the whole budget thinking about a 6KB twin persona and
+# returned an empty content (2026-09-13). One bare value applies to every model;
+# `prefix=value` pairs match on the model id's prefix; "off" sends nothing.
+HUMANIZE_REASONING = os.getenv("HUMANIZE_REASONING", "qwen=none,openai/gpt-oss=low")
+# Groq checks a request's EXPECTED output against a per-model "output tokens per
+# minute" cap before running it, and with max_tokens unset the expectation is the
+# model default (2048). This org's OTPM on qwen3.6-27b is 1000 (on_demand tier,
+# 2026-09-13), so every request 429'd without ever reaching the model. The budget
+# is sized from the input length and capped here; a reply that hits the cap is
+# refused rather than returned truncated.
+HUMANIZE_MAX_TOKENS = int(os.getenv("HUMANIZE_MAX_TOKENS", "900"))
 HUMANIZE_DEFAULT = os.getenv("HUMANIZE_DEFAULT", "1") == "1"
 # HAE twin profile (persona.md + principles.md) — injected into "Improve text"
 # prompts when the Twin toggle is on. Missing dir = twin unavailable, not an error.
@@ -86,18 +99,62 @@ TYPE_ENTER_DELAY = float(os.getenv("TYPE_ENTER_DELAY", "0.45"))
 # terminal running it a text Ctrl+V is a silent no-op — the keystroke arrives, the
 # clipboard is right, and nothing appears. Ctrl+Shift+V is the terminal paste and
 # works in every VS Code session tested, so terminal-ish targets get that one.
+# A raised window is not instantly the one receiving keys — the same settle the
+# scheduler needs (SCHEDULE_FOCUS_SETTLE), for the same reason: paste too early
+# and the keystroke goes to the window that is still foreground.
+TYPE_FOCUS_SETTLE = float(os.getenv("TYPE_FOCUS_SETTLE", "0.6"))
 TYPE_PASTE_HOTKEY = os.getenv("TYPE_PASTE_HOTKEY", "ctrl+v")
 TYPE_TERMINAL_PASTE_HOTKEY = os.getenv("TYPE_TERMINAL_PASTE_HOTKEY", "ctrl+shift+v")
-# Window titles that mean "a terminal is on the other end" (lowercase substrings)
+# Window titles that mean "a terminal is on the other end" (lowercase substrings).
+# A FALLBACK only: a terminal retitles itself to whatever runs inside it, so
+# Claude Code in Windows Terminal reads as "Claude Code" and matches nothing here.
 TYPE_TERMINAL_HINTS = [
     h.strip().lower()
     for h in os.getenv(
         "TYPE_TERMINAL_HINTS",
         "visual studio code,windows terminal,powershell,command prompt,cmd.exe,"
-        "conemu,cmder,mintty,git bash,wsl,alacritty,wezterm,kitty,tabby",
+        "conemu,cmder,mintty,git bash,wsl,alacritty,wezterm,kitty,tabby,"
+        "claude code",
     ).split(",")
     if h.strip()
 ]
+# Processes that ARE a terminal, whatever the window is called. This is the real
+# test: the title belongs to the program running inside, the executable does not
+# change. WindowsTerminal.exe showing '✳ Claude Code' is how a text paste
+# silently became a no-op again after v0.17.1 fixed it for VS Code.
+TYPE_TERMINAL_PROCS = [
+    p.strip().lower()
+    for p in os.getenv(
+        "TYPE_TERMINAL_PROCS",
+        "windowsterminal.exe,code.exe,code - insiders.exe,cursor.exe,windsurf.exe,"
+        "powershell.exe,pwsh.exe,cmd.exe,conhost.exe,openconsole.exe,conemu64.exe,"
+        "conemu.exe,mintty.exe,wsl.exe,wt.exe,alacritty.exe,wezterm-gui.exe,"
+        "kitty.exe,tabby.exe,hyper.exe",
+    ).split(",")
+    if p.strip()
+]
+
+# Direct typing (row 17) — characters go out as KEYEVENTF_UNICODE, one SendInput
+# call per character, and the active keyboard layout is never consulted. That is
+# the whole point: pyautogui resolves a character THROUGH the layout, so under
+# Russian VkKeyScanW('v') returns -1 and the key is simply never sent (`D-012`).
+# A unicode key carries no virtual-key code, so a synthetic Ctrl cannot combine
+# with it — modifiers and named keys stay on press_keys and the two paths never
+# merge.
+#
+# Measured 2026-09-09 (experiment E2, study §18): 52.0 cps into '✳ Claude Code'
+# in Windows Terminal, byte-exact, zero short calls, Cyrillic and astral emoji
+# included. No server-side pacing is needed at any rate a phone can produce, so
+# there is no delay constant here — only a cap on how much one request may carry.
+TYPE_CHARS_MAX = int(os.getenv("TYPE_CHARS_MAX", "512"))
+
+# Mouse timing — PAUSE is off (handlers/input.py); why each gap: utils/mouse.py
+MOUSE_MOVE_SETTLE = float(os.getenv("MOUSE_MOVE_SETTLE", "0.04"))   # move must land first
+MOUSE_CLICK_HOLD = float(os.getenv("MOUSE_CLICK_HOLD", "0.02"))     # down→up
+MOUSE_DOUBLE_GAP = float(os.getenv("MOUSE_DOUBLE_GAP", "0.06"))     # < GetDoubleClickTime
+MOUSE_DRAG_HOLD = float(os.getenv("MOUSE_DRAG_HOLD", "0.12"))       # press, then move
+MOUSE_DRAG_STEPS = int(os.getenv("MOUSE_DRAG_STEPS", "12"))
+MOUSE_DRAG_STEP_DELAY = float(os.getenv("MOUSE_DRAG_STEP_DELAY", "0.012"))
 
 # File delivery
 APK_SEARCH_DIRS = [
@@ -109,14 +166,26 @@ PROJECT_DIR = r"C:\Projects\My habits"
 GIT_DIR = os.getenv("GIT_DIR", PROJECT_DIR)
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB (Telegram limit)
 
+# Attachments coming FROM the phone (Mini App upload + Telegram document).
+# Saved here, and the PATH is typed — Claude Code reads the file itself.
+UPLOAD_DIR = os.getenv("UPLOAD_DIR", os.path.join(tempfile.gettempdir(), "tgbot_upload"))
+# Web cap. create_web_app() allows 30MB of request body, so this stays under it.
+# Telegram's own Bot API download limit is 20MB and is not ours to raise.
+UPLOAD_MAX_MB = int(os.getenv("UPLOAD_MAX_MB", "25"))
+
 # Logging setup
+# INFO, not DEBUG: DEBUG wrote ~5000 lines/hour of getUpdates polling and let
+# bot.log grow to 3.4GB. Rotated at 10MB x 5 so it can never do that again.
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
-        logging.FileHandler(LOG_FILE, encoding="utf-8"),
+        RotatingFileHandler(LOG_FILE, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8"),
         logging.StreamHandler(),
     ],
 )
+# httpx logs every request URL at INFO, and a Bot API URL contains the bot token.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 logger = logging.getLogger("bot")

@@ -25,9 +25,21 @@ Thumbs.db
 .DS_Store
 
 CLAUDE.md
-materials/
 .omc/
 .gstack/
+
+# The wiki lives in docs/ and IS tracked (moved from materials/, D-001).
+# One exception: docs/imported/ — copies of documents owned by another repo.
+# Today that is the VPS/VPN topology, which names the VPN subnets, the container
+# names and the operator's other services, and this repo is public. The tracked
+# stub docs/documentation/README-vps.md says what is in there and where it lives.
+# A bare directory name, because check-links.py skips exactly those: an imported
+# copy's internal links point into ITS repo, and are not this wiki's to satisfy.
+imported/
+
+# Adoption leftovers: the three agent definitions retired on 2026-09-02 (D-001).
+# Kept on disk so nothing is lost, not tracked because they are superseded.
+.wiki-adopt/
 
 # Runtime: scheduled messages store
 scheduled_messages.json

@@ -61,6 +61,29 @@ def tail_key(title: str) -> str:
     return " - ".join(parts[-2:]).lower() if len(parts) >= 2 else ""
 
 
+def same_window_id(a: str, b: str) -> bool:
+    """Are these two titles the SAME window? The server-side twin of `_sameWinId`.
+
+    Strict on purpose, and not the rule focus_window_exact uses. That one asks
+    "will focusing find it?" and is deliberately loose — containment, a shared
+    25-character prefix. Loose is wrong for identity: "Telegram" is contained in
+    "Telegram Web - Google Chrome", and a guard built on containment would wave
+    through a window the caller never meant.
+
+    An empty title never matches anything, and neither does an empty tail key —
+    a single-segment title like the terminal's own "Claude Code" has no tail, and
+    treating two empties as equal is a guard that passes everything. That is not
+    hypothetical: it is how this function's first version was written. `D-009`
+    """
+    x, y = (a or "").strip().lower(), (b or "").strip().lower()
+    if not x or not y:
+        return False
+    if x == y:
+        return True
+    k = tail_key(a)
+    return bool(k) and k == tail_key(b)
+
+
 def focus_window_exact(title: str) -> tuple[bool, str]:
     """Focus window by exact title; fuzzy fallback for titles that changed since listing."""
     try:
@@ -102,6 +125,33 @@ def get_active_window_title() -> str:
         return title
     except Exception as e:
         logger.error("get_active_window_title error: %s", e)
+        return ""
+
+
+def get_active_window_process() -> str:
+    """Lowercased executable name owning the foreground window ('' if unknown).
+
+    A window title belongs to whatever program is running inside it — Windows
+    Terminal running Claude Code is called '✳ Claude Code', and a title-only
+    rule then decides it is not a terminal and pastes with the wrong key. The
+    executable does not move, so it is what "is this a terminal?" must ask.
+    """
+    try:
+        import ctypes
+        import psutil
+        u32 = ctypes.windll.user32
+        hwnd = u32.GetForegroundWindow()
+        if not hwnd:
+            return ""
+        pid = ctypes.c_ulong()
+        u32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if not pid.value:
+            return ""
+        name = psutil.Process(pid.value).name().lower()
+        logger.debug("Active window process: %s", name)
+        return name
+    except Exception as e:
+        logger.debug("get_active_window_process failed: %s", e)
         return ""
 
 
